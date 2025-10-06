@@ -57,6 +57,7 @@ class mainwindow : public QMainWindow
     QIODevice* io_device_ = nullptr;
     QTimer* playback_timer_ = nullptr;
     QElapsedTimer playback_clock_;
+    QElapsedTimer spectrum_update_clock_;
 
     bool is_playing_ = false;
     bool decoder_finished_ = false;

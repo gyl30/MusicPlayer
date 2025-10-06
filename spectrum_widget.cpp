@@ -43,7 +43,7 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
         bar_height_ratio = std::min(bar_height_ratio, 1.0);
 
         double bar_height = bar_height_ratio * height();
-        QRectF bar(i * bar_width, height() - bar_height, bar_width , bar_height);
+        QRectF bar(i * bar_width, height() - bar_height, bar_width, bar_height);
 
         QLinearGradient gradient(bar.topLeft(), bar.bottomLeft());
         gradient.setColorAt(1.0, Qt::green);

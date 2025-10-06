@@ -141,12 +141,20 @@ void mainwindow::start_playback(const QString& file_path)
     decoder_finished_ = false;
 
     decoder_thread_->start_decoding(file_path);
-
-    playback_clock_.start();
-    playback_timer_->start();
-
     play_button_->setEnabled(false);
     stop_button_->setEnabled(true);
+
+    QTimer::singleShot(200,
+                       this,
+                       [this]()
+                       {
+                           if (is_playing_)
+                           {
+                               playback_clock_.start();
+                               playback_timer_->start();
+                               spectrum_update_clock_.start();
+                           }
+                       });
 }
 
 void mainwindow::stop_playback()
@@ -198,6 +206,7 @@ void mainwindow::playback_loop()
     }
     if (packet == nullptr)
     {
+        LOG_DEBUG("not found packet");
         return;
     }
 
@@ -219,6 +228,14 @@ void mainwindow::playback_loop()
     }
 
     update_progress(packet->timestamp_ms);
+    constexpr qint64 kSpectrumUpdateIntervalMs = 150;
+
+    if (spectrum_update_clock_.elapsed() < kSpectrumUpdateIntervalMs)
+    {
+        return;
+    }
+
+    spectrum_update_clock_.restart();
 
     const int fft_size = 128;
     const auto* pcm_data = reinterpret_cast<const qint16*>(packet->pcm_data.data());
