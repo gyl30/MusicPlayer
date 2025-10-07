@@ -6,34 +6,29 @@
 #include <vector>
 #include <memory>
 #include <condition_variable>
-
-struct decoded_packet
-{
-    int64_t timestamp_ms;
-    std::vector<uint8_t> pcm_data;
-};
+#include "audio_packet.h"
 
 class safe_queue
 {
    public:
     safe_queue() = default;
 
-    void enqueue(const std::shared_ptr<decoded_packet>& packet)
+    void enqueue(const std::shared_ptr<audio_packet>& packet)
     {
         std::lock_guard<std::mutex> m(mutex_);
         queue_.push_back(packet);
-        bytes_size_ += packet->pcm_data.size();
+        bytes_size_ += packet->data.size();
         condition_.notify_one();
     }
-    void enqueue_front(const std::shared_ptr<decoded_packet>& packet)
+    void enqueue_front(const std::shared_ptr<audio_packet>& packet)
     {
         std::lock_guard<std::mutex> m(mutex_);
         queue_.insert(queue_.begin(), packet);
-        bytes_size_ += packet->pcm_data.size();
+        bytes_size_ += packet->data.size();
         condition_.notify_one();
     }
 
-    std::shared_ptr<decoded_packet> dequeue()
+    std::shared_ptr<audio_packet> dequeue()
     {
         std::unique_lock<std::mutex> mutex(mutex_);
         while (queue_.empty())
@@ -42,11 +37,11 @@ class safe_queue
         }
         auto pkt = queue_.front();
         queue_.erase(queue_.begin());
-        bytes_size_ -= pkt->pcm_data.size();
+        bytes_size_ -= pkt->data.size();
         return pkt;
     }
 
-    std::shared_ptr<decoded_packet> try_dequeue()
+    std::shared_ptr<audio_packet> try_dequeue()
     {
         std::lock_guard<std::mutex> mutex(mutex_);
         if (queue_.empty())
@@ -55,7 +50,7 @@ class safe_queue
         }
         auto pkt = queue_.front();
         queue_.erase(queue_.begin());
-        bytes_size_ -= pkt->pcm_data.size();
+        bytes_size_ -= pkt->data.size();
         return pkt;
     }
 
@@ -82,7 +77,7 @@ class safe_queue
     std::mutex mutex_;
     uint64_t bytes_size_ = 0;
     std::condition_variable condition_;
-    std::vector<std::shared_ptr<decoded_packet>> queue_;
+    std::vector<std::shared_ptr<audio_packet>> queue_;
 };
 
 #endif

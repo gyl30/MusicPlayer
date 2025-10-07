@@ -3,6 +3,11 @@
 
 #include <QWidget>
 #include <vector>
+#include <memory>
+#include <QTimer>
+#include <QElapsedTimer>
+#include <QMutex>
+#include "audio_packet.h"
 
 class spectrum_widget : public QWidget
 {
@@ -10,15 +15,28 @@ class spectrum_widget : public QWidget
 
    public:
     explicit spectrum_widget(QWidget* parent = nullptr);
+    ~spectrum_widget() override = default;
 
-   public slots:
-    void update_spectrum(const std::vector<double>& magnitudes);
+   public:
+    void enqueue_packet(const std::shared_ptr<audio_packet>& packet);
+    void start_playback();
+    void stop_playback();
 
    protected:
     void paintEvent(QPaintEvent* event) override;
 
+   private slots:
+    void on_render_timeout();
+
    private:
-    std::vector<double> magnitudes_;
+    qint64 prev_timestamp_ms_ = 0;
+    qint64 target_timestamp_ms_ = 0;
+    QTimer* render_timer_;
+    QElapsedTimer animation_clock_;
+    std::vector<double> prev_magnitudes_;
+    std::vector<double> target_magnitudes_;
+    std::vector<double> display_magnitudes_;
+    std::vector<std::shared_ptr<audio_packet>> packet_queue_;
 };
 
 #endif
