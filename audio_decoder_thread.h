@@ -3,6 +3,7 @@
 
 #include <QThread>
 #include <functional>
+#include <atomic>
 
 extern "C"
 {
@@ -20,8 +21,9 @@ class audio_decoder : public QThread
     using pcm_data_callback = std::function<void(const uint8_t*, size_t, int64_t)>;
 
     explicit audio_decoder(QObject* parent = nullptr);
-    ~audio_decoder();
+    ~audio_decoder() override;
 
+   public:
     void set_data_callback(const pcm_data_callback& callback);
     void start_decoding(const QString& file_path);
     void stop();
@@ -37,9 +39,10 @@ class audio_decoder : public QThread
     bool init_ffmpeg(const QString& file_path);
     void cleanup();
 
+   private:
     pcm_data_callback data_callback_;
     QString file_path_;
-    volatile bool stop_flag_;
+    std::atomic<bool> stop_flag_;
 
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;
