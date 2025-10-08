@@ -3,6 +3,7 @@
 
 #include <QThread>
 #include <functional>
+#include <QAudioFormat>
 #include <atomic>
 
 extern "C"
@@ -11,6 +12,7 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/error.h>
 }
 
 class audio_decoder : public QThread
@@ -25,7 +27,7 @@ class audio_decoder : public QThread
 
    public:
     void set_data_callback(const pcm_data_callback& callback);
-    void start_decoding(const QString& file_path);
+    void start_decoding(const QString& file_path, const QAudioFormat& target_format);
     void stop();
 
    protected:
@@ -49,6 +51,7 @@ class audio_decoder : public QThread
     SwrContext* swr_ctx_ = nullptr;
     int audio_stream_index_ = -1;
     AVRational time_base_;
+    QAudioFormat target_format_;
 };
 
 #endif

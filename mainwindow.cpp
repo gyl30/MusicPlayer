@@ -12,6 +12,8 @@
 #include "spectrum_widget.h"
 #include "audio_decoder_thread.h"
 
+constexpr auto kAudioBufferDurationSeconds = 2L;
+
 static QString format_time(qint64 time_ms)
 {
     int total_seconds = static_cast<int>(time_ms) / 1000;
@@ -19,6 +21,22 @@ static QString format_time(qint64 time_ms)
     int seconds = total_seconds % 60;
     return QString("%1:%2").arg(minutes, 2, 10, QChar('0')).arg(seconds, 2, 10, QChar('0'));
 }
+
+static QAudioFormat default_audio_format()
+{
+    QAudioFormat format;
+    format.setSampleRate(44100);
+    format.setChannelCount(2);
+    format.setSampleFormat(QAudioFormat::Int16);
+    return format;
+}
+
+static int default_audio_bytes_second()
+{
+    auto format = default_audio_format();
+    return format.bytesPerFrame() * format.sampleRate();
+}
+
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
     decoder_thread_ = new audio_decoder(this);
@@ -94,12 +112,9 @@ void mainwindow::setup_connections()
 
 void mainwindow::init_audio_output()
 {
-    QAudioFormat format;
-    format.setSampleRate(44100);
-    format.setChannelCount(2);
-    format.setSampleFormat(QAudioFormat::Int16);
+    auto format = default_audio_format();
     audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format);
-    audio_sink_->setBufferSize(44100L * 2 * 2 * 2);
+    audio_sink_->setBufferSize(default_audio_bytes_second() * kAudioBufferDurationSeconds);
 }
 
 void mainwindow::on_open_file()
@@ -137,7 +152,7 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
     decoder_finished_ = false;
 
     spectrum_widget_->start_playback();
-    decoder_thread_->start_decoding(item->data(Qt::UserRole).toString());
+    decoder_thread_->start_decoding(item->data(Qt::UserRole).toString(), default_audio_format());
     playlist_widget_->setCurrentItem(item);
 
     play_button_->setEnabled(false);
@@ -201,7 +216,7 @@ void mainwindow::feed_audio_device()
 
     if (data_queue_.is_empty() && decoder_finished_)
     {
-        const int bytes_per_second = 44100 * 2 * 2;
+        const int bytes_per_second = default_audio_bytes_second();
         const qint64 bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
         if (bytes_buffered > 0)
         {
@@ -220,7 +235,7 @@ void mainwindow::feed_audio_device()
     }
     if (is_playing_)
     {
-        const int bytes_per_second = 44100 * 2 * 2;
+        const int bytes_per_second = default_audio_bytes_second();
         const qint64 bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
         const qint64 buffered_duration_ms = (bytes_buffered * 1000) / bytes_per_second;
 
