@@ -37,6 +37,8 @@ class spectrum_widget : public QWidget
     std::vector<double> target_magnitudes_;
     std::vector<double> display_magnitudes_;
     std::vector<std::shared_ptr<audio_packet>> packet_queue_;
+    double min_rendered_db_ = 0.0;
+    double max_rendered_db_ = 0.0;
 };
 
 #endif

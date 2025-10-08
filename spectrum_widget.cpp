@@ -63,11 +63,13 @@ void spectrum_widget::start_playback()
     prev_magnitudes_.clear();
     target_magnitudes_.clear();
     display_magnitudes_.clear();
+    min_rendered_db_ = 1000.0;
+    max_rendered_db_ = 0.0;
     prev_timestamp_ms_ = 0;
     target_timestamp_ms_ = 0;
     update();
     animation_clock_.start();
-    render_timer_->start(16);
+    render_timer_->start(150);
 }
 
 void spectrum_widget::stop_playback() { render_timer_->stop(); }
@@ -79,55 +81,60 @@ void spectrum_widget::on_render_timeout()
         packet_queue_.erase(packet_queue_.begin());
     }
 
-    if (packet_queue_.size() < 2)
-    {
-        if (target_magnitudes_.empty())
-        {
-            return;
-        }
-        if (display_magnitudes_ != target_magnitudes_)
-        {
-            display_magnitudes_ = target_magnitudes_;
-            update();
-        }
-    }
-
-    const auto& prev_packet = packet_queue_[0];
-    const auto& target_packet = packet_queue_[1];
-    if (prev_packet->ms != prev_timestamp_ms_)
-    {
-        prev_magnitudes_ = calculate_magnitudes(prev_packet);
-        prev_timestamp_ms_ = prev_packet->ms;
-    }
-    if (target_packet->ms != target_timestamp_ms_)
-    {
-        target_magnitudes_ = calculate_magnitudes(target_packet);
-        target_timestamp_ms_ = target_packet->ms;
-    }
-
-    if (prev_magnitudes_.empty() || target_magnitudes_.empty() || prev_magnitudes_.size() != target_magnitudes_.size())
+    if (packet_queue_.empty())
     {
         return;
     }
 
-    qint64 current_time = animation_clock_.elapsed();
-    qint64 interval_duration = target_timestamp_ms_ - prev_timestamp_ms_;
-    qint64 time_in_interval = current_time - prev_timestamp_ms_;
-
-    double t = 0.0;
-    if (interval_duration > 0)
+    if (packet_queue_.size() < 2)
     {
-        t = static_cast<double>(time_in_interval) / static_cast<double>(interval_duration);
+        const auto& current_packet = packet_queue_[0];
+        if (current_packet->ms != target_timestamp_ms_)
+        {
+            target_magnitudes_ = calculate_magnitudes(current_packet);
+            target_timestamp_ms_ = current_packet->ms;
+            display_magnitudes_ = target_magnitudes_;
+        }
     }
-    t = qBound(0.0, t, 1.0);
+    else
+    {
+        const auto& prev_packet = packet_queue_[0];
+        const auto& target_packet = packet_queue_[1];
+        if (prev_packet->ms != prev_timestamp_ms_)
+        {
+            prev_magnitudes_ = calculate_magnitudes(prev_packet);
+            prev_timestamp_ms_ = prev_packet->ms;
+        }
+        if (target_packet->ms != target_timestamp_ms_)
+        {
+            target_magnitudes_ = calculate_magnitudes(target_packet);
+            target_timestamp_ms_ = target_packet->ms;
+        }
 
-    if (display_magnitudes_.size() != target_magnitudes_.size())
-    {
-        display_magnitudes_.resize(target_magnitudes_.size());
-    }
-    for (size_t i = 0; i < target_magnitudes_.size(); ++i)
-    {
-        display_magnitudes_[i] = lerp(prev_magnitudes_[i], target_magnitudes_[i], t);
+        if (prev_magnitudes_.empty() || target_magnitudes_.empty() || prev_magnitudes_.size() != target_magnitudes_.size())
+        {
+            return;
+        }
+
+        qint64 current_time = animation_clock_.elapsed();
+        qint64 interval_duration = target_timestamp_ms_ - prev_timestamp_ms_;
+        qint64 time_in_interval = current_time - prev_timestamp_ms_;
+
+        double t = 0.0;
+        if (interval_duration > 0)
+        {
+            t = static_cast<double>(time_in_interval) / static_cast<double>(interval_duration);
+        }
+        t = qBound(0.0, t, 1.0);
+
+        if (display_magnitudes_.size() != target_magnitudes_.size())
+        {
+            display_magnitudes_.resize(target_magnitudes_.size());
+        }
+        for (size_t i = 0; i < target_magnitudes_.size(); ++i)
+        {
+            display_magnitudes_[i] = lerp(prev_magnitudes_[i], target_magnitudes_[i], t);
+        }
     }
 
     update();
@@ -144,18 +151,14 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
     }
 
     const int num_bars_to_display = 28;
-    const int bar_spacing = 2;
-    double total_bar_width = static_cast<double>(width()) / num_bars_to_display;
-    double bar_draw_width = total_bar_width - bar_spacing;
-    bar_draw_width = std::max<double>(bar_draw_width, 1);
+    std::vector<double> current_frame_db_values;
+    current_frame_db_values.reserve(num_bars_to_display);
 
     auto data_points_per_bar = display_magnitudes_.size() / num_bars_to_display;
     if (data_points_per_bar == 0)
     {
         data_points_per_bar = 1;
     }
-
-    double max_magnitude = 80.0;
 
     for (int i = 0; i < num_bars_to_display; ++i)
     {
@@ -179,8 +182,25 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
 
         double db_value = 20 * log10(average_magnitude + 1e-9);
         db_value = qMax(0.0, db_value);
-        double bar_height_ratio = db_value / max_magnitude;
-        bar_height_ratio = std::min(bar_height_ratio, 1.0);
+        current_frame_db_values.push_back(db_value);
+
+        min_rendered_db_ = std::min(db_value, min_rendered_db_);
+        max_rendered_db_ = std::max(db_value, max_rendered_db_);
+    }
+
+    double range = max_rendered_db_ - min_rendered_db_;
+    range = std::max(range, 15.0);
+
+    const int bar_spacing = 2;
+    double total_bar_width = static_cast<double>(width()) / num_bars_to_display;
+    double bar_draw_width = total_bar_width - bar_spacing;
+    bar_draw_width = std::max<double>(bar_draw_width, 1);
+
+    for (int i = 0; i < num_bars_to_display; ++i)
+    {
+        double db_value = current_frame_db_values[i];
+        double bar_height_ratio = (db_value - min_rendered_db_) / range;
+        bar_height_ratio = std::max(0.0, std::min(bar_height_ratio, 1.0));
         double bar_height = bar_height_ratio * height();
         double bar_x_position = i * total_bar_width;
 
