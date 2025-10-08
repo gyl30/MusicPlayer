@@ -1,10 +1,16 @@
 #include <QPainter>
 #include <QPaintEvent>
-#include <QLinearGradient>
 #include <algorithm>
 #include <cmath>
 #include "fftreal.h"
 #include "spectrum_widget.h"
+
+constexpr int kNumBars = 25;
+constexpr int kBlockHeight = 15;
+constexpr int kBlockSpacing = 4;
+constexpr double kMinDbRange = 20.0;
+constexpr double kMaxDbDecayRate = 0.3;
+constexpr double kMinDbRiseRate = 0.2;
 
 static double lerp(double a, double b, double t) { return a + (t * (b - a)); }
 
@@ -14,11 +20,9 @@ static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_pack
     {
         return {};
     }
-
     const int fft_size = 1024;
     const auto* pcm_data = reinterpret_cast<const qint16*>(packet->data.data());
     auto num_samples = packet->data.size() / sizeof(qint16);
-
     if (num_samples < fft_size)
     {
         return {};
@@ -60,16 +64,18 @@ void spectrum_widget::start_playback()
 {
     render_timer_->stop();
     packet_queue_.clear();
+
     prev_magnitudes_.clear();
     target_magnitudes_.clear();
     display_magnitudes_.clear();
-    min_rendered_db_ = 1000.0;
-    max_rendered_db_ = 0.0;
     prev_timestamp_ms_ = 0;
     target_timestamp_ms_ = 0;
-    update();
+
+    dynamic_min_db_ = 100.0;
+    dynamic_max_db_ = 0.0;
+
     animation_clock_.start();
-    render_timer_->start(150);
+    render_timer_->start(80);
 }
 
 void spectrum_widget::stop_playback() { render_timer_->stop(); }
@@ -100,6 +106,7 @@ void spectrum_widget::on_render_timeout()
     {
         const auto& prev_packet = packet_queue_[0];
         const auto& target_packet = packet_queue_[1];
+
         if (prev_packet->ms != prev_timestamp_ms_)
         {
             prev_magnitudes_ = calculate_magnitudes(prev_packet);
@@ -120,11 +127,7 @@ void spectrum_widget::on_render_timeout()
         qint64 interval_duration = target_timestamp_ms_ - prev_timestamp_ms_;
         qint64 time_in_interval = current_time - prev_timestamp_ms_;
 
-        double t = 0.0;
-        if (interval_duration > 0)
-        {
-            t = static_cast<double>(time_in_interval) / static_cast<double>(interval_duration);
-        }
+        double t = (interval_duration > 0) ? (static_cast<double>(time_in_interval) / static_cast<double>(interval_duration)) : 0.0;
         t = qBound(0.0, t, 1.0);
 
         if (display_magnitudes_.size() != target_magnitudes_.size())
@@ -144,73 +147,97 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
 {
     QWidget::paintEvent(event);
     QPainter painter(this);
+    painter.setPen(Qt::NoPen);
 
     if (display_magnitudes_.empty())
     {
         return;
     }
 
-    const int num_bars_to_display = 28;
     std::vector<double> current_frame_db_values;
-    current_frame_db_values.reserve(num_bars_to_display);
-
-    auto data_points_per_bar = display_magnitudes_.size() / num_bars_to_display;
+    current_frame_db_values.reserve(kNumBars);
+    auto data_points_per_bar = display_magnitudes_.size() / kNumBars;
     if (data_points_per_bar == 0)
     {
         data_points_per_bar = 1;
     }
-
-    for (int i = 0; i < num_bars_to_display; ++i)
+    for (int i = 0; i < kNumBars; ++i)
     {
-        auto start_index = i * data_points_per_bar;
-        auto end_index = start_index + data_points_per_bar;
-
-        double average_magnitude = 0;
-        if (start_index < display_magnitudes_.size())
+        double avg_magnitude = 0;
+        int count = 0;
+        for (size_t j = i * data_points_per_bar; j < (i + 1) * data_points_per_bar && j < display_magnitudes_.size(); ++j)
         {
-            int count = 0;
-            for (auto j = start_index; j < end_index && j < display_magnitudes_.size(); ++j)
-            {
-                average_magnitude += display_magnitudes_[j];
-                count++;
-            }
-            if (count > 0)
-            {
-                average_magnitude /= count;
-            }
+            avg_magnitude += display_magnitudes_[j];
+            count++;
         }
-
-        double db_value = 20 * log10(average_magnitude + 1e-9);
-        db_value = qMax(0.0, db_value);
-        current_frame_db_values.push_back(db_value);
-
-        min_rendered_db_ = std::min(db_value, min_rendered_db_);
-        max_rendered_db_ = std::max(db_value, max_rendered_db_);
+        if (count > 0)
+        {
+            avg_magnitude /= count;
+        }
+        double db_value = 20 * log10(avg_magnitude + 1e-9);
+        current_frame_db_values.push_back(qMax(0.0, db_value));
     }
 
-    double range = max_rendered_db_ - min_rendered_db_;
-    range = std::max(range, 15.0);
+    double current_frame_min_db = 1000.0;
+    double current_frame_max_db = 0.0;
+    for (double db : current_frame_db_values)
+    {
+        current_frame_min_db = std::min(db, current_frame_min_db);
+        current_frame_max_db = std::max(db, current_frame_max_db);
+    }
+    if (current_frame_max_db > dynamic_max_db_)
+    {
+        dynamic_max_db_ = current_frame_max_db;
+    }
+    else
+    {
+        dynamic_max_db_ -= kMaxDbDecayRate;
+        dynamic_max_db_ = std::max(dynamic_max_db_, current_frame_max_db);
+    }
+    if (current_frame_min_db < dynamic_min_db_)
+    {
+        dynamic_min_db_ = current_frame_min_db;
+    }
+    else
+    {
+        dynamic_min_db_ += kMinDbRiseRate;
+        dynamic_min_db_ = std::min(dynamic_min_db_, current_frame_min_db);
+    }
 
-    const int bar_spacing = 2;
-    double total_bar_width = static_cast<double>(width()) / num_bars_to_display;
-    double bar_draw_width = total_bar_width - bar_spacing;
-    bar_draw_width = std::max<double>(bar_draw_width, 1);
+    double range = dynamic_max_db_ - dynamic_min_db_;
+    range = std::max(range, kMinDbRange);
 
-    for (int i = 0; i < num_bars_to_display; ++i)
+    QLinearGradient gradient(0, 0, 0, height());
+    gradient.setColorAt(0.0, Qt::red);
+    gradient.setColorAt(0.45, Qt::yellow);
+    gradient.setColorAt(1.0, Qt::green);
+    painter.setBrush(gradient);
+
+    double total_bar_width = static_cast<double>(width()) / kNumBars;
+    double bar_draw_width = total_bar_width * 0.8;
+
+    for (int i = 0; i < kNumBars; ++i)
     {
         double db_value = current_frame_db_values[i];
-        double bar_height_ratio = (db_value - min_rendered_db_) / range;
-        bar_height_ratio = std::max(0.0, std::min(bar_height_ratio, 1.0));
-        double bar_height = bar_height_ratio * height();
-        double bar_x_position = i * total_bar_width;
+        double height_ratio = (db_value - dynamic_min_db_) / range;
+        double bar_height = qBound(0.0, height_ratio, 1.0) * height();
 
-        QRectF bar(bar_x_position, height() - bar_height, bar_draw_width, bar_height);
+        if (bar_height <= 0)
+        {
+            continue;
+        }
 
-        QLinearGradient gradient(bar.topLeft(), bar.bottomLeft());
-        gradient.setColorAt(1.0, Qt::green);
-        gradient.setColorAt(0.5, Qt::yellow);
-        gradient.setColorAt(0.0, Qt::red);
-
-        painter.fillRect(bar, gradient);
+        double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
+        double height_to_draw = bar_height;
+        double current_block_bottom_y = height();
+        while (height_to_draw > 0)
+        {
+            double current_block_h = std::min(height_to_draw, static_cast<double>(kBlockHeight));
+            double block_top_y = current_block_bottom_y - current_block_h;
+            QRectF block_rect(bar_x_position, block_top_y, bar_draw_width, current_block_h);
+            painter.drawRect(block_rect);
+            height_to_draw -= (kBlockHeight + kBlockSpacing);
+            current_block_bottom_y -= (kBlockHeight + kBlockSpacing);
+        }
     }
 }

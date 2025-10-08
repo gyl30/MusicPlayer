@@ -29,16 +29,19 @@ class spectrum_widget : public QWidget
     void on_render_timeout();
 
    private:
-    qint64 prev_timestamp_ms_ = 0;
-    qint64 target_timestamp_ms_ = 0;
     QTimer* render_timer_;
     QElapsedTimer animation_clock_;
+
+    double dynamic_min_db_ = 100.0;
+    double dynamic_max_db_ = 0.0;
+    qint64 prev_timestamp_ms_ = 0;
+    qint64 target_timestamp_ms_ = 0;
+
     std::vector<double> prev_magnitudes_;
     std::vector<double> target_magnitudes_;
     std::vector<double> display_magnitudes_;
+
     std::vector<std::shared_ptr<audio_packet>> packet_queue_;
-    double min_rendered_db_ = 0.0;
-    double max_rendered_db_ = 0.0;
 };
 
 #endif
