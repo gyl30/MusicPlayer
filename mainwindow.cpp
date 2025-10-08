@@ -113,7 +113,7 @@ void mainwindow::setup_connections()
 void mainwindow::init_audio_output()
 {
     auto format = default_audio_format();
-    audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format);
+    audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format, this);
     audio_sink_->setBufferSize(default_audio_bytes_second() * kAudioBufferDurationSeconds);
 }
 
