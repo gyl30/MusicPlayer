@@ -535,7 +535,7 @@ void mainwindow::on_seek_requested()
         is_playing_ = true;
         decoder_finished_ = false;
 
-        spectrum_widget_->start_playback();
+        spectrum_widget_->start_playback(position_ms);
         decoder_thread_->start_decoding(current_playing_file_path_, default_audio_format(), position_ms);
 
         QTimer::singleShot(50, this, &mainwindow::feed_audio_device);
@@ -544,8 +544,7 @@ void mainwindow::on_seek_requested()
     {
         LOG_DEBUG("Seek requested to {} ms", position_ms);
         data_queue_.clear();
-        spectrum_widget_->stop_playback();
-        spectrum_widget_->start_playback();
+        spectrum_widget_->start_playback(position_ms);
         decoder_thread_->seek(position_ms);
     }
 }

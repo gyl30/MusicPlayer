@@ -60,7 +60,7 @@ spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
 
 void spectrum_widget::enqueue_packet(const std::shared_ptr<audio_packet>& packet) { packet_queue_.push_back(packet); }
 
-void spectrum_widget::start_playback()
+void spectrum_widget::start_playback(qint64 start_offset_ms)
 {
     render_timer_->stop();
     packet_queue_.clear();
@@ -70,6 +70,7 @@ void spectrum_widget::start_playback()
     display_magnitudes_.clear();
     prev_timestamp_ms_ = 0;
     target_timestamp_ms_ = 0;
+    start_offset_ms_ = start_offset_ms;
 
     dynamic_min_db_ = 100.0;
     dynamic_max_db_ = 0.0;
@@ -82,7 +83,9 @@ void spectrum_widget::stop_playback() { render_timer_->stop(); }
 
 void spectrum_widget::on_render_timeout()
 {
-    while (packet_queue_.size() >= 2 && animation_clock_.elapsed() >= packet_queue_[1]->ms)
+    qint64 current_playback_time = animation_clock_.elapsed() + start_offset_ms_;
+
+    while (packet_queue_.size() >= 2 && current_playback_time >= packet_queue_[1]->ms)
     {
         packet_queue_.erase(packet_queue_.begin());
     }
@@ -123,7 +126,7 @@ void spectrum_widget::on_render_timeout()
             return;
         }
 
-        qint64 current_time = animation_clock_.elapsed();
+        qint64 current_time = current_playback_time;
         qint64 interval_duration = target_timestamp_ms_ - prev_timestamp_ms_;
         qint64 time_in_interval = current_time - prev_timestamp_ms_;
 

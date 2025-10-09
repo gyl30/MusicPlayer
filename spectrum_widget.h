@@ -19,7 +19,7 @@ class spectrum_widget : public QWidget
 
    public:
     void enqueue_packet(const std::shared_ptr<audio_packet>& packet);
-    void start_playback();
+    void start_playback(qint64 start_offset_ms = 0);
     void stop_playback();
 
    protected:
@@ -36,6 +36,7 @@ class spectrum_widget : public QWidget
     double dynamic_max_db_ = 0.0;
     qint64 prev_timestamp_ms_ = 0;
     qint64 target_timestamp_ms_ = 0;
+    qint64 start_offset_ms_ = 0;
 
     std::vector<double> prev_magnitudes_;
     std::vector<double> target_magnitudes_;
