@@ -41,7 +41,8 @@ class mainwindow : public QMainWindow
 
     void stop_playback();
     void feed_audio_device();
-    void on_slider_moved(int position);
+    void on_progress_slider_moved(int position);
+    void on_seek_requested();
 
     void on_decoding_finished();
     void on_duration_ready(qint64 duration_ms);
@@ -83,7 +84,9 @@ class mainwindow : public QMainWindow
     bool is_playing_ = false;
     bool decoder_finished_ = false;
     qint64 total_duration_ms_ = 0;
+    bool is_slider_pressed_ = false;
     QString playlist_path_;
+    QString current_playing_file_path_;
 };
 
 #endif

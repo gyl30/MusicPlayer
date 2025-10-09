@@ -5,6 +5,7 @@
 #include <functional>
 #include <QAudioFormat>
 #include <atomic>
+#include <mutex>
 
 extern "C"
 {
@@ -27,8 +28,9 @@ class audio_decoder : public QThread
 
    public:
     void set_data_callback(const pcm_data_callback& callback);
-    void start_decoding(const QString& file_path, const QAudioFormat& target_format);
+    void start_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms = -1);
     void stop();
+    void seek(qint64 position_ms);
 
    protected:
     void run() override;
@@ -45,6 +47,10 @@ class audio_decoder : public QThread
     pcm_data_callback data_callback_;
     QString file_path_;
     std::atomic<bool> stop_flag_;
+    std::atomic<bool> seek_requested_;
+    qint64 seek_position_ms_ = -1;
+    std::mutex seek_mutex_;
+    qint64 initial_seek_ms_ = -1;
 
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;

@@ -166,7 +166,10 @@ void mainwindow::setup_connections()
 
     connect(decoder_thread_, &audio_decoder::decoding_finished, this, &mainwindow::on_decoding_finished, Qt::QueuedConnection);
     connect(decoder_thread_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
-    connect(progress_slider_, &QSlider::sliderMoved, this, &mainwindow::on_slider_moved);
+
+    connect(progress_slider_, &QSlider::sliderMoved, this, &mainwindow::on_progress_slider_moved);
+    connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
+    connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
 }
 
 void mainwindow::init_audio_output()
@@ -307,6 +310,8 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 
     LOG_DEBUG("start playback");
     stop_playback();
+
+    current_playing_file_path_ = item->data(Qt::UserRole).toString();
 
     io_device_ = audio_sink_->start();
     if (io_device_ == nullptr)
@@ -491,11 +496,63 @@ void mainwindow::feed_audio_device()
     }
 }
 
-void mainwindow::on_slider_moved(int position) { update_progress(position); }
+void mainwindow::on_progress_slider_moved(int position)
+{
+    if (is_slider_pressed_)
+    {
+        time_label_->setText(QString("%1 / %2").arg(format_time(position)).arg(format_time(total_duration_ms_)));
+    }
+}
+
+void mainwindow::on_seek_requested()
+{
+    is_slider_pressed_ = false;
+    qint64 position_ms = progress_slider_->value();
+
+    if (!is_playing_ && !decoder_finished_)
+    {
+        return;
+    }
+
+    if (decoder_finished_)
+    {
+        if (current_playing_file_path_.isEmpty())
+        {
+            return;
+        }
+
+        LOG_DEBUG("Seek after finished, restarting playback at {} ms", position_ms);
+
+        stop_playback();
+
+        io_device_ = audio_sink_->start();
+        if (io_device_ == nullptr)
+        {
+            LOG_ERROR("启动音频设备的IODevice失败。");
+            return;
+        }
+
+        is_playing_ = true;
+        decoder_finished_ = false;
+
+        spectrum_widget_->start_playback();
+        decoder_thread_->start_decoding(current_playing_file_path_, default_audio_format(), position_ms);
+
+        QTimer::singleShot(50, this, &mainwindow::feed_audio_device);
+    }
+    else
+    {
+        LOG_DEBUG("Seek requested to {} ms", position_ms);
+        data_queue_.clear();
+        spectrum_widget_->stop_playback();
+        spectrum_widget_->start_playback();
+        decoder_thread_->seek(position_ms);
+    }
+}
 
 void mainwindow::update_progress(qint64 position_ms)
 {
-    if (!progress_slider_->isSliderDown())
+    if (!is_slider_pressed_)
     {
         progress_slider_->setValue(static_cast<int>(position_ms));
     }
