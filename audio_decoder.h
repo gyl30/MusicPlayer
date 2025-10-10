@@ -1,9 +1,9 @@
-#ifndef AUDIO_DECODER_THREAD_H
-#define AUDIO_DECODER_THREAD_H
+#ifndef AUDIO_DECODER_H
+#define AUDIO_DECODER_H
 
-#include <QThread>
-#include <functional>
+#include <QObject>
 #include <QAudioFormat>
+#include <functional>
 #include <atomic>
 #include <mutex>
 
@@ -16,7 +16,7 @@ extern "C"
 #include <libavutil/error.h>
 }
 
-class audio_decoder : public QThread
+class audio_decoder : public QObject
 {
     Q_OBJECT
 
@@ -26,14 +26,12 @@ class audio_decoder : public QThread
     explicit audio_decoder(QObject* parent = nullptr);
     ~audio_decoder() override;
 
-   public:
     void set_data_callback(const pcm_data_callback& callback);
-    void start_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms = -1);
+
+   public slots:
+    void do_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms = -1);
     void stop();
     void seek(qint64 position_ms);
-
-   protected:
-    void run() override;
 
    signals:
     void duration_ready(qint64 duration_ms);
@@ -42,15 +40,16 @@ class audio_decoder : public QThread
    private:
     bool init_ffmpeg(const QString& file_path);
     void cleanup();
+    void process_frame(AVFrame* frame, AVSampleFormat target_fmt, uint8_t* dst_data, int& dst_linesize, int max_dst_nb_samples);
 
    private:
     pcm_data_callback data_callback_;
     QString file_path_;
-    std::atomic<bool> stop_flag_;
-    std::atomic<bool> seek_requested_;
+    std::atomic<bool> stop_flag_{false};
+
+    std::atomic<bool> seek_requested_{false};
     qint64 seek_position_ms_ = -1;
     std::mutex seek_mutex_;
-    qint64 initial_seek_ms_ = -1;
 
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;

@@ -19,6 +19,7 @@ class QVBoxLayout;
 class QPushButton;
 class QButtonGroup;
 class QLineEdit;
+class QThread;
 class spectrum_widget;
 class audio_decoder;
 
@@ -29,6 +30,11 @@ class mainwindow : public QMainWindow
    public:
     explicit mainwindow(QWidget* parent = nullptr);
     ~mainwindow() override;
+
+   signals:
+    void request_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms);
+    void request_stop();
+    void request_seek(qint64 position_ms);
 
    private slots:
     void finish_playlist_edit();
@@ -71,12 +77,13 @@ class mainwindow : public QMainWindow
     QPushButton* add_playlist_button_ = nullptr;
     QButtonGroup* playlist_button_group_ = nullptr;
     QLineEdit* currently_editing_ = nullptr;
-
     spectrum_widget* spectrum_widget_ = nullptr;
     QSlider* progress_slider_ = nullptr;
     QLabel* time_label_ = nullptr;
 
-    audio_decoder* decoder_thread_ = nullptr;
+    QThread* decoder_thread_ = nullptr;
+    audio_decoder* decoder_ = nullptr;
+
     safe_queue data_queue_;
     QAudioSink* audio_sink_ = nullptr;
     QIODevice* io_device_ = nullptr;

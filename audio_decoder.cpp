@@ -1,6 +1,6 @@
 #include "log.h"
 #include "scoped_exit.h"
-#include "audio_decoder_thread.h"
+#include "audio_decoder.h"
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -24,32 +24,11 @@ static AVSampleFormat get_av_sample_format(QAudioFormat::SampleFormat format)
     }
 }
 
-audio_decoder::audio_decoder(QObject* parent) : QThread(parent), stop_flag_(false), seek_requested_(false) {}
+audio_decoder::audio_decoder(QObject* parent) : QObject(parent) {}
 
-audio_decoder::~audio_decoder()
-{
-    if (isRunning())
-    {
-        stop();
-        wait();
-    }
-}
+audio_decoder::~audio_decoder() { cleanup(); }
 
 void audio_decoder::set_data_callback(const pcm_data_callback& callback) { data_callback_ = callback; }
-
-void audio_decoder::start_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms)
-{
-    if (isRunning())
-    {
-        stop();
-        wait();
-    }
-    stop_flag_ = false;
-    file_path_ = file_path;
-    target_format_ = target_format;
-    initial_seek_ms_ = initial_seek_ms;
-    start();
-}
 
 void audio_decoder::stop() { stop_flag_ = true; }
 
@@ -60,19 +39,24 @@ void audio_decoder::seek(qint64 position_ms)
     seek_requested_ = true;
 }
 
-void audio_decoder::run()
+void audio_decoder::do_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms)
 {
+    stop_flag_ = false;
+    file_path_ = file_path;
+    target_format_ = target_format;
+
     if (!init_ffmpeg(file_path_))
     {
-        LOG_ERROR("init ffmpeg failed");
+        LOG_ERROR("init ffmpeg failed for file: {}", file_path.toStdString());
         emit decoding_finished();
         return;
     }
 
-    if (initial_seek_ms_ > 0)
+    auto guard = make_scoped_exit([this]() { cleanup(); });
+
+    if (initial_seek_ms > 0)
     {
-        seek(initial_seek_ms_);
-        initial_seek_ms_ = -1;
+        seek(initial_seek_ms);
     }
 
     AVSampleFormat target_fmt = get_av_sample_format(target_format_.sampleFormat());
@@ -84,23 +68,23 @@ void audio_decoder::run()
     if (alloc_ret < 0)
     {
         LOG_ERROR("sample alloc failed {}", ffmpeg_error_string(alloc_ret));
-        cleanup();
         emit decoding_finished();
         return;
     }
+    DEFER(if (dst_data) av_freep(&dst_data));
 
     AVFrame* frame = av_frame_alloc();
     AVPacket* packet = av_packet_alloc();
+    DEFER(av_frame_free(&frame));
+    DEFER(av_packet_free(&packet));
 
-    auto guard = make_scoped_exit([&]() { cleanup(); });
-
+    // Main decoding loop
     while (!stop_flag_)
     {
         if (seek_requested_.load())
         {
             std::lock_guard<std::mutex> lock(seek_mutex_);
             qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
-
             int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
             if (ret >= 0)
             {
@@ -133,7 +117,7 @@ void audio_decoder::run()
             continue;
         }
 
-        while (!stop_flag_ && ret >= 0)
+        while (!stop_flag_)
         {
             ret = avcodec_receive_frame(codec_ctx_, frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
@@ -142,30 +126,10 @@ void audio_decoder::run()
             }
             if (ret < 0)
             {
-                LOG_ERROR("recieve frame failed {}", ffmpeg_error_string(ret));
+                LOG_ERROR("receive frame failed {}", ffmpeg_error_string(ret));
                 break;
             }
-
-            int converted_samples = swr_convert(swr_ctx_, &dst_data, max_dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
-            if (converted_samples < 0)
-            {
-                LOG_ERROR("convert failed {}", ffmpeg_error_string(converted_samples));
-                continue;
-            }
-
-            int buffer_size = av_samples_get_buffer_size(&dst_linesize, target_format_.channelCount(), converted_samples, target_fmt, 1);
-
-            qint64 timestamp_ms = 0;
-            if (frame->pts != AV_NOPTS_VALUE)
-            {
-                timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
-            }
-            LOG_TRACE("data len {} pts {} ms {}", buffer_size, frame->pts, timestamp_ms);
-
-            if (data_callback_ && buffer_size > 0)
-            {
-                data_callback_(dst_data, buffer_size, timestamp_ms);
-            }
+            process_frame(frame, target_fmt, dst_data, dst_linesize, max_dst_nb_samples);
         }
     }
 
@@ -178,30 +142,37 @@ void audio_decoder::run()
         }
         if (ret < 0)
         {
+            LOG_ERROR("receive frame failed during draining {}", ffmpeg_error_string(ret));
             break;
         }
-
-        int converted_samples = swr_convert(swr_ctx_, &dst_data, max_dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
-        if (converted_samples < 0)
-        {
-            continue;
-        }
-        int buffer_size = av_samples_get_buffer_size(&dst_linesize, target_format_.channelCount(), converted_samples, target_fmt, 1);
-        auto timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
-        if (data_callback_ && buffer_size > 0)
-        {
-            data_callback_(dst_data, buffer_size, timestamp_ms);
-        }
+        process_frame(frame, target_fmt, dst_data, dst_linesize, max_dst_nb_samples);
     }
 
-    if (dst_data != nullptr)
-    {
-        av_freep(static_cast<void*>(&dst_data));
-    }
-
-    av_frame_free(&frame);
-    av_packet_free(&packet);
     emit decoding_finished();
+}
+
+void audio_decoder::process_frame(AVFrame* frame, AVSampleFormat target_fmt, uint8_t* dst_data, int& dst_linesize, int max_dst_nb_samples)
+{
+    int converted_samples = swr_convert(swr_ctx_, &dst_data, max_dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
+    if (converted_samples < 0)
+    {
+        LOG_ERROR("convert failed {}", ffmpeg_error_string(converted_samples));
+        return;
+    }
+
+    int buffer_size = av_samples_get_buffer_size(&dst_linesize, target_format_.channelCount(), converted_samples, target_fmt, 1);
+
+    qint64 timestamp_ms = 0;
+    if (frame->pts != AV_NOPTS_VALUE)
+    {
+        timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
+    }
+    LOG_TRACE("data len {} pts {} ms {}", buffer_size, frame->pts, timestamp_ms);
+
+    if (data_callback_ && buffer_size > 0)
+    {
+        data_callback_(dst_data, buffer_size, timestamp_ms);
+    }
 }
 
 bool audio_decoder::init_ffmpeg(const QString& file_path)
@@ -215,55 +186,61 @@ bool audio_decoder::init_ffmpeg(const QString& file_path)
         return false;
     }
     LOG_INFO("open input file {}", file_path.toStdString());
+
     ret = avformat_find_stream_info(format_ctx_, nullptr);
     if (ret < 0)
     {
         LOG_ERROR("find stream info failed {}", ffmpeg_error_string(ret));
         return false;
     }
+
     audio_stream_index_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (audio_stream_index_ < 0)
     {
+        LOG_ERROR("could not find audio stream in file {}", file_path.toStdString());
         return false;
     }
-    LOG_INFO("find stram info audio index {}", audio_stream_index_);
+    LOG_INFO("find stream info audio index {}", audio_stream_index_);
 
     AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
     time_base_ = audio_stream->time_base;
     av_dump_format(format_ctx_, audio_stream_index_, nullptr, 0);
+
     if (format_ctx_->duration != AV_NOPTS_VALUE)
     {
         qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
         LOG_INFO("{} audio duration {}", file_path.toStdString(), duration_ms);
         emit duration_ready(duration_ms);
     }
-    const auto* codec_name = avcodec_get_name(audio_stream->codecpar->codec_id);
-    if (codec_name == nullptr)
-    {
-        LOG_ERROR("not found codec name");
-        return false;
-    }
+
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
     if (codec == nullptr)
     {
-        LOG_ERROR("not found codec {}", codec_name);
+        LOG_ERROR("not found codec for id {}", (int)audio_stream->codecpar->codec_id);
         return false;
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);
+    if (codec_ctx_ == nullptr)
+    {
+        LOG_ERROR("could not allocate codec context");
+        return false;
+    }
+
     ret = avcodec_parameters_to_context(codec_ctx_, audio_stream->codecpar);
     if (ret < 0)
     {
         LOG_ERROR("codec parameters to context failed {}", ffmpeg_error_string(ret));
         return false;
     }
-    LOG_INFO("codec parameters to context success {}", codec_name);
+    LOG_INFO("codec parameters to context success {}", codec->name);
+
     if (avcodec_open2(codec_ctx_, codec, nullptr) < 0)
     {
-        LOG_ERROR("open codec failed {} {}", codec_name, ffmpeg_error_string(ret));
+        LOG_ERROR("open codec failed {} {}", codec->name, ffmpeg_error_string(ret));
         return false;
     }
-    LOG_INFO("open codec success {}", codec_name);
+    LOG_INFO("open codec success {}", codec->name);
 
     AVSampleFormat target_sample_fmt = get_av_sample_format(target_format_.sampleFormat());
     int target_sample_rate = target_format_.sampleRate();
@@ -292,12 +269,14 @@ bool audio_decoder::init_ffmpeg(const QString& file_path)
         LOG_ERROR("swr alloc set opts failed {}", ffmpeg_error_string(ret));
         return false;
     }
+
     ret = swr_init(swr_ctx_);
     if (ret != 0)
     {
         LOG_ERROR("swr init failed {}", ffmpeg_error_string(ret));
         return false;
     }
+
     guard.cancel();
     return true;
 }
@@ -307,17 +286,16 @@ void audio_decoder::cleanup()
     if (codec_ctx_ != nullptr)
     {
         avcodec_free_context(&codec_ctx_);
+        codec_ctx_ = nullptr;
     }
     if (format_ctx_ != nullptr)
     {
         avformat_close_input(&format_ctx_);
+        format_ctx_ = nullptr;
     }
-    if (nullptr != swr_ctx_)
+    if (swr_ctx_ != nullptr)
     {
         swr_free(&swr_ctx_);
+        swr_ctx_ = nullptr;
     }
-
-    format_ctx_ = nullptr;
-    codec_ctx_ = nullptr;
-    swr_ctx_ = nullptr;
 }

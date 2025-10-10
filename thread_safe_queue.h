@@ -3,7 +3,7 @@
 
 #include <mutex>
 #include <cstdint>
-#include <vector>
+#include <deque>
 #include <memory>
 #include <condition_variable>
 #include "audio_packet.h"
@@ -20,26 +20,6 @@ class safe_queue
         bytes_size_ += packet->data.size();
         condition_.notify_one();
     }
-    void enqueue_front(const std::shared_ptr<audio_packet>& packet)
-    {
-        std::lock_guard<std::mutex> m(mutex_);
-        queue_.insert(queue_.begin(), packet);
-        bytes_size_ += packet->data.size();
-        condition_.notify_one();
-    }
-
-    std::shared_ptr<audio_packet> dequeue()
-    {
-        std::unique_lock<std::mutex> mutex(mutex_);
-        while (queue_.empty())
-        {
-            condition_.wait(mutex);
-        }
-        auto pkt = queue_.front();
-        queue_.erase(queue_.begin());
-        bytes_size_ -= pkt->data.size();
-        return pkt;
-    }
 
     std::shared_ptr<audio_packet> try_dequeue()
     {
@@ -49,7 +29,7 @@ class safe_queue
             return nullptr;
         }
         auto pkt = queue_.front();
-        queue_.erase(queue_.begin());
+        queue_.pop_front();
         bytes_size_ -= pkt->data.size();
         return pkt;
     }
@@ -67,17 +47,17 @@ class safe_queue
         return queue_.empty();
     }
 
-    int size()
+    size_t size_in_bytes()
     {
         std::lock_guard<std::mutex> mutex(mutex_);
-        return static_cast<int>(bytes_size_);
+        return bytes_size_;
     }
 
    private:
     std::mutex mutex_;
     uint64_t bytes_size_ = 0;
     std::condition_variable condition_;
-    std::vector<std::shared_ptr<audio_packet>> queue_;
+    std::deque<std::shared_ptr<audio_packet>> queue_;
 };
 
 #endif

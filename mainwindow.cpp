@@ -20,11 +20,13 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMessageBox>
+#include <QThread>
 
 #include "log.h"
 #include "mainwindow.h"
+#include "audio_decoder.h"
 #include "spectrum_widget.h"
-#include "audio_decoder_thread.h"
+
 
 constexpr auto kAudioBufferDurationSeconds = 2L;
 
@@ -53,7 +55,10 @@ static int default_audio_bytes_second()
 
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
-    decoder_thread_ = new audio_decoder(this);
+    decoder_thread_ = new QThread(this);
+    decoder_ = new audio_decoder();
+    decoder_->moveToThread(decoder_thread_);
+
     auto pcm_handler = [this](const uint8_t* data, size_t size, int64_t timestamp_ms)
     {
         auto packet = std::make_shared<audio_packet>();
@@ -61,7 +66,8 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
         packet->ms = timestamp_ms;
         data_queue_.enqueue(packet);
     };
-    decoder_thread_->set_data_callback(pcm_handler);
+    decoder_->set_data_callback(pcm_handler);
+    decoder_thread_->start();
 
     playlist_button_group_ = new QButtonGroup(this);
 
@@ -88,6 +94,9 @@ mainwindow::~mainwindow()
 {
     qApp->removeEventFilter(this);
     stop_playback();
+
+    decoder_thread_->quit();
+    decoder_thread_->wait();
 }
 
 void mainwindow::closeEvent(QCloseEvent* event)
@@ -163,13 +172,18 @@ void mainwindow::setup_connections()
 {
     connect(add_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_new_playlist);
     connect(playlist_button_group_, QOverload<int>::of(&QButtonGroup::idClicked), this, &mainwindow::on_playlist_button_clicked);
-
-    connect(decoder_thread_, &audio_decoder::decoding_finished, this, &mainwindow::on_decoding_finished, Qt::QueuedConnection);
-    connect(decoder_thread_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
-
     connect(progress_slider_, &QSlider::sliderMoved, this, &mainwindow::on_progress_slider_moved);
     connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
+
+    connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::do_decoding);
+    connect(this, &mainwindow::request_stop, decoder_, &audio_decoder::stop, Qt::DirectConnection);
+    connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek);
+
+    connect(decoder_, &audio_decoder::decoding_finished, this, &mainwindow::on_decoding_finished, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
+
+    connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 }
 
 void mainwindow::init_audio_output()
@@ -323,7 +337,7 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
     decoder_finished_ = false;
 
     spectrum_widget_->start_playback();
-    decoder_thread_->start_decoding(item->data(Qt::UserRole).toString(), default_audio_format());
+    emit request_decoding(item->data(Qt::UserRole).toString(), default_audio_format(), -1);
 
     auto* list = item->listWidget();
     if (list != nullptr)
@@ -424,7 +438,7 @@ void mainwindow::stop_playback()
     }
     LOG_DEBUG("stop playback");
     is_playing_ = false;
-    decoder_thread_->stop();
+    emit request_stop();
     data_queue_.clear();
     spectrum_widget_->stop_playback();
     if (audio_sink_ != nullptr)
@@ -536,7 +550,7 @@ void mainwindow::on_seek_requested()
         decoder_finished_ = false;
 
         spectrum_widget_->start_playback(position_ms);
-        decoder_thread_->start_decoding(current_playing_file_path_, default_audio_format(), position_ms);
+        emit request_decoding(current_playing_file_path_, default_audio_format(), position_ms);
 
         QTimer::singleShot(50, this, &mainwindow::feed_audio_device);
     }
@@ -545,7 +559,7 @@ void mainwindow::on_seek_requested()
         LOG_DEBUG("Seek requested to {} ms", position_ms);
         data_queue_.clear();
         spectrum_widget_->start_playback(position_ms);
-        decoder_thread_->seek(position_ms);
+        emit request_seek(position_ms);
     }
 }
 

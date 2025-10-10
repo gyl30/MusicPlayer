@@ -20,7 +20,7 @@ add_executable(MusicPlayer
     log.cpp
     mainwindow.cpp
     spectrum_widget.cpp
-    audio_decoder_thread.cpp
+    audio_decoder.cpp
 )
 
 target_include_directories(MusicPlayer PRIVATE
