@@ -6,7 +6,7 @@
 #include <functional>
 #include <atomic>
 #include <mutex>
-
+#include "audio_packet.h"
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -21,28 +21,32 @@ class audio_decoder : public QObject
     Q_OBJECT
 
    public:
-    using pcm_data_callback = std::function<void(const uint8_t*, size_t, int64_t)>;
+    using pcm_data_callback = std::function<void(const std::shared_ptr<audio_packet>&)>;
 
     explicit audio_decoder(QObject* parent = nullptr);
     ~audio_decoder() override;
 
-    void set_data_callback(const pcm_data_callback& callback);
-
-   public slots:
-    void do_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms = -1);
-    void stop();
+   public:
+    void startup(const QString& file, const QAudioFormat& fmt, qint64 offset = -1);
+    void shutdown();
     void seek(qint64 position_ms);
+    void set_data_callback(const pcm_data_callback& callback);
 
    signals:
     void duration_ready(qint64 duration_ms);
-    void decoding_finished();
+    void decoding_finished(const std::vector<std::shared_ptr<audio_packet>>& packets);
 
    private:
-    bool init_ffmpeg(const QString& file_path);
-    void cleanup();
-    void process_frame(AVFrame* frame, AVSampleFormat target_fmt, uint8_t* dst_data, int& dst_linesize, int max_dst_nb_samples);
+    bool open_audio_context(const QString& file_path);
+    void close_audio_context();
+    void process_frame(AVFrame* frame);
+    void seek_ffmpeg();
+    void send_packet();
+    void recive_frame();
+    void data_callback();
 
    private:
+    int call_data_index_ = 0;
     pcm_data_callback data_callback_;
     QString file_path_;
     std::atomic<bool> stop_flag_{false};
@@ -50,13 +54,19 @@ class audio_decoder : public QObject
     std::atomic<bool> seek_requested_{false};
     qint64 seek_position_ms_ = -1;
     std::mutex seek_mutex_;
-
+    bool packet_cache_ok_ = true;
+    std::vector<std::shared_ptr<audio_packet>> packet_cache_;
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;
     SwrContext* swr_ctx_ = nullptr;
+    AVFrame* frame_ = nullptr;
+    AVPacket* packet_ = nullptr;
+    uint8_t* swr_data_ = nullptr;
+    int swr_data_linesize_ = 0;
     int audio_stream_index_ = -1;
     AVRational time_base_;
     QAudioFormat target_format_;
+    AVSampleFormat target_ffmpeg_fmt_ = AV_SAMPLE_FMT_NONE;
 };
 
 #endif

@@ -27,7 +27,6 @@
 #include "audio_decoder.h"
 #include "spectrum_widget.h"
 
-
 constexpr auto kAudioBufferDurationSeconds = 2L;
 
 static QString format_time(qint64 time_ms)
@@ -59,13 +58,7 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
     decoder_ = new audio_decoder();
     decoder_->moveToThread(decoder_thread_);
 
-    auto pcm_handler = [this](const uint8_t* data, size_t size, int64_t timestamp_ms)
-    {
-        auto packet = std::make_shared<audio_packet>();
-        packet->data.assign(data, data + size);
-        packet->ms = timestamp_ms;
-        data_queue_.enqueue(packet);
-    };
+    auto pcm_handler = [this](const std::shared_ptr<audio_packet>& packet) { data_queue_.enqueue(packet); };
     decoder_->set_data_callback(pcm_handler);
     decoder_thread_->start();
 
@@ -176,8 +169,8 @@ void mainwindow::setup_connections()
     connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
 
-    connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::do_decoding);
-    connect(this, &mainwindow::request_stop, decoder_, &audio_decoder::stop, Qt::DirectConnection);
+    connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::startup);
+    connect(this, &mainwindow::request_stop, decoder_, &audio_decoder::shutdown, Qt::DirectConnection);
     connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek);
 
     connect(decoder_, &audio_decoder::decoding_finished, this, &mainwindow::on_decoding_finished, Qt::QueuedConnection);

@@ -26,141 +26,142 @@ static AVSampleFormat get_av_sample_format(QAudioFormat::SampleFormat format)
 
 audio_decoder::audio_decoder(QObject* parent) : QObject(parent) {}
 
-audio_decoder::~audio_decoder() { cleanup(); }
+audio_decoder::~audio_decoder() { close_audio_context(); }
 
 void audio_decoder::set_data_callback(const pcm_data_callback& callback) { data_callback_ = callback; }
 
-void audio_decoder::stop() { stop_flag_ = true; }
+void audio_decoder::shutdown() { stop_flag_ = true; }
 
 void audio_decoder::seek(qint64 position_ms)
 {
     std::lock_guard<std::mutex> lock(seek_mutex_);
     seek_position_ms_ = position_ms;
     seek_requested_ = true;
+    qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
+    LOG_DEBUG("seek to {}:{}", seek_position_ms_, seek_target_ts);
 }
 
-void audio_decoder::do_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms)
+void audio_decoder::startup(const QString& file, const QAudioFormat& fmt, qint64 offset)
 {
     stop_flag_ = false;
-    file_path_ = file_path;
-    target_format_ = target_format;
+    file_path_ = file;
+    target_format_ = fmt;
+    target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
 
-    if (!init_ffmpeg(file_path_))
+    if (!open_audio_context(file_path_))
     {
-        LOG_ERROR("init ffmpeg failed for file: {}", file_path.toStdString());
-        emit decoding_finished();
+        LOG_ERROR("init ffmpeg failed for file: {}", file.toStdString());
+        emit decoding_finished({});
         return;
     }
 
-    auto guard = make_scoped_exit([this]() { cleanup(); });
+    DEFER(close_audio_context());
 
-    if (initial_seek_ms > 0)
+    if (offset > 0)
     {
-        seek(initial_seek_ms);
-    }
-
-    AVSampleFormat target_fmt = get_av_sample_format(target_format_.sampleFormat());
-
-    const int max_dst_nb_samples = target_format_.sampleRate();
-    uint8_t* dst_data = nullptr;
-    int dst_linesize = 0;
-    int alloc_ret = av_samples_alloc(&dst_data, &dst_linesize, target_format_.channelCount(), max_dst_nb_samples, target_fmt, 0);
-    if (alloc_ret < 0)
-    {
-        LOG_ERROR("sample alloc failed {}", ffmpeg_error_string(alloc_ret));
-        emit decoding_finished();
-        return;
-    }
-    DEFER(if (dst_data) av_freep(&dst_data));
-
-    AVFrame* frame = av_frame_alloc();
-    AVPacket* packet = av_packet_alloc();
-    DEFER(av_frame_free(&frame));
-    DEFER(av_packet_free(&packet));
-
-    // Main decoding loop
-    while (!stop_flag_)
-    {
-        if (seek_requested_.load())
-        {
-            std::lock_guard<std::mutex> lock(seek_mutex_);
-            qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
-            int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
-            if (ret >= 0)
-            {
-                LOG_DEBUG("seek to {}ms success", seek_position_ms_);
-                avcodec_flush_buffers(codec_ctx_);
-            }
-            else
-            {
-                LOG_WARN("seek to {}ms failed: {}", seek_position_ms_, ffmpeg_error_string(ret));
-            }
-            seek_requested_ = false;
-        }
-
-        if (av_read_frame(format_ctx_, packet) < 0)
-        {
-            avcodec_send_packet(codec_ctx_, nullptr);
-            break;
-        }
-
-        DEFER(av_packet_unref(packet));
-        if (packet->stream_index != audio_stream_index_)
-        {
-            continue;
-        }
-
-        int ret = avcodec_send_packet(codec_ctx_, packet);
-        if (ret < 0)
-        {
-            LOG_WARN("send packet failed {}", ffmpeg_error_string(ret));
-            continue;
-        }
-
-        while (!stop_flag_)
-        {
-            ret = avcodec_receive_frame(codec_ctx_, frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-            {
-                break;
-            }
-            if (ret < 0)
-            {
-                LOG_ERROR("receive frame failed {}", ffmpeg_error_string(ret));
-                break;
-            }
-            process_frame(frame, target_fmt, dst_data, dst_linesize, max_dst_nb_samples);
-        }
+        seek(offset);
     }
 
     while (!stop_flag_)
     {
-        int ret = avcodec_receive_frame(codec_ctx_, frame);
+        seek_ffmpeg();
+        send_packet();
+        recive_frame();
+        data_callback();
+    }
+
+    if (!packet_cache_ok_)
+    {
+        packet_cache_.clear();
+    }
+    emit decoding_finished(packet_cache_);
+}
+
+void audio_decoder::send_packet()
+{
+    if (av_read_frame(format_ctx_, packet_) < 0)
+    {
+        avcodec_send_packet(codec_ctx_, nullptr);
+        return;
+    }
+
+    DEFER(av_packet_unref(packet_));
+    if (packet_->stream_index != audio_stream_index_)
+    {
+        return;
+    }
+
+    int ret = avcodec_send_packet(codec_ctx_, packet_);
+    if (ret < 0)
+    {
+        LOG_WARN("send packet failed {}", ffmpeg_error_string(ret));
+        return;
+    }
+}
+
+void audio_decoder::recive_frame()
+{
+    while (!stop_flag_)
+    {
+        int ret = avcodec_receive_frame(codec_ctx_, frame_);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
         {
             break;
         }
         if (ret < 0)
         {
-            LOG_ERROR("receive frame failed during draining {}", ffmpeg_error_string(ret));
+            LOG_ERROR("receive frame failed {}", ffmpeg_error_string(ret));
             break;
         }
-        process_frame(frame, target_fmt, dst_data, dst_linesize, max_dst_nb_samples);
+        process_frame(frame_);
     }
-
-    emit decoding_finished();
 }
 
-void audio_decoder::process_frame(AVFrame* frame, AVSampleFormat target_fmt, uint8_t* dst_data, int& dst_linesize, int max_dst_nb_samples)
+void audio_decoder::data_callback()
 {
-    int converted_samples = swr_convert(swr_ctx_, &dst_data, max_dst_nb_samples, (const uint8_t**)frame->data, frame->nb_samples);
+    if (call_data_index_ >= packet_cache_.size())
+    {
+        return;
+    }
+    auto packet = packet_cache_.at(call_data_index_);
+    if (data_callback_)
+    {
+        data_callback_(packet);
+    }
+    call_data_index_++;
+}
+
+void audio_decoder::seek_ffmpeg()
+{
+    if (!seek_requested_.load())
+    {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(seek_mutex_);
+    qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
+    int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
+    if (ret >= 0)
+    {
+        LOG_DEBUG("seek to {}:{} success", seek_position_ms_, seek_target_ts);
+        avcodec_flush_buffers(codec_ctx_);
+    }
+    else
+    {
+        LOG_WARN("seek to {}ms failed: {}", seek_position_ms_, ffmpeg_error_string(ret));
+    }
+    seek_requested_ = false;
+}
+
+void audio_decoder::process_frame(AVFrame* frame)
+{
+    int converted_samples = swr_convert(swr_ctx_, &swr_data_, target_format_.sampleRate(), (const uint8_t**)frame->data, frame->nb_samples);
     if (converted_samples < 0)
     {
         LOG_ERROR("convert failed {}", ffmpeg_error_string(converted_samples));
         return;
     }
 
-    int buffer_size = av_samples_get_buffer_size(&dst_linesize, target_format_.channelCount(), converted_samples, target_fmt, 1);
+    int buffer_size = av_samples_get_buffer_size(&swr_data_linesize_, target_format_.channelCount(), converted_samples, target_ffmpeg_fmt_, 1);
 
     qint64 timestamp_ms = 0;
     if (frame->pts != AV_NOPTS_VALUE)
@@ -168,16 +169,18 @@ void audio_decoder::process_frame(AVFrame* frame, AVSampleFormat target_fmt, uin
         timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
     }
     LOG_TRACE("data len {} pts {} ms {}", buffer_size, frame->pts, timestamp_ms);
-
-    if (data_callback_ && buffer_size > 0)
+    if (buffer_size > 0)
     {
-        data_callback_(dst_data, buffer_size, timestamp_ms);
+        auto packet = std::make_shared<audio_packet>();
+        packet->data.assign(swr_data_, swr_data_ + buffer_size);
+        packet->ms = timestamp_ms;
+        packet_cache_.push_back(packet);
     }
 }
 
-bool audio_decoder::init_ffmpeg(const QString& file_path)
+bool audio_decoder::open_audio_context(const QString& file_path)
 {
-    auto guard = make_scoped_exit([this]() { cleanup(); });
+    auto guard = make_scoped_exit([this]() { close_audio_context(); });
 
     int ret = avformat_open_input(&format_ctx_, file_path.toUtf8().constData(), nullptr, nullptr);
     if (ret != 0)
@@ -276,12 +279,27 @@ bool audio_decoder::init_ffmpeg(const QString& file_path)
         LOG_ERROR("swr init failed {}", ffmpeg_error_string(ret));
         return false;
     }
+    AVSampleFormat target_fmt = get_av_sample_format(target_format_.sampleFormat());
+    uint8_t* dst_data = nullptr;
+    int alloc_ret = av_samples_alloc(&swr_data_, &swr_data_linesize_, target_format_.channelCount(), target_format_.sampleRate(), target_fmt, 0);
+    if (alloc_ret < 0)
+    {
+        LOG_ERROR("sample alloc failed {}", ffmpeg_error_string(alloc_ret));
+        return false;
+    }
 
+    frame_ = av_frame_alloc();
+    packet_ = av_packet_alloc();
+    if (frame_ == nullptr || packet_ == nullptr)
+    {
+        LOG_ERROR("frame or packet alloc failed");
+        return false;
+    }
     guard.cancel();
     return true;
 }
 
-void audio_decoder::cleanup()
+void audio_decoder::close_audio_context()
 {
     if (codec_ctx_ != nullptr)
     {
@@ -297,5 +315,19 @@ void audio_decoder::cleanup()
     {
         swr_free(&swr_ctx_);
         swr_ctx_ = nullptr;
+    }
+    if (frame_ != nullptr)
+    {
+        av_frame_free(&frame_);
+        frame_ = nullptr;
+    }
+    if (packet_ != nullptr)
+    {
+        av_packet_free(&packet_);
+        packet_ = nullptr;
+    }
+    if (swr_data_ != nullptr)
+    {
+        av_free(&swr_data_);
     }
 }
