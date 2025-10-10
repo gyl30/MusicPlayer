@@ -1,6 +1,7 @@
 #include "log.h"
 #include "scoped_exit.h"
 #include "audio_decoder.h"
+#include <QMetaObject>
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -34,122 +35,144 @@ void audio_decoder::shutdown() { stop_flag_ = true; }
 
 void audio_decoder::seek(qint64 position_ms)
 {
-    std::lock_guard<std::mutex> lock(seek_mutex_);
     seek_position_ms_ = position_ms;
     seek_requested_ = true;
-    qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
-    LOG_DEBUG("seek to {}:{}", seek_position_ms_, seek_target_ts);
+    LOG_DEBUG("seek requested to {}", seek_position_ms_);
 }
 
-void audio_decoder::startup(const QString& file, const QAudioFormat& fmt, qint64 offset)
+void audio_decoder::start_decoding(const QString& file, const QAudioFormat& fmt, qint64 offset)
 {
-    stop_flag_ = false;
+    if (!stop_flag_.load())
+    {
+        LOG_WARN("decoder is already running stopping previous task first");
+        stop_flag_ = true;
+    }
+
     file_path_ = file;
     target_format_ = fmt;
     target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
 
+    packet_cache_.clear();
+    call_data_index_ = 0;
+    packet_cache_ok_ = true;
+    seek_requested_ = false;
+    seek_position_ms_ = -1;
+
     if (!open_audio_context(file_path_))
     {
-        LOG_ERROR("init ffmpeg failed for file: {}", file.toStdString());
+        LOG_ERROR("init audio context failed {}", file.toStdString());
         emit decoding_finished({});
         return;
     }
 
-    DEFER(close_audio_context());
+    stop_flag_ = false;
 
     if (offset > 0)
     {
         seek(offset);
     }
 
-    while (!stop_flag_)
-    {
-        seek_ffmpeg();
-        send_packet();
-        recive_frame();
-        data_callback();
-    }
-
-    if (!packet_cache_ok_)
-    {
-        packet_cache_.clear();
-    }
-    emit decoding_finished(packet_cache_);
+    QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
-void audio_decoder::send_packet()
+void audio_decoder::do_decoding_cycle()
 {
-    if (av_read_frame(format_ctx_, packet_) < 0)
+    if (stop_flag_)
+    {
+        LOG_DEBUG("decoding stopped by request");
+        close_audio_context();
+        emit decoding_finished({});
+        return;
+    }
+
+    seek_ffmpeg();
+
+    int read_ret = av_read_frame(format_ctx_, packet_);
+    if (read_ret < 0)
     {
         avcodec_send_packet(codec_ctx_, nullptr);
+
+        while (avcodec_receive_frame(codec_ctx_, frame_) == 0)
+        {
+            process_frame(frame_);
+        }
+
+        LOG_DEBUG("end of file");
+        stop_flag_ = true;
+        close_audio_context();
+        emit decoding_finished({});
         return;
     }
 
     DEFER(av_packet_unref(packet_));
     if (packet_->stream_index != audio_stream_index_)
     {
+        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
         return;
     }
 
-    int ret = avcodec_send_packet(codec_ctx_, packet_);
-    if (ret < 0)
+    int send_ret = avcodec_send_packet(codec_ctx_, packet_);
+    if (send_ret < 0)
     {
-        LOG_WARN("send packet failed {}", ffmpeg_error_string(ret));
+        LOG_WARN("send packet failed {}", ffmpeg_error_string(send_ret));
+        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
         return;
     }
-}
 
-void audio_decoder::recive_frame()
-{
-    while (!stop_flag_)
+    while (true)
     {
-        int ret = avcodec_receive_frame(codec_ctx_, frame_);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+        int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
+        if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF)
         {
             break;
         }
-        if (ret < 0)
+        if (receive_ret < 0)
         {
-            LOG_ERROR("receive frame failed {}", ffmpeg_error_string(ret));
+            LOG_ERROR("receive frame failed {}", ffmpeg_error_string(receive_ret));
             break;
         }
         process_frame(frame_);
     }
-}
 
-void audio_decoder::data_callback()
-{
-    if (call_data_index_ >= packet_cache_.size())
+    if (call_data_index_ < packet_cache_.size())
     {
-        return;
+        auto packet = packet_cache_.at(call_data_index_);
+        if (data_callback_)
+        {
+            data_callback_(packet);
+        }
+        call_data_index_++;
     }
-    auto packet = packet_cache_.at(call_data_index_);
-    if (data_callback_)
-    {
-        data_callback_(packet);
-    }
-    call_data_index_++;
+
+    QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
 void audio_decoder::seek_ffmpeg()
 {
-    if (!seek_requested_.load())
+    if (!seek_requested_)
     {
         return;
     }
-    std::lock_guard<std::mutex> lock(seek_mutex_);
-    qint64 seek_target_ts = av_rescale_q(seek_position_ms_, {1, 1000}, time_base_);
+
+    qint64 target_pos_ms = seek_position_ms_;
+    qint64 seek_target_ts = av_rescale_q(target_pos_ms, {1, 1000}, time_base_);
     int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
+
+    seek_requested_ = false;
+
     if (ret >= 0)
     {
-        LOG_DEBUG("seek to {}:{} success", seek_position_ms_, seek_target_ts);
+        LOG_DEBUG("seek to {} successful", target_pos_ms);
         avcodec_flush_buffers(codec_ctx_);
+        packet_cache_.clear();
+        call_data_index_ = 0;
+        emit seek_finished(target_pos_ms);
     }
     else
     {
-        LOG_WARN("seek to {}ms failed: {}", seek_position_ms_, ffmpeg_error_string(ret));
+        LOG_WARN("seek to {} failed {}", target_pos_ms, ffmpeg_error_string(ret));
+        emit seek_finished(target_pos_ms);
     }
-    seek_requested_ = false;
 }
 
 void audio_decoder::process_frame(AVFrame* frame)
@@ -182,6 +205,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 {
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
 
+    format_ctx_ = avformat_alloc_context();
     int ret = avformat_open_input(&format_ctx_, file_path.toUtf8().constData(), nullptr, nullptr);
     if (ret != 0)
     {
@@ -280,7 +304,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         return false;
     }
     AVSampleFormat target_fmt = get_av_sample_format(target_format_.sampleFormat());
-    uint8_t* dst_data = nullptr;
+
     int alloc_ret = av_samples_alloc(&swr_data_, &swr_data_linesize_, target_format_.channelCount(), target_format_.sampleRate(), target_fmt, 0);
     if (alloc_ret < 0)
     {
@@ -295,6 +319,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         LOG_ERROR("frame or packet alloc failed");
         return false;
     }
+
     guard.cancel();
     return true;
 }
@@ -328,6 +353,6 @@ void audio_decoder::close_audio_context()
     }
     if (swr_data_ != nullptr)
     {
-        av_free(&swr_data_);
+        av_freep(&swr_data_);
     }
 }

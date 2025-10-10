@@ -4,7 +4,6 @@
 #include <QMainWindow>
 #include <QAudioSink>
 #include <QTimer>
-#include <QElapsedTimer>
 #include <QListWidgetItem>
 #include "thread_safe_queue.h"
 
@@ -53,6 +52,8 @@ class mainwindow : public QMainWindow
     void on_decoding_finished();
     void on_duration_ready(qint64 duration_ms);
 
+    void on_seek_finished(qint64 actual_seek_ms);
+
    protected:
     void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -87,6 +88,7 @@ class mainwindow : public QMainWindow
     safe_queue data_queue_;
     QAudioSink* audio_sink_ = nullptr;
     QIODevice* io_device_ = nullptr;
+    QTimer* feed_timer_ = nullptr;
 
     bool is_playing_ = false;
     bool decoder_finished_ = false;
@@ -94,6 +96,9 @@ class mainwindow : public QMainWindow
     bool is_slider_pressed_ = false;
     QString playlist_path_;
     QString current_playing_file_path_;
+
+    bool is_seeking_ = false;
+    qint64 pending_seek_ms_ = -1;
 };
 
 #endif
