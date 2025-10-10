@@ -324,6 +324,7 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 
     is_seeking_ = false;
     pending_seek_ms_ = -1;
+    playback_start_offset_ms_ = 0;
 
     current_playing_file_path_ = item->data(Qt::UserRole).toString();
 
@@ -431,6 +432,7 @@ void mainwindow::stop_playback()
 
     is_seeking_ = false;
     pending_seek_ms_ = -1;
+    playback_start_offset_ms_ = 0;
 
     emit request_stop();
     data_queue_.clear();
@@ -454,9 +456,9 @@ void mainwindow::on_duration_ready(qint64 duration_ms)
     LOG_DEBUG("Decoder is ready. Duration: {}ms. Starting audio pipeline.", duration_ms);
     total_duration_ms_ = duration_ms;
     progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
+    playback_start_offset_ms_ = 0;
     update_progress(0);
 
-    // 【核心修改】: 在这里启动音频输出
     if (audio_sink_->state() != QAudio::StoppedState)
     {
         audio_sink_->stop();
@@ -488,27 +490,34 @@ void mainwindow::feed_audio_device()
         return;
     }
 
-    std::shared_ptr<audio_packet> last_packet = nullptr;
-    while (audio_sink_->bytesFree() > 0 && !data_queue_.is_empty())
-    {
-        auto packet = data_queue_.try_dequeue();
-        if (packet == nullptr)
-        {
-            break;
-        }
+    const int bytes_per_second = default_audio_bytes_second();
+    const qint64 bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
+    const qint64 low_water_mark_bytes = bytes_per_second * 1;    // 1 second low watermark
 
-        io_device_->write(reinterpret_cast<const char*>(packet->data.data()), static_cast<qint64>(packet->data.size()));
-        spectrum_widget_->enqueue_packet(packet);
-        last_packet = packet;
+    if (bytes_buffered < low_water_mark_bytes)
+    {
+        while (audio_sink_->bytesFree() > 0 && !data_queue_.is_empty())
+        {
+            auto packet = data_queue_.try_dequeue();
+            if (packet == nullptr)
+            {
+                break;
+            }
+
+            io_device_->write(reinterpret_cast<const char*>(packet->data.data()), static_cast<qint64>(packet->data.size()));
+            spectrum_widget_->enqueue_packet(packet);
+        }
     }
+
+    const qint64 processed_ms = audio_sink_->processedUSecs() / 1000;
+    update_progress(playback_start_offset_ms_ + processed_ms);
 
     if (data_queue_.is_empty() && decoder_finished_)
     {
-        const int bytes_per_second = default_audio_bytes_second();
-        const qint64 bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
-        if (bytes_buffered > 0)
+        const qint64 final_bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
+        if (final_bytes_buffered > 0)
         {
-            const qint64 buffered_duration_ms = (bytes_buffered * 1000) / bytes_per_second;
+            const qint64 buffered_duration_ms = (final_bytes_buffered * 1000) / bytes_per_second;
             QTimer::singleShot(buffered_duration_ms + 100, this, &mainwindow::stop_playback);
         }
         else
@@ -516,12 +525,6 @@ void mainwindow::feed_audio_device()
             stop_playback();
         }
         feed_timer_->stop();
-        return;
-    }
-
-    if (last_packet != nullptr)
-    {
-        update_progress(last_packet->ms);
     }
 }
 
@@ -567,6 +570,8 @@ void mainwindow::on_seek_requested()
 void mainwindow::on_seek_finished(qint64 actual_seek_ms)
 {
     LOG_DEBUG("Seek finished at {}ms. Resetting audio pipeline.", actual_seek_ms);
+
+    playback_start_offset_ms_ = actual_seek_ms;
 
     if (audio_sink_ != nullptr && audio_sink_->state() != QAudio::StoppedState)
     {

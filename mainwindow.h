@@ -99,6 +99,7 @@ class mainwindow : public QMainWindow
 
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
+    qint64 playback_start_offset_ms_ = 0;
 };
 
 #endif
