@@ -2,10 +2,9 @@
 #define MAIN_WINDOW_H
 
 #include <QMainWindow>
-#include <QAudioSink>
+#include <QAudioFormat>
 #include <QTimer>
 #include <QListWidgetItem>
-#include "thread_safe_queue.h"
 
 class QCloseEvent;
 class QKeyEvent;
@@ -21,6 +20,8 @@ class QLineEdit;
 class QThread;
 class spectrum_widget;
 class audio_decoder;
+class audio_player;
+struct audio_packet;
 
 class mainwindow : public QMainWindow
 {
@@ -32,8 +33,10 @@ class mainwindow : public QMainWindow
 
    signals:
     void request_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms);
-    void request_stop();
+    void request_stop_decoding();
     void request_seek(qint64 position_ms);
+
+    void packet_ready_for_player(const std::shared_ptr<audio_packet>& packet);
 
    private slots:
     void finish_playlist_edit();
@@ -45,14 +48,16 @@ class mainwindow : public QMainWindow
     void delete_playlist(int index);
 
     void stop_playback();
-    void feed_audio_device();
     void on_progress_slider_moved(int position);
     void on_seek_requested();
 
-    void on_decoding_finished();
-    void on_duration_ready(qint64 duration_ms);
-
+    void on_duration_ready(qint64 duration_ms, const QAudioFormat& format);
     void on_seek_finished(qint64 actual_seek_ms);
+    void on_decoding_error(const QString& error_message);
+
+    void on_progress_update(qint64 current_ms);
+    void on_spectrum_data_ready(const std::shared_ptr<audio_packet>& packet);
+    void on_playback_finished();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -62,13 +67,12 @@ class mainwindow : public QMainWindow
    private:
     void setup_ui();
     void setup_connections();
-    void init_audio_output();
+    void cleanup_player();
     void create_new_playlist(const QString& name, bool is_loading = false);
 
     void load_playlist();
     void save_playlist();
 
-    void update_progress(qint64 position_ms);
     [[nodiscard]] QListWidget* get_list_widget_by_index(int index) const;
     [[nodiscard]] QListWidget* current_song_list_widget() const;
 
@@ -85,13 +89,10 @@ class mainwindow : public QMainWindow
     QThread* decoder_thread_ = nullptr;
     audio_decoder* decoder_ = nullptr;
 
-    safe_queue data_queue_;
-    QAudioSink* audio_sink_ = nullptr;
-    QIODevice* io_device_ = nullptr;
-    QTimer* feed_timer_ = nullptr;
+    QThread* player_thread_ = nullptr;
+    audio_player* player_ = nullptr;
 
     bool is_playing_ = false;
-    bool decoder_finished_ = false;
     qint64 total_duration_ms_ = 0;
     bool is_slider_pressed_ = false;
     QString playlist_path_;
@@ -99,7 +100,6 @@ class mainwindow : public QMainWindow
 
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
-    qint64 playback_start_offset_ms_ = 0;
 };
 
 #endif

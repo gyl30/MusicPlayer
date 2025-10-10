@@ -1,7 +1,7 @@
+#include <QMetaObject>
 #include "log.h"
 #include "scoped_exit.h"
 #include "audio_decoder.h"
-#include <QMetaObject>
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -29,8 +29,6 @@ audio_decoder::audio_decoder(QObject* parent) : QObject(parent) {}
 
 audio_decoder::~audio_decoder() { close_audio_context(); }
 
-void audio_decoder::set_data_callback(const pcm_data_callback& callback) { data_callback_ = callback; }
-
 void audio_decoder::shutdown() { stop_flag_ = true; }
 
 void audio_decoder::seek(qint64 position_ms)
@@ -52,16 +50,13 @@ void audio_decoder::start_decoding(const QString& file, const QAudioFormat& fmt,
     target_format_ = fmt;
     target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
 
-    packet_cache_.clear();
-    call_data_index_ = 0;
-    packet_cache_ok_ = true;
     seek_requested_ = false;
     seek_position_ms_ = -1;
 
     if (!open_audio_context(file_path_))
     {
         LOG_ERROR("init audio context failed {}", file.toStdString());
-        emit decoding_finished({});
+        emit decoding_error("Failed to open audio file.");
         return;
     }
 
@@ -81,7 +76,7 @@ void audio_decoder::do_decoding_cycle()
     {
         LOG_DEBUG("decoding stopped by request");
         close_audio_context();
-        emit decoding_finished({});
+        emit decoding_finished();
         return;
     }
 
@@ -97,10 +92,11 @@ void audio_decoder::do_decoding_cycle()
             process_frame(frame_);
         }
 
+        emit packet_ready(nullptr);
         LOG_DEBUG("end of file");
         stop_flag_ = true;
         close_audio_context();
-        emit decoding_finished({});
+        emit decoding_finished();
         return;
     }
 
@@ -134,16 +130,6 @@ void audio_decoder::do_decoding_cycle()
         process_frame(frame_);
     }
 
-    if (call_data_index_ < packet_cache_.size())
-    {
-        auto packet = packet_cache_.at(call_data_index_);
-        if (data_callback_)
-        {
-            data_callback_(packet);
-        }
-        call_data_index_++;
-    }
-
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
@@ -164,14 +150,12 @@ void audio_decoder::seek_ffmpeg()
     {
         LOG_DEBUG("seek to {} successful", target_pos_ms);
         avcodec_flush_buffers(codec_ctx_);
-        packet_cache_.clear();
-        call_data_index_ = 0;
         emit seek_finished(target_pos_ms);
     }
     else
     {
         LOG_WARN("seek to {} failed {}", target_pos_ms, ffmpeg_error_string(ret));
-        emit seek_finished(target_pos_ms);
+        emit seek_finished(-1);
     }
 }
 
@@ -197,7 +181,7 @@ void audio_decoder::process_frame(AVFrame* frame)
         auto packet = std::make_shared<audio_packet>();
         packet->data.assign(swr_data_, swr_data_ + buffer_size);
         packet->ms = timestamp_ms;
-        packet_cache_.push_back(packet);
+        emit packet_ready(packet);
     }
 }
 
@@ -233,13 +217,6 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     time_base_ = audio_stream->time_base;
     av_dump_format(format_ctx_, audio_stream_index_, nullptr, 0);
 
-    if (format_ctx_->duration != AV_NOPTS_VALUE)
-    {
-        qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
-        LOG_INFO("{} audio duration {}", file_path.toStdString(), duration_ms);
-        emit duration_ready(duration_ms);
-    }
-
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
     if (codec == nullptr)
     {
@@ -268,6 +245,9 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         return false;
     }
     LOG_INFO("open codec success {}", codec->name);
+
+    target_format_.setSampleRate(codec_ctx_->sample_rate);
+    target_format_.setChannelCount(codec_ctx_->ch_layout.nb_channels);
 
     AVSampleFormat target_sample_fmt = get_av_sample_format(target_format_.sampleFormat());
     int target_sample_rate = target_format_.sampleRate();
@@ -318,6 +298,13 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     {
         LOG_ERROR("frame or packet alloc failed");
         return false;
+    }
+
+    if (format_ctx_->duration != AV_NOPTS_VALUE)
+    {
+        qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
+        LOG_INFO("{} audio duration {}", file_path.toStdString(), duration_ms);
+        emit duration_ready(duration_ms, target_format_);
     }
 
     guard.cancel();

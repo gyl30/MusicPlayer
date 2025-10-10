@@ -25,9 +25,8 @@
 #include "log.h"
 #include "mainwindow.h"
 #include "audio_decoder.h"
+#include "audio_player.h"
 #include "spectrum_widget.h"
-
-constexpr auto kAudioBufferDurationSeconds = 2L;
 
 static QString format_time(qint64 time_ms)
 {
@@ -46,31 +45,17 @@ static QAudioFormat default_audio_format()
     return format;
 }
 
-static int default_audio_bytes_second()
-{
-    auto format = default_audio_format();
-    return format.bytesPerFrame() * format.sampleRate();
-}
-
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
     decoder_thread_ = new QThread(this);
     decoder_ = new audio_decoder();
     decoder_->moveToThread(decoder_thread_);
-
-    auto pcm_handler = [this](const std::shared_ptr<audio_packet>& packet) { data_queue_.enqueue(packet); };
-    decoder_->set_data_callback(pcm_handler);
     decoder_thread_->start();
-
-    feed_timer_ = new QTimer(this);
-    feed_timer_->setInterval(50);
-    connect(feed_timer_, &QTimer::timeout, this, &mainwindow::feed_audio_device);
 
     playlist_button_group_ = new QButtonGroup(this);
 
     setup_ui();
     setup_connections();
-    init_audio_output();
 
     qApp->installEventFilter(this);
 
@@ -94,6 +79,20 @@ mainwindow::~mainwindow()
 
     decoder_thread_->quit();
     decoder_thread_->wait();
+
+    cleanup_player();
+}
+
+void mainwindow::cleanup_player()
+{
+    if (player_thread_ != nullptr)
+    {
+        player_thread_->quit();
+        player_thread_->wait();
+        player_thread_->deleteLater();
+        player_thread_ = nullptr;
+        player_ = nullptr;
+    }
 }
 
 void mainwindow::closeEvent(QCloseEvent* event)
@@ -174,21 +173,197 @@ void mainwindow::setup_connections()
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
 
     connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::start_decoding);
-    connect(this, &mainwindow::request_stop, decoder_, &audio_decoder::shutdown);
-    connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek);
+    connect(this, &mainwindow::request_stop_decoding, decoder_, &audio_decoder::shutdown, Qt::QueuedConnection);
+    connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek, Qt::QueuedConnection);
 
-    connect(decoder_, &audio_decoder::decoding_finished, this, &mainwindow::on_decoding_finished, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::seek_finished, this, &mainwindow::on_seek_finished, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::decoding_error, this, &mainwindow::on_decoding_error, Qt::QueuedConnection);
 
     connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 }
 
-void mainwindow::init_audio_output()
+void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 {
-    auto format = default_audio_format();
-    audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format, this);
-    audio_sink_->setBufferSize(default_audio_bytes_second() * kAudioBufferDurationSeconds);
+    if (item == nullptr)
+    {
+        return;
+    }
+    if (currently_editing_ != nullptr)
+    {
+        finish_playlist_edit();
+    }
+
+    LOG_DEBUG("requesting playback {}", item->data(Qt::UserRole).toString().toStdString());
+
+    stop_playback();
+
+    current_playing_file_path_ = item->data(Qt::UserRole).toString();
+    emit request_decoding(current_playing_file_path_, default_audio_format(), -1);
+
+    auto* list = item->listWidget();
+    if (list != nullptr)
+    {
+        list->setCurrentItem(item);
+        int index = playlist_stack_->indexOf(list);
+        if (index != -1)
+        {
+            playlist_button_group_->button(index)->setChecked(true);
+        }
+    }
+}
+
+void mainwindow::stop_playback()
+{
+    if (!is_playing_)
+    {
+        return;
+    }
+
+    LOG_DEBUG("stopping playback");
+    is_playing_ = false;
+
+    emit request_stop_decoding();
+
+    if (player_ != nullptr)
+    {
+        QMetaObject::invokeMethod(player_, "stop_playback", Qt::QueuedConnection);
+    }
+
+    spectrum_widget_->stop_playback();
+    progress_slider_->setValue(0);
+    time_label_->setText("00:00 / 00:00");
+    total_duration_ms_ = 0;
+
+    is_seeking_ = false;
+    pending_seek_ms_ = -1;
+}
+
+void mainwindow::on_duration_ready(qint64 duration_ms, const QAudioFormat& format)
+{
+    LOG_DEBUG("decoder ready duration {}ms starting audio pipeline", duration_ms);
+    total_duration_ms_ = duration_ms;
+    progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
+    time_label_->setText(QString("00:00 / %1").arg(format_time(total_duration_ms_)));
+
+    cleanup_player();
+
+    player_thread_ = new QThread(this);
+    player_ = new audio_player();
+    player_->moveToThread(player_thread_);
+
+    connect(decoder_, &audio_decoder::packet_ready, player_, &audio_player::enqueue_packet, Qt::QueuedConnection);
+
+    connect(player_, &audio_player::progress_update, this, &mainwindow::on_progress_update, Qt::QueuedConnection);
+    connect(player_, &audio_player::spectrum_data_ready, this, &mainwindow::on_spectrum_data_ready, Qt::QueuedConnection);
+    connect(player_, &audio_player::playback_finished, this, &mainwindow::on_playback_finished, Qt::QueuedConnection);
+
+    connect(player_thread_, &QThread::finished, player_, &QObject::deleteLater);
+    player_thread_->start();
+    player_thread_->setPriority(QThread::TimeCriticalPriority);
+
+    QMetaObject::invokeMethod(player_, "start_playback", Qt::QueuedConnection, Q_ARG(QAudioFormat, format), Q_ARG(qint64, 0));
+
+    is_playing_ = true;
+    spectrum_widget_->start_playback();
+}
+
+void mainwindow::on_progress_update(qint64 current_ms)
+{
+    if (!is_slider_pressed_)
+    {
+        progress_slider_->setValue(static_cast<int>(current_ms));
+    }
+    time_label_->setText(QString("%1 / %2").arg(format_time(current_ms)).arg(format_time(total_duration_ms_)));
+}
+
+void mainwindow::on_spectrum_data_ready(const std::shared_ptr<audio_packet>& packet) { spectrum_widget_->enqueue_packet(packet); }
+
+void mainwindow::on_playback_finished()
+{
+    LOG_DEBUG("playback finished stopping");
+    stop_playback();
+}
+
+void mainwindow::on_decoding_error(const QString& error_message)
+{
+    QMessageBox::critical(this, "解码错误", error_message);
+    stop_playback();
+}
+
+void mainwindow::on_seek_requested()
+{
+    is_slider_pressed_ = false;
+    if (!is_playing_)
+    {
+        return;
+    }
+
+    qint64 position_ms = progress_slider_->value();
+
+    if (is_seeking_)
+    {
+        LOG_DEBUG("seek is busy pending new request to {}ms", position_ms);
+        pending_seek_ms_ = position_ms;
+        return;
+    }
+
+    LOG_DEBUG("starting seek to {}ms", position_ms);
+    is_seeking_ = true;
+
+    if (player_ != nullptr)
+    {
+        QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection);
+    }
+
+    emit request_seek(position_ms);
+}
+
+void mainwindow::on_seek_finished(qint64 actual_seek_ms)
+{
+    if (actual_seek_ms < 0)
+    {
+        LOG_WARN("seek failed resuming playback");
+        is_seeking_ = false;
+        pending_seek_ms_ = -1;
+        if (player_ != nullptr)
+        {
+            QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection);
+        }
+        on_progress_update(progress_slider_->value());
+        return;
+    }
+
+    LOG_DEBUG("seek finished at {}ms notifying player", actual_seek_ms);
+
+    if (player_ != nullptr)
+    {
+        spectrum_widget_->start_playback(actual_seek_ms);
+        QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, actual_seek_ms));
+    }
+
+    if (pending_seek_ms_ != -1)
+    {
+        LOG_DEBUG("pending seek found to {}ms starting it now", pending_seek_ms_);
+        qint64 new_seek_pos = pending_seek_ms_;
+        pending_seek_ms_ = -1;
+        emit request_seek(new_seek_pos);
+        return;
+    }
+
+    is_seeking_ = false;
+    if (player_ != nullptr)
+    {
+        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection);
+    }
+}
+
+void mainwindow::on_progress_slider_moved(int position)
+{
+    if (is_slider_pressed_)
+    {
+        time_label_->setText(QString("%1 / %2").arg(format_time(position)).arg(format_time(total_duration_ms_)));
+    }
 }
 
 void mainwindow::create_new_playlist(const QString& name, bool is_loading)
@@ -308,40 +483,6 @@ void mainwindow::on_playlist_button_clicked(int id)
     playlist_stack_->setCurrentIndex(id);
 }
 
-void mainwindow::on_list_double_clicked(QListWidgetItem* item)
-{
-    if (item == nullptr)
-    {
-        return;
-    }
-    if (currently_editing_ != nullptr)
-    {
-        finish_playlist_edit();
-    }
-
-    LOG_DEBUG("requesting playback");
-    stop_playback();
-
-    is_seeking_ = false;
-    pending_seek_ms_ = -1;
-    playback_start_offset_ms_ = 0;
-
-    current_playing_file_path_ = item->data(Qt::UserRole).toString();
-
-    emit request_decoding(current_playing_file_path_, default_audio_format(), -1);
-
-    auto* list = item->listWidget();
-    if (list != nullptr)
-    {
-        list->setCurrentItem(item);
-        int index = playlist_stack_->indexOf(list);
-        if (index != -1)
-        {
-            playlist_button_group_->button(index)->setChecked(true);
-        }
-    }
-}
-
 void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
 {
     if (currently_editing_ != nullptr)
@@ -417,211 +558,6 @@ void mainwindow::on_nav_button_context_menu_requested(const QPoint& pos)
     connect(delete_action, &QAction::triggered, this, [this, index]() { delete_playlist(index); });
 
     context_menu.exec(button->mapToGlobal(pos));
-}
-
-void mainwindow::stop_playback()
-{
-    if (!is_playing_ && !feed_timer_->isActive())
-    {
-        return;
-    }
-    LOG_DEBUG("stop playback");
-
-    feed_timer_->stop();
-    is_playing_ = false;
-
-    is_seeking_ = false;
-    pending_seek_ms_ = -1;
-    playback_start_offset_ms_ = 0;
-
-    emit request_stop();
-    data_queue_.clear();
-    spectrum_widget_->stop_playback();
-    if (audio_sink_ != nullptr)
-    {
-        audio_sink_->stop();
-    }
-    io_device_ = nullptr;
-    update_progress(0);
-}
-
-void mainwindow::on_decoding_finished()
-{
-    LOG_DEBUG("decoding finished");
-    decoder_finished_ = true;
-}
-
-void mainwindow::on_duration_ready(qint64 duration_ms)
-{
-    LOG_DEBUG("Decoder is ready. Duration: {}ms. Starting audio pipeline.", duration_ms);
-    total_duration_ms_ = duration_ms;
-    progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
-    playback_start_offset_ms_ = 0;
-    update_progress(0);
-
-    if (audio_sink_->state() != QAudio::StoppedState)
-    {
-        audio_sink_->stop();
-    }
-    audio_sink_->reset();
-
-    io_device_ = audio_sink_->start();
-    if (io_device_ == nullptr)
-    {
-        LOG_ERROR("启动音频设备的IODevice失败。");
-        return;
-    }
-
-    is_playing_ = true;
-    decoder_finished_ = false;
-    spectrum_widget_->start_playback();
-    feed_timer_->start();
-}
-
-void mainwindow::feed_audio_device()
-{
-    if (!is_playing_ || is_seeking_)
-    {
-        return;
-    }
-
-    if (audio_sink_->state() == QAudio::StoppedState)
-    {
-        return;
-    }
-
-    const int bytes_per_second = default_audio_bytes_second();
-    const qint64 bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
-    const qint64 low_water_mark_bytes = bytes_per_second * 1;    // 1 second low watermark
-
-    if (bytes_buffered < low_water_mark_bytes)
-    {
-        while (audio_sink_->bytesFree() > 0 && !data_queue_.is_empty())
-        {
-            auto packet = data_queue_.try_dequeue();
-            if (packet == nullptr)
-            {
-                break;
-            }
-
-            io_device_->write(reinterpret_cast<const char*>(packet->data.data()), static_cast<qint64>(packet->data.size()));
-            spectrum_widget_->enqueue_packet(packet);
-        }
-    }
-
-    const qint64 processed_ms = audio_sink_->processedUSecs() / 1000;
-    update_progress(playback_start_offset_ms_ + processed_ms);
-
-    if (data_queue_.is_empty() && decoder_finished_)
-    {
-        const qint64 final_bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
-        if (final_bytes_buffered > 0)
-        {
-            const qint64 buffered_duration_ms = (final_bytes_buffered * 1000) / bytes_per_second;
-            QTimer::singleShot(buffered_duration_ms + 100, this, &mainwindow::stop_playback);
-        }
-        else
-        {
-            stop_playback();
-        }
-        feed_timer_->stop();
-    }
-}
-
-void mainwindow::on_progress_slider_moved(int position)
-{
-    if (is_slider_pressed_)
-    {
-        time_label_->setText(QString("%1 / %2").arg(format_time(position)).arg(format_time(total_duration_ms_)));
-    }
-}
-
-void mainwindow::on_seek_requested()
-{
-    is_slider_pressed_ = false;
-    if (!is_playing_ && !decoder_finished_)
-    {
-        return;
-    }
-
-    qint64 position_ms = progress_slider_->value();
-
-    if (is_seeking_)
-    {
-        LOG_DEBUG("Seek is busy, pending new request to {}ms", position_ms);
-        pending_seek_ms_ = position_ms;
-        return;
-    }
-
-    LOG_DEBUG("Starting seek to {}ms", position_ms);
-    is_seeking_ = true;
-
-    if (decoder_finished_)
-    {
-        decoder_finished_ = false;
-        emit request_decoding(current_playing_file_path_, default_audio_format(), position_ms);
-    }
-    else
-    {
-        emit request_seek(position_ms);
-    }
-}
-
-void mainwindow::on_seek_finished(qint64 actual_seek_ms)
-{
-    LOG_DEBUG("Seek finished at {}ms. Resetting audio pipeline.", actual_seek_ms);
-
-    playback_start_offset_ms_ = actual_seek_ms;
-
-    if (audio_sink_ != nullptr && audio_sink_->state() != QAudio::StoppedState)
-    {
-        audio_sink_->stop();
-    }
-    audio_sink_->reset();
-    data_queue_.clear();
-    spectrum_widget_->start_playback(actual_seek_ms);
-
-    if (pending_seek_ms_ != -1)
-    {
-        LOG_DEBUG("pending seek was found to {}ms starting it", pending_seek_ms_);
-        qint64 new_seek_pos = pending_seek_ms_;
-        pending_seek_ms_ = -1;
-
-        if (decoder_finished_)
-        {
-            decoder_finished_ = false;
-            emit request_decoding(current_playing_file_path_, default_audio_format(), new_seek_pos);
-        }
-        else
-        {
-            emit request_seek(new_seek_pos);
-        }
-        return;
-    }
-
-    is_seeking_ = false;
-
-    io_device_ = audio_sink_->start();
-    if (io_device_ == nullptr)
-    {
-        LOG_ERROR("重启音频设备的IODevice失败。");
-        stop_playback();
-        return;
-    }
-
-    if (is_playing_)
-    {
-        feed_timer_->start();
-    }
-}
-
-void mainwindow::update_progress(qint64 position_ms)
-{
-    if (!is_slider_pressed_)
-    {
-        progress_slider_->setValue(static_cast<int>(position_ms));
-    }
-    time_label_->setText(QString("%1 / %2").arg(format_time(position_ms)).arg(format_time(total_duration_ms_)));
 }
 
 void mainwindow::load_playlist()

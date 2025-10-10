@@ -3,8 +3,9 @@
 
 #include <QObject>
 #include <QAudioFormat>
-#include <functional>
 #include <atomic>
+#include <memory>
+#include <vector>
 #include "audio_packet.h"
 extern "C"
 {
@@ -20,13 +21,8 @@ class audio_decoder : public QObject
     Q_OBJECT
 
    public:
-    using pcm_data_callback = std::function<void(const std::shared_ptr<audio_packet>&)>;
-
     explicit audio_decoder(QObject* parent = nullptr);
     ~audio_decoder() override;
-
-   public:
-    void set_data_callback(const pcm_data_callback& callback);
 
    public slots:
     void start_decoding(const QString& file, const QAudioFormat& fmt, qint64 offset = -1);
@@ -34,9 +30,11 @@ class audio_decoder : public QObject
     void seek(qint64 position_ms);
 
    signals:
-    void duration_ready(qint64 duration_ms);
-    void decoding_finished(const std::vector<std::shared_ptr<audio_packet>>& packets);
+    void duration_ready(qint64 duration_ms, const QAudioFormat& format);
+    void packet_ready(const std::shared_ptr<audio_packet>& packet);
+    void decoding_finished();
     void seek_finished(qint64 actual_seek_ms);
+    void decoding_error(const QString& error_message);
 
    private slots:
     void do_decoding_cycle();
@@ -48,16 +46,12 @@ class audio_decoder : public QObject
     void seek_ffmpeg();
 
    private:
-    int call_data_index_ = 0;
-    pcm_data_callback data_callback_;
     QString file_path_;
     std::atomic<bool> stop_flag_{true};
 
     bool seek_requested_ = false;
     qint64 seek_position_ms_ = -1;
 
-    bool packet_cache_ok_ = true;
-    std::vector<std::shared_ptr<audio_packet>> packet_cache_;
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;
     SwrContext* swr_ctx_ = nullptr;
