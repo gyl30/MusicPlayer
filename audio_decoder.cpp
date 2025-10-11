@@ -81,7 +81,6 @@ void audio_decoder::resume_decoding()
         LOG_WARN("resume decoding requested but decoder is stopped");
         return;
     }
-    LOG_INFO("session {} resume signal received starting decoding cycle", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
@@ -97,55 +96,52 @@ void audio_decoder::do_decoding_cycle()
 
     seek_ffmpeg();
 
-    int read_ret = av_read_frame(format_ctx_, packet_);
-    if (read_ret < 0)
-    {
-        avcodec_send_packet(codec_ctx_, nullptr);
-
-        while (avcodec_receive_frame(codec_ctx_, frame_) == 0)
-        {
-            process_frame(frame_);
-        }
-
-        emit packet_ready(session_id_, nullptr);
-        LOG_INFO("session {} end of file reached", session_id_);
-        stop_flag_ = true;
-        close_audio_context();
-        emit decoding_finished();
-        return;
-    }
-
-    DEFER(av_packet_unref(packet_));
-    if (packet_->stream_index != audio_stream_index_)
-    {
-        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
-        return;
-    }
-
-    int send_ret = avcodec_send_packet(codec_ctx_, packet_);
-    if (send_ret < 0)
-    {
-        LOG_WARN("send packet failed {}", ffmpeg_error_string(send_ret));
-        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
-        return;
-    }
-
-    while (true)
+    while (!stop_flag_)
     {
         int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
-        if (receive_ret == AVERROR(EAGAIN) || receive_ret == AVERROR_EOF)
+
+        if (receive_ret == 0)
         {
-            break;
+            process_frame(frame_);
+            return;
         }
-        if (receive_ret < 0)
+
+        if (receive_ret == AVERROR_EOF)
+        {
+            emit packet_ready(session_id_, nullptr);
+            LOG_INFO("session {} end of file reached", session_id_);
+            stop_flag_ = true;
+            close_audio_context();
+            emit decoding_finished();
+            return;
+        }
+
+        if (receive_ret != AVERROR(EAGAIN))
         {
             LOG_ERROR("receive frame failed {}", ffmpeg_error_string(receive_ret));
             break;
         }
-        process_frame(frame_);
-    }
 
-    QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
+        int read_ret = av_read_frame(format_ctx_, packet_);
+        if (read_ret < 0)
+        {
+            avcodec_send_packet(codec_ctx_, nullptr);
+            continue;
+        }
+
+        DEFER(av_packet_unref(packet_));
+        if (packet_->stream_index != audio_stream_index_)
+        {
+            continue;
+        }
+
+        int send_ret = avcodec_send_packet(codec_ctx_, packet_);
+        if (send_ret < 0)
+        {
+            LOG_WARN("send packet failed {}", ffmpeg_error_string(send_ret));
+            continue;
+        }
+    }
 }
 
 void audio_decoder::seek_ffmpeg()

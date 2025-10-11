@@ -13,6 +13,7 @@ constexpr int kBlockSpacing = 4;
 constexpr double kMinDbRange = 20.0;
 constexpr double kMaxDbDecayRate = 0.3;
 constexpr double kMinDbRiseRate = 0.2;
+constexpr double kIdleBarHeight = 2.0;
 
 spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
 {
@@ -70,6 +71,15 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
 
     if (display_magnitudes_.empty())
     {
+        painter.setBrush(QColor(60, 60, 60));
+        double total_bar_width = static_cast<double>(width()) / kNumBars;
+        double bar_draw_width = total_bar_width * 0.8;
+        for (int i = 0; i < kNumBars; ++i)
+        {
+            double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
+            QRectF block_rect(bar_x_position, height() - kIdleBarHeight, bar_draw_width, kIdleBarHeight);
+            painter.drawRect(block_rect);
+        }
         return;
     }
 
@@ -130,7 +140,8 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
     gradient.setColorAt(0.0, Qt::red);
     gradient.setColorAt(0.45, Qt::yellow);
     gradient.setColorAt(1.0, Qt::green);
-    painter.setBrush(gradient);
+
+    QBrush idle_brush(QColor(60, 60, 60));
 
     double total_bar_width = static_cast<double>(width()) / kNumBars;
     double bar_draw_width = total_bar_width * 0.8;
@@ -141,12 +152,18 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
         double height_ratio = (db_value - dynamic_min_db_) / range;
         double bar_height = qBound(0.0, height_ratio, 1.0) * height();
 
-        if (bar_height <= 0)
+        double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
+
+        if (bar_height < kIdleBarHeight)
         {
-            continue;
+            bar_height = kIdleBarHeight;
+            painter.setBrush(idle_brush);
+        }
+        else
+        {
+            painter.setBrush(gradient);
         }
 
-        double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
         double height_to_draw = bar_height;
         double current_block_bottom_y = height();
         while (height_to_draw > 0)

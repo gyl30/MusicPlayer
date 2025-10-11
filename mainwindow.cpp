@@ -228,6 +228,9 @@ void mainwindow::stop_playback()
 
     LOG_INFO("session {} stopping playback", current_session_id_);
     is_playing_ = false;
+
+    buffered_bytes_ = 0;
+    decoder_is_waiting_ = false;
     current_session_id_ = 0;
 
     emit request_stop_decoding();
@@ -261,6 +264,11 @@ void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const 
 
     cleanup_player();
 
+    buffered_bytes_ = 0;
+    decoder_is_waiting_ = false;
+    buffer_high_water_mark_ = 5L * format.bytesPerFrame() * format.sampleRate();
+    LOG_INFO("session {} buffer high water mark set to {} bytes (5 seconds)", session_id, buffer_high_water_mark_);
+
     player_thread_ = new QThread(this);
     player_ = new audio_player();
     player_->moveToThread(player_thread_);
@@ -290,6 +298,7 @@ void mainwindow::on_player_ready(qint64 session_id)
     LOG_INFO("session {} player is ready requesting decoder to resume", session_id);
     is_playing_ = true;
     spectrum_widget_->start_playback();
+
     emit request_resume_decoding();
 }
 
@@ -308,8 +317,26 @@ void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr
 
     if (player_ != nullptr)
     {
+        if (packet)
+        {
+            buffered_bytes_ += static_cast<qint64>(packet->data.size());
+        }
+
         QMetaObject::invokeMethod(
             player_, "enqueue_packet", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
+    }
+
+    if (packet != nullptr && is_playing_ && !is_seeking_)
+    {
+        if (buffered_bytes_ < buffer_high_water_mark_)
+        {
+            emit request_resume_decoding();
+        }
+        else
+        {
+            LOG_TRACE("session {} buffer is full ({} bytes), decoder now waiting.", session_id, buffered_bytes_.load());
+            decoder_is_waiting_ = true;
+        }
     }
 }
 
@@ -317,7 +344,19 @@ void mainwindow::on_packet_for_spectrum(const std::shared_ptr<audio_packet>& pac
 {
     if (spectrum_widget_ != nullptr && is_playing_)
     {
+        buffered_bytes_ -= static_cast<qint64>(packet->data.size());
+
         spectrum_widget_->enqueue_packet(packet);
+
+        if (decoder_is_waiting_ && is_playing_ && !is_seeking_)
+        {
+            if (buffered_bytes_ < buffer_high_water_mark_)
+            {
+                LOG_TRACE("session {} buffer has space ({} bytes), waking up decoder.", current_session_id_, buffered_bytes_.load());
+                decoder_is_waiting_ = false;
+                emit request_resume_decoding();
+            }
+        }
     }
 }
 
@@ -402,6 +441,9 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
 
     LOG_INFO("session {} seek finished at {}ms notifying player", session_id, actual_seek_ms);
 
+    buffered_bytes_ = 0;
+    decoder_is_waiting_ = false;
+
     if (player_ != nullptr)
     {
         spectrum_widget_->start_playback(actual_seek_ms);
@@ -421,6 +463,7 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
     if (player_ != nullptr)
     {
         QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
+        emit request_resume_decoding();
     }
 }
 

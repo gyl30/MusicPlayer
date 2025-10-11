@@ -104,6 +104,10 @@ class mainwindow : public QMainWindow
     std::atomic<qint64> session_id_counter_{0};
     qint64 current_session_id_ = 0;
 
+    std::atomic<qint64> buffered_bytes_{0};
+    qint64 buffer_high_water_mark_ = 0;
+    bool decoder_is_waiting_ = false;
+
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
 };
