@@ -1,0 +1,148 @@
+#include <cmath>
+#include "fftreal.h"
+#include "spectrum_processor.h"
+
+static double lerp(double a, double b, double t) { return a + (t * (b - a)); }
+
+static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_packet>& packet)
+{
+    if (packet == nullptr)
+    {
+        return {};
+    }
+    const int fft_size = 1024;
+    const auto* pcm_data = reinterpret_cast<const qint16*>(packet->data.data());
+    auto num_samples = packet->data.size() / sizeof(qint16);
+    if (num_samples < fft_size)
+    {
+        return {};
+    }
+
+    std::vector<double> fft_input(fft_size);
+    for (int i = 0; i < fft_size; ++i)
+    {
+        fft_input[i] = static_cast<double>(pcm_data[i]) / 32768.0;
+    }
+    fft_real<double> fft(fft_size);
+    fft.do_fft(fft_input.data());
+
+    std::vector<double> magnitudes;
+    magnitudes.reserve(fft_size / 2);
+    for (size_t i = 1; i < fft_size / 2; ++i)
+    {
+        double real = fft.get_real(i);
+        double imag = fft.get_imag(i);
+        magnitudes.push_back(std::sqrt((real * real) + (imag * imag)));
+    }
+    return magnitudes;
+}
+
+spectrum_processor::spectrum_processor(QObject* parent) : QObject(parent)
+{
+    render_timer_ = new QTimer(this);
+    connect(render_timer_, &QTimer::timeout, this, &spectrum_processor::on_render_timeout);
+}
+
+void spectrum_processor::process_packet(const std::shared_ptr<audio_packet>& packet)
+{
+    if (packet)
+    {
+        packet_queue_.push_back(packet);
+    }
+}
+
+void spectrum_processor::start_playback(qint64 start_offset_ms)
+{
+    render_timer_->stop();
+    packet_queue_.clear();
+
+    prev_magnitudes_.clear();
+    target_magnitudes_.clear();
+
+    prev_timestamp_ms_ = 0;
+    target_timestamp_ms_ = 0;
+    start_offset_ms_ = start_offset_ms;
+
+    animation_clock_.start();
+    render_timer_->start(80);
+}
+
+void spectrum_processor::stop_playback()
+{
+    render_timer_->stop();
+    packet_queue_.clear();
+}
+
+void spectrum_processor::on_render_timeout()
+{
+    if (!render_timer_->isActive())
+    {
+        return;
+    }
+
+    qint64 current_playback_time = animation_clock_.elapsed() + start_offset_ms_;
+
+    while (packet_queue_.size() >= 2 && current_playback_time >= packet_queue_[1]->ms)
+    {
+        packet_queue_.erase(packet_queue_.begin());
+    }
+
+    if (packet_queue_.empty())
+    {
+        return;
+    }
+
+    std::vector<double> display_magnitudes;
+
+    if (packet_queue_.size() < 2)
+    {
+        const auto& current_packet = packet_queue_[0];
+        if (current_packet->ms != target_timestamp_ms_)
+        {
+            target_magnitudes_ = calculate_magnitudes(current_packet);
+            target_timestamp_ms_ = current_packet->ms;
+        }
+        display_magnitudes = target_magnitudes_;
+    }
+    else
+    {
+        const auto& prev_packet = packet_queue_[0];
+        const auto& target_packet = packet_queue_[1];
+
+        if (prev_packet->ms != prev_timestamp_ms_)
+        {
+            prev_magnitudes_ = calculate_magnitudes(prev_packet);
+            prev_timestamp_ms_ = prev_packet->ms;
+        }
+        if (target_packet->ms != target_timestamp_ms_)
+        {
+            target_magnitudes_ = calculate_magnitudes(target_packet);
+            target_timestamp_ms_ = target_packet->ms;
+        }
+
+        if (prev_magnitudes_.empty() || target_magnitudes_.empty() || prev_magnitudes_.size() != target_magnitudes_.size())
+        {
+            return;
+        }
+
+        qint64 interval_duration = target_timestamp_ms_ - prev_timestamp_ms_;
+        qint64 time_in_interval = current_playback_time - prev_timestamp_ms_;
+
+        double t = (interval_duration > 0) ? (static_cast<double>(time_in_interval) / static_cast<double>(interval_duration)) : 0.0;
+        t = qBound(0.0, t, 1.0);
+
+        if (display_magnitudes.size() != target_magnitudes_.size())
+        {
+            display_magnitudes.resize(target_magnitudes_.size());
+        }
+        for (size_t i = 0; i < target_magnitudes_.size(); ++i)
+        {
+            display_magnitudes[i] = lerp(prev_magnitudes_[i], target_magnitudes_[i], t);
+        }
+    }
+
+    if (!display_magnitudes.empty())
+    {
+        emit magnitudes_ready(display_magnitudes);
+    }
+}

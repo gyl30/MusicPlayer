@@ -42,7 +42,6 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     decoder_finished_ = false;
 
     data_queue_.clear();
-    bytes_in_queue_ = 0;
     qint64 max_queue_size = default_audio_bytes_second(format) * kQueueBufferDurationSeconds;
     LOG_DEBUG("queue max size set to {} bytes {} seconds", max_queue_size, kQueueBufferDurationSeconds);
 
@@ -90,7 +89,6 @@ void audio_player::stop_playback()
     LOG_DEBUG("all timers stopped");
 
     data_queue_.clear();
-    bytes_in_queue_ = 0;
 
     if (audio_sink_ != nullptr)
     {
@@ -117,7 +115,6 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
     else
     {
         data_queue_.push_back(packet);
-        bytes_in_queue_ += packet->data.size();
     }
 
     if (queue_was_empty && !data_queue_.empty())
@@ -138,7 +135,6 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     decoder_finished_ = false;
 
     data_queue_.clear();
-    bytes_in_queue_ = 0;
 
     if (audio_sink_ != nullptr && audio_sink_->state() != QAudio::StoppedState)
     {
@@ -252,6 +248,7 @@ void audio_player::feed_audio_device()
 
             if (bytes_to_write >= packet_size)
             {
+                emit packet_played(next_packet);
                 qint64 written_bytes = io_device_->write(reinterpret_cast<const char*>(next_packet->data.data()), packet_size);
 
                 if (written_bytes != packet_size)
@@ -259,14 +256,13 @@ void audio_player::feed_audio_device()
                     LOG_WARN("session {} short write to device expected {} but wrote {}", session_id_, packet_size, written_bytes);
                     if (written_bytes <= 0)
                     {
-                        break;    // Error or device closed
+                        break;
                     }
                 }
 
                 bytes_written_this_cycle += written_bytes;
                 packets_written_this_cycle++;
                 bytes_to_write -= written_bytes;
-                bytes_in_queue_ -= written_bytes;
                 data_queue_.pop_front();
             }
             else

@@ -20,6 +20,7 @@ class audio_player : public QObject
     void playback_finished(qint64 session_id);
     void playback_ready(qint64 session_id);
     void playback_error(const QString& error_message);
+    void packet_played(const std::shared_ptr<audio_packet>& packet);
 
    public slots:
     void start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms = 0);
@@ -45,8 +46,6 @@ class audio_player : public QObject
     std::atomic<bool> decoder_finished_{false};
     qint64 playback_start_offset_ms_ = 0;
     QTimer* progress_timer_ = nullptr;
-    qint64 bytes_in_queue_ = 0;
-    qint64 packet_count_ = 0;
 };
 
 #endif

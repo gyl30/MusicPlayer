@@ -60,6 +60,7 @@ class mainwindow : public QMainWindow
     void on_player_error(const QString& error_message);
     void on_progress_update(qint64 session_id, qint64 current_ms);
     void on_playback_finished(qint64 session_id);
+    void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
 
    protected:
     void closeEvent(QCloseEvent* event) override;

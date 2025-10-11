@@ -228,7 +228,7 @@ void mainwindow::stop_playback()
 
     LOG_INFO("session {} stopping playback", current_session_id_);
     is_playing_ = false;
-    current_session_id_ = 0;    // Invalidate session ID on stop
+    current_session_id_ = 0;
 
     emit request_stop_decoding();
 
@@ -269,6 +269,7 @@ void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const 
     connect(player_, &audio_player::playback_finished, this, &mainwindow::on_playback_finished, Qt::QueuedConnection);
     connect(player_, &audio_player::playback_ready, this, &mainwindow::on_player_ready, Qt::QueuedConnection);
     connect(player_, &audio_player::playback_error, this, &mainwindow::on_player_error, Qt::QueuedConnection);
+    connect(player_, &audio_player::packet_played, this, &mainwindow::on_packet_for_spectrum, Qt::QueuedConnection);
 
     connect(player_thread_, &QThread::finished, player_, &QObject::deleteLater);
     player_thread_->start();
@@ -300,9 +301,8 @@ void mainwindow::on_player_error(const QString& error_message)
 
 void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
 {
-    if (session_id != current_session_id_ && packet != nullptr)    // Allow nullptr (EOF) from old sessions to pass to avoid hang
+    if (session_id != current_session_id_ && packet != nullptr)
     {
-        // Don't log here to avoid spam. The check is sufficient.
         return;
     }
 
@@ -311,7 +311,14 @@ void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr
         QMetaObject::invokeMethod(
             player_, "enqueue_packet", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
     }
-    spectrum_widget_->enqueue_packet(packet);
+}
+
+void mainwindow::on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet)
+{
+    if (spectrum_widget_ != nullptr && is_playing_)
+    {
+        spectrum_widget_->enqueue_packet(packet);
+    }
 }
 
 void mainwindow::on_progress_update(qint64 session_id, qint64 current_ms)

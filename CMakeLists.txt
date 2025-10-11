@@ -100,6 +100,7 @@ add_executable(MusicPlayer
     main.cpp
     log.cpp
     mainwindow.cpp
+    spectrum_processor.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
     audio_player.cpp

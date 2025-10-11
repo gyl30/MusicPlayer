@@ -4,10 +4,11 @@
 #include <QWidget>
 #include <vector>
 #include <memory>
-#include <QTimer>
-#include <QElapsedTimer>
 #include <QMutex>
 #include "audio_packet.h"
+
+class QThread;
+class spectrum_processor;
 
 class spectrum_widget : public QWidget
 {
@@ -15,7 +16,7 @@ class spectrum_widget : public QWidget
 
    public:
     explicit spectrum_widget(QWidget* parent = nullptr);
-    ~spectrum_widget() override = default;
+    ~spectrum_widget() override;
 
    public:
     void enqueue_packet(const std::shared_ptr<audio_packet>& packet);
@@ -26,23 +27,16 @@ class spectrum_widget : public QWidget
     void paintEvent(QPaintEvent* event) override;
 
    private slots:
-    void on_render_timeout();
+    void update_display(const std::vector<double>& magnitudes);
 
    private:
-    QTimer* render_timer_;
-    QElapsedTimer animation_clock_;
+    QThread* spectrum_thread_;
+    spectrum_processor* processor_;
 
     double dynamic_min_db_ = 100.0;
     double dynamic_max_db_ = 0.0;
-    qint64 prev_timestamp_ms_ = 0;
-    qint64 target_timestamp_ms_ = 0;
-    qint64 start_offset_ms_ = 0;
 
-    std::vector<double> prev_magnitudes_;
-    std::vector<double> target_magnitudes_;
     std::vector<double> display_magnitudes_;
-
-    std::vector<std::shared_ptr<audio_packet>> packet_queue_;
 };
 
 #endif
