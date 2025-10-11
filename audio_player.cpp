@@ -13,7 +13,7 @@ static int default_audio_bytes_second(const QAudioFormat& format) { return forma
 
 audio_player::audio_player(QObject* parent) : QObject(parent)
 {
-    LOG_DEBUG("audioPlayer created");
+    LOG_DEBUG("audio player created");
 
     feed_timer_ = new QTimer(this);
     feed_timer_->setSingleShot(false);
@@ -192,14 +192,18 @@ void audio_player::resume_feeding(qint64 session_id)
 
 void audio_player::feed_audio_device()
 {
+    LOG_TRACE("session {} feed_audio_device triggered", session_id_);
+
     if (!is_playing_ || io_device_ == nullptr || audio_sink_ == nullptr)
     {
+        LOG_TRACE("session {} feed aborted player not ready", session_id_);
         return;
     }
 
     static bool is_feeding = false;
     if (is_feeding)
     {
+        LOG_TRACE("session {} feed skipped due to re-entrancy", session_id_);
         return;
     }
     is_feeding = true;
@@ -207,54 +211,91 @@ void audio_player::feed_audio_device()
 
     if (audio_sink_->state() == QAudio::StoppedState)
     {
-        LOG_WARN("audio sink is in stopped state stopping timer");
+        LOG_WARN("session {} audio sink is in stopped state stopping timer", session_id_);
         feed_timer_->stop();
         progress_timer_->stop();
         return;
     }
 
+    const qint64 total_buffer_bytes = audio_sink_->bufferSize();
     qint64 bytes_to_write = audio_sink_->bytesFree();
-    if (bytes_to_write <= 0)
+    qint64 bytes_buffered_before = total_buffer_bytes - bytes_to_write;
+
+    LOG_TRACE(
+        "session {} buffer status before write total {} buffered {} free {}", session_id_, total_buffer_bytes, bytes_buffered_before, bytes_to_write);
+
+    if (data_queue_.empty())
     {
-        return;
+        LOG_TRACE("session {} data queue is empty nothing to write", session_id_);
     }
-
-    qint64 bytes_written_this_cycle = 0;
-    while (!data_queue_.empty())
+    else if (bytes_to_write <= 0)
     {
-        auto& next_packet = data_queue_.front();
-        if (!next_packet || next_packet->data.empty())
+        LOG_TRACE("session {} buffer is full cannot write", session_id_);
+    }
+    else
+    {
+        qint64 bytes_written_this_cycle = 0;
+        int packets_written_this_cycle = 0;
+
+        while (!data_queue_.empty())
         {
-            data_queue_.pop_front();
-            continue;
+            auto& next_packet = data_queue_.front();
+            if (!next_packet || next_packet->data.empty())
+            {
+                LOG_WARN("session {} found empty packet in queue discarding", session_id_);
+                data_queue_.pop_front();
+                continue;
+            }
+
+            auto packet_size = static_cast<qint64>(next_packet->data.size());
+            LOG_TRACE("session {} trying to write packet size {} into free space {}", session_id_, packet_size, bytes_to_write);
+
+            if (bytes_to_write >= packet_size)
+            {
+                qint64 written_bytes = io_device_->write(reinterpret_cast<const char*>(next_packet->data.data()), packet_size);
+
+                if (written_bytes != packet_size)
+                {
+                    LOG_WARN("session {} short write to device expected {} but wrote {}", session_id_, packet_size, written_bytes);
+                    if (written_bytes <= 0)
+                    {
+                        break;    // Error or device closed
+                    }
+                }
+
+                bytes_written_this_cycle += written_bytes;
+                packets_written_this_cycle++;
+                bytes_to_write -= written_bytes;
+                bytes_in_queue_ -= written_bytes;
+                data_queue_.pop_front();
+            }
+            else
+            {
+                LOG_TRACE("session {} buffer space not enough for next packet breaking loop", session_id_);
+                break;
+            }
         }
 
-        qint64 packet_size = static_cast<qint64>(next_packet->data.size());
-        if (bytes_to_write >= packet_size)
+        if (bytes_written_this_cycle > 0)
         {
-            io_device_->write(reinterpret_cast<const char*>(next_packet->data.data()), packet_size);
-            bytes_written_this_cycle += packet_size;
-            bytes_to_write -= packet_size;
-            bytes_in_queue_ -= packet_size;
-            data_queue_.pop_front();
-        }
-        else
-        {
-            break;
+            LOG_INFO(
+                "session {} write summary wrote {} packets totaling {} bytes", session_id_, packets_written_this_cycle, bytes_written_this_cycle);
         }
     }
 
     if (data_queue_.empty() && decoder_finished_)
     {
-        LOG_INFO("session {} queue is empty and decoder has finished", session_id_);
+        LOG_INFO("session {} queue is empty and decoder has finished checking for playback end", session_id_);
         const qint64 final_bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
         if (final_bytes_buffered > 100)
         {
             const qint64 remaining_ms = (final_bytes_buffered * 1000) / default_audio_bytes_second(format_);
+            LOG_INFO("session {} {} bytes remaining in buffer ({}ms) scheduling final stop", session_id_, final_bytes_buffered, remaining_ms);
             QTimer::singleShot(remaining_ms + 100, this, [this]() { emit playback_finished(session_id_); });
         }
         else
         {
+            LOG_INFO("session {} buffer is empty playback finished", session_id_);
             emit playback_finished(session_id_);
         }
         feed_timer_->stop();
@@ -271,6 +312,8 @@ void audio_player::update_progress_ui()
 
     const qint64 processed_us = audio_sink_->processedUSecs();
     const qint64 processed_ms = processed_us / 1000;
+
+    LOG_DEBUG("session {} progress update processed_us {} total_ms {}", session_id_, processed_us, playback_start_offset_ms_ + processed_ms);
 
     emit progress_update(session_id_, playback_start_offset_ms_ + processed_ms);
 }
