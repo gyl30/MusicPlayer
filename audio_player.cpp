@@ -1,7 +1,10 @@
 #include <QMediaDevices>
+#include <QDateTime>
+#include <QMetaObject>
 
 #include "log.h"
 #include "audio_player.h"
+#include "scoped_exit.h"
 
 constexpr auto kAudioBufferDurationSeconds = 2L;
 constexpr auto kQueueBufferDurationSeconds = 5L;
@@ -10,7 +13,7 @@ static int default_audio_bytes_second(const QAudioFormat& format) { return forma
 
 audio_player::audio_player(QObject* parent) : QObject(parent)
 {
-    LOG_DEBUG("AudioPlayer created.");
+    LOG_DEBUG("audioPlayer created");
 
     feed_timer_ = new QTimer(this);
     feed_timer_->setSingleShot(false);
@@ -28,9 +31,10 @@ audio_player::~audio_player()
     LOG_DEBUG("audio player destroyed");
 }
 
-void audio_player::start_playback(const QAudioFormat& format, qint64 start_offset_ms)
+void audio_player::start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms)
 {
-    LOG_INFO("received start playback command offset {}ms", start_offset_ms);
+    session_id_ = session_id;
+    LOG_INFO("session {} received start playback command offset {}ms", session_id_, start_offset_ms);
     LOG_DEBUG("sample rate {} channels {} sample format {}", format.sampleRate(), format.channelCount(), (int)format.sampleFormat());
 
     format_ = format;
@@ -38,7 +42,8 @@ void audio_player::start_playback(const QAudioFormat& format, qint64 start_offse
     decoder_finished_ = false;
 
     data_queue_.clear();
-    uint64_t max_queue_size = default_audio_bytes_second(format_) * kQueueBufferDurationSeconds;
+    bytes_in_queue_ = 0;
+    qint64 max_queue_size = default_audio_bytes_second(format) * kQueueBufferDurationSeconds;
     LOG_DEBUG("queue max size set to {} bytes {} seconds", max_queue_size, kQueueBufferDurationSeconds);
 
     if (audio_sink_ != nullptr)
@@ -57,17 +62,18 @@ void audio_player::start_playback(const QAudioFormat& format, qint64 start_offse
     if (io_device_ == nullptr)
     {
         LOG_ERROR("failed to start sink io device playback will not start");
+        emit playback_error("Failed to start audio sink device.");
         return;
     }
     LOG_INFO("audio sink started successfully");
 
     is_playing_ = true;
 
-    feed_audio_device();
-
     feed_timer_->start(50);
     progress_timer_->start();
-    LOG_DEBUG("all timers started");
+    LOG_INFO("session {} all timers started at {}", session_id_, QDateTime::currentMSecsSinceEpoch());
+
+    emit playback_ready(session_id_);
 }
 
 void audio_player::stop_playback()
@@ -76,12 +82,15 @@ void audio_player::stop_playback()
     {
         return;
     }
-    LOG_INFO("received stop playback command");
+    LOG_INFO("session {} received stop playback command", session_id_);
     is_playing_ = false;
-    data_queue_.clear();
+
     feed_timer_->stop();
     progress_timer_->stop();
     LOG_DEBUG("all timers stopped");
+
+    data_queue_.clear();
+    bytes_in_queue_ = 0;
 
     if (audio_sink_ != nullptr)
     {
@@ -91,8 +100,15 @@ void audio_player::stop_playback()
     io_device_ = nullptr;
 }
 
-void audio_player::enqueue_packet(const std::shared_ptr<audio_packet>& packet)
+void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
 {
+    if (session_id != session_id_)
+    {
+        return;
+    }
+
+    bool queue_was_empty = data_queue_.empty();
+
     if (packet == nullptr)
     {
         decoder_finished_ = true;
@@ -100,18 +116,29 @@ void audio_player::enqueue_packet(const std::shared_ptr<audio_packet>& packet)
     }
     else
     {
-        data_queue_.enqueue(packet);
-        LOG_TRACE("timestamp {} size {} bytes queue size is now {} bytes", packet->ms, packet->data.size(), data_queue_.size_in_bytes());
+        data_queue_.push_back(packet);
+        bytes_in_queue_ += packet->data.size();
+    }
+
+    if (queue_was_empty && !data_queue_.empty())
+    {
+        LOG_TRACE("queue was empty now has data triggering feed via invokeMethod");
+        QMetaObject::invokeMethod(this, "feed_audio_device", Qt::QueuedConnection);
     }
 }
 
-void audio_player::handle_seek(qint64 actual_seek_ms)
+void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
 {
-    LOG_INFO("seek to {}ms", actual_seek_ms);
+    if (session_id != session_id_)
+    {
+        return;
+    }
+    LOG_INFO("session {} handling seek to {}ms", session_id_, actual_seek_ms);
     playback_start_offset_ms_ = actual_seek_ms;
     decoder_finished_ = false;
 
     data_queue_.clear();
+    bytes_in_queue_ = 0;
 
     if (audio_sink_ != nullptr && audio_sink_->state() != QAudio::StoppedState)
     {
@@ -138,18 +165,26 @@ void audio_player::handle_seek(qint64 actual_seek_ms)
     }
 }
 
-void audio_player::pause_feeding()
+void audio_player::pause_feeding(qint64 session_id)
 {
-    LOG_DEBUG("pausing data feeding all timers stopped");
+    if (session_id != session_id_)
+    {
+        return;
+    }
+    LOG_INFO("session {} pausing data feeding", session_id_);
     feed_timer_->stop();
     progress_timer_->stop();
 }
 
-void audio_player::resume_feeding()
+void audio_player::resume_feeding(qint64 session_id)
 {
+    if (session_id != session_id_)
+    {
+        return;
+    }
     if (is_playing_)
     {
-        LOG_DEBUG("resuming data feeding all timers started");
+        LOG_INFO("session {} resuming data feeding", session_id_);
         feed_timer_->start(50);
         progress_timer_->start();
     }
@@ -157,85 +192,70 @@ void audio_player::resume_feeding()
 
 void audio_player::feed_audio_device()
 {
-    LOG_TRACE("feed audio device triggered");
-
     if (!is_playing_ || io_device_ == nullptr || audio_sink_ == nullptr)
     {
-        LOG_TRACE("aborted not playing or device null");
         return;
     }
 
+    static bool is_feeding = false;
+    if (is_feeding)
+    {
+        return;
+    }
+    is_feeding = true;
+    DEFER(is_feeding = false;);
+
     if (audio_sink_->state() == QAudio::StoppedState)
     {
-        LOG_WARN("audio sink is in stopped stopping timer");
+        LOG_WARN("audio sink is in stopped state stopping timer");
         feed_timer_->stop();
         progress_timer_->stop();
         return;
     }
-    if (audio_sink_->state() == QAudio::IdleState)
+
+    qint64 bytes_to_write = audio_sink_->bytesFree();
+    if (bytes_to_write <= 0)
     {
-        LOG_WARN("audio sink is in idle might indicate a buffer underrun");
+        return;
     }
 
-    const int bytes_per_sec = default_audio_bytes_second(format_);
-    const qint64 total_buffer_bytes = audio_sink_->bufferSize();
-    const qint64 free_bytes = audio_sink_->bytesFree();
-    const qint64 bytes_buffered = total_buffer_bytes - free_bytes;
-    const auto low_water_mark_bytes = bytes_per_sec * 1;
-
-    LOG_TRACE("buffer status total {} free {} buffer {} {} low watermark {}",
-              total_buffer_bytes,
-              free_bytes,
-              bytes_buffered,
-              (bytes_buffered * 1000) / (bytes_per_sec > 0 ? bytes_per_sec : 1),
-              low_water_mark_bytes);
-
-    if (bytes_buffered < low_water_mark_bytes)
+    qint64 bytes_written_this_cycle = 0;
+    while (!data_queue_.empty())
     {
-        LOG_TRACE("buffered data is below low watermark attempting to write more data");
-        auto bytes_written_this_cycle = 0UL;
-        while (audio_sink_->bytesFree() > 0 && !data_queue_.is_empty())
+        auto& next_packet = data_queue_.front();
+        if (!next_packet || next_packet->data.empty())
         {
-            auto packet = data_queue_.try_dequeue();
-            if (packet)
-            {
-                io_device_->write(reinterpret_cast<const char*>(packet->data.data()), static_cast<qint64>(packet->data.size()));
-                bytes_written_this_cycle += packet->data.size();
-                emit spectrum_data_ready(packet);
-            }
+            data_queue_.pop_front();
+            continue;
         }
-        if (bytes_written_this_cycle > 0)
+
+        qint64 packet_size = static_cast<qint64>(next_packet->data.size());
+        if (bytes_to_write >= packet_size)
         {
-            LOG_TRACE("write {} bytes to audio device", bytes_written_this_cycle);
+            io_device_->write(reinterpret_cast<const char*>(next_packet->data.data()), packet_size);
+            bytes_written_this_cycle += packet_size;
+            bytes_to_write -= packet_size;
+            bytes_in_queue_ -= packet_size;
+            data_queue_.pop_front();
         }
         else
         {
-            LOG_TRACE("no data written queue is empty");
+            break;
         }
     }
 
-    const qint64 current_buffered_ms = (bytes_buffered * 1000) / (bytes_per_sec > 0 ? bytes_per_sec : 1);
-    const int new_interval = current_buffered_ms < 1000 ? 50 : 200;
-    if (feed_timer_->interval() != new_interval)
+    if (data_queue_.empty() && decoder_finished_)
     {
-        feed_timer_->setInterval(new_interval);
-        LOG_TRACE("timer interval adjusted to {}ms", new_interval);
-    }
-
-    if (data_queue_.is_empty() && decoder_finished_)
-    {
-        LOG_DEBUG("queue is empty and decoder has finished");
+        LOG_INFO("session {} queue is empty and decoder has finished", session_id_);
         const qint64 final_bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
         if (final_bytes_buffered > 100)
         {
-            const qint64 remaining_ms = (final_bytes_buffered * 1000) / bytes_per_sec;
-            LOG_DEBUG("{} bytes remaining in buffer {}ms scheduling final stop", final_bytes_buffered, remaining_ms);
-            QTimer::singleShot(remaining_ms + 100, this, &audio_player::playback_finished);
+            const qint64 remaining_ms = (final_bytes_buffered * 1000) / default_audio_bytes_second(format_);
+            QTimer::singleShot(remaining_ms + 100, this, [this]() { emit playback_finished(session_id_); });
         }
         else
         {
-            LOG_DEBUG("buffer is empty");
-            emit playback_finished();
+            emit playback_finished(session_id_);
         }
         feed_timer_->stop();
         progress_timer_->stop();
@@ -249,6 +269,8 @@ void audio_player::update_progress_ui()
         return;
     }
 
-    const qint64 processed_ms = audio_sink_->processedUSecs() / 1000;
-    emit progress_update(playback_start_offset_ms_ + processed_ms);
+    const qint64 processed_us = audio_sink_->processedUSecs();
+    const qint64 processed_ms = processed_us / 1000;
+
+    emit progress_update(session_id_, playback_start_offset_ms_ + processed_ms);
 }

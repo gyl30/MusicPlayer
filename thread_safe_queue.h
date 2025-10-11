@@ -55,7 +55,7 @@ class safe_queue
 
    private:
     std::mutex mutex_;
-    uint64_t bytes_size_ = 0;
+    qint64 bytes_size_ = 0;
     std::condition_variable condition_;
     std::deque<std::shared_ptr<audio_packet>> queue_;
 };

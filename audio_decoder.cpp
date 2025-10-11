@@ -31,15 +31,19 @@ audio_decoder::~audio_decoder() { close_audio_context(); }
 
 void audio_decoder::shutdown() { stop_flag_ = true; }
 
-void audio_decoder::seek(qint64 position_ms)
+void audio_decoder::seek(qint64 session_id, qint64 position_ms)
 {
+    seek_session_id_ = session_id;
     seek_position_ms_ = position_ms;
     seek_requested_ = true;
-    LOG_DEBUG("seek requested to {}", seek_position_ms_);
+    LOG_INFO("session {} seek requested to {}ms", seek_session_id_, seek_position_ms_);
 }
 
-void audio_decoder::start_decoding(const QString& file, const QAudioFormat& fmt, qint64 offset)
+void audio_decoder::start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset)
 {
+    session_id_ = session_id;
+    LOG_INFO("session {} received start_decoding request", session_id_);
+
     if (!stop_flag_.load())
     {
         LOG_WARN("decoder is already running stopping previous task first");
@@ -64,9 +68,20 @@ void audio_decoder::start_decoding(const QString& file, const QAudioFormat& fmt,
 
     if (offset > 0)
     {
-        seek(offset);
+        seek(session_id_, offset);
     }
 
+    LOG_INFO("session {} decoder probed file successfully and is now waiting for resume signal", session_id_);
+}
+
+void audio_decoder::resume_decoding()
+{
+    if (stop_flag_)
+    {
+        LOG_WARN("resume decoding requested but decoder is stopped");
+        return;
+    }
+    LOG_INFO("session {} resume signal received starting decoding cycle", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
@@ -92,8 +107,8 @@ void audio_decoder::do_decoding_cycle()
             process_frame(frame_);
         }
 
-        emit packet_ready(nullptr);
-        LOG_DEBUG("end of file");
+        emit packet_ready(session_id_, nullptr);
+        LOG_INFO("session {} end of file reached", session_id_);
         stop_flag_ = true;
         close_audio_context();
         emit decoding_finished();
@@ -140,6 +155,7 @@ void audio_decoder::seek_ffmpeg()
         return;
     }
 
+    qint64 current_seek_id = seek_session_id_;
     qint64 target_pos_ms = seek_position_ms_;
     qint64 seek_target_ts = av_rescale_q(target_pos_ms, {1, 1000}, time_base_);
     int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
@@ -148,14 +164,14 @@ void audio_decoder::seek_ffmpeg()
 
     if (ret >= 0)
     {
-        LOG_DEBUG("seek to {} successful", target_pos_ms);
+        LOG_INFO("session {} seek to {}ms successful", current_seek_id, target_pos_ms);
         avcodec_flush_buffers(codec_ctx_);
-        emit seek_finished(target_pos_ms);
+        emit seek_finished(current_seek_id, target_pos_ms);
     }
     else
     {
-        LOG_WARN("seek to {} failed {}", target_pos_ms, ffmpeg_error_string(ret));
-        emit seek_finished(-1);
+        LOG_WARN("session {} seek to {}ms failed {}", current_seek_id, target_pos_ms, ffmpeg_error_string(ret));
+        emit seek_finished(current_seek_id, -1);
     }
 }
 
@@ -175,13 +191,13 @@ void audio_decoder::process_frame(AVFrame* frame)
     {
         timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
     }
-    LOG_TRACE("data len {} pts {} ms {}", buffer_size, frame->pts, timestamp_ms);
+    LOG_TRACE("session {} decoded packet data len {} pts {} ms {}", session_id_, buffer_size, frame->pts, timestamp_ms);
     if (buffer_size > 0)
     {
         auto packet = std::make_shared<audio_packet>();
         packet->data.assign(swr_data_, swr_data_ + buffer_size);
         packet->ms = timestamp_ms;
-        emit packet_ready(packet);
+        emit packet_ready(session_id_, packet);
     }
 }
 
@@ -303,8 +319,8 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     if (format_ctx_->duration != AV_NOPTS_VALUE)
     {
         qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
-        LOG_INFO("{} audio duration {}", file_path.toStdString(), duration_ms);
-        emit duration_ready(duration_ms, target_format_);
+        LOG_INFO("session {} audio duration {}ms", session_id_, duration_ms);
+        emit duration_ready(session_id_, duration_ms, target_format_);
     }
 
     guard.cancel();

@@ -25,15 +25,16 @@ class audio_decoder : public QObject
     ~audio_decoder() override;
 
    public slots:
-    void start_decoding(const QString& file, const QAudioFormat& fmt, qint64 offset = -1);
+    void start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset = -1);
+    void resume_decoding();
     void shutdown();
-    void seek(qint64 position_ms);
+    void seek(qint64 session_id, qint64 position_ms);
 
    signals:
-    void duration_ready(qint64 duration_ms, const QAudioFormat& format);
-    void packet_ready(const std::shared_ptr<audio_packet>& packet);
+    void duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
+    void packet_ready(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
     void decoding_finished();
-    void seek_finished(qint64 actual_seek_ms);
+    void seek_finished(qint64 session_id, qint64 actual_seek_ms);
     void decoding_error(const QString& error_message);
 
    private slots:
@@ -48,9 +49,11 @@ class audio_decoder : public QObject
    private:
     QString file_path_;
     std::atomic<bool> stop_flag_{true};
+    qint64 session_id_ = 0;
 
     bool seek_requested_ = false;
     qint64 seek_position_ms_ = -1;
+    qint64 seek_session_id_ = 0;
 
     AVFormatContext* format_ctx_ = nullptr;
     AVCodecContext* codec_ctx_ = nullptr;

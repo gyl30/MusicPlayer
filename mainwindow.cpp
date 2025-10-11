@@ -47,6 +47,8 @@ static QAudioFormat default_audio_format()
 
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
+    qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
+
     decoder_thread_ = new QThread(this);
     decoder_ = new audio_decoder();
     decoder_->moveToThread(decoder_thread_);
@@ -173,10 +175,12 @@ void mainwindow::setup_connections()
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
 
     connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::start_decoding);
+    connect(this, &mainwindow::request_resume_decoding, decoder_, &audio_decoder::resume_decoding, Qt::QueuedConnection);
     connect(this, &mainwindow::request_stop_decoding, decoder_, &audio_decoder::shutdown, Qt::QueuedConnection);
     connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek, Qt::QueuedConnection);
 
     connect(decoder_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::packet_ready, this, &mainwindow::on_packet_from_decoder, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::seek_finished, this, &mainwindow::on_seek_finished, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::decoding_error, this, &mainwindow::on_decoding_error, Qt::QueuedConnection);
 
@@ -198,8 +202,10 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 
     stop_playback();
 
+    current_session_id_ = ++session_id_counter_;
     current_playing_file_path_ = item->data(Qt::UserRole).toString();
-    emit request_decoding(current_playing_file_path_, default_audio_format(), -1);
+    LOG_INFO("session {} starting new playback for file {}", current_session_id_, current_playing_file_path_.toStdString());
+    emit request_decoding(current_session_id_, current_playing_file_path_, default_audio_format(), -1);
 
     auto* list = item->listWidget();
     if (list != nullptr)
@@ -220,8 +226,9 @@ void mainwindow::stop_playback()
         return;
     }
 
-    LOG_DEBUG("stopping playback");
+    LOG_INFO("session {} stopping playback", current_session_id_);
     is_playing_ = false;
+    current_session_id_ = 0;    // Invalidate session ID on stop
 
     emit request_stop_decoding();
 
@@ -239,9 +246,15 @@ void mainwindow::stop_playback()
     pending_seek_ms_ = -1;
 }
 
-void mainwindow::on_duration_ready(qint64 duration_ms, const QAudioFormat& format)
+void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format)
 {
-    LOG_DEBUG("decoder ready duration {}ms starting audio pipeline", duration_ms);
+    if (session_id != current_session_id_)
+    {
+        LOG_WARN("session {} ignoring duration_ready for obsolete session current is {}", session_id, current_session_id_);
+        return;
+    }
+
+    LOG_INFO("session {} decoder ready duration {}ms creating player", session_id, duration_ms);
     total_duration_ms_ = duration_ms;
     progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
     time_label_->setText(QString("00:00 / %1").arg(format_time(total_duration_ms_)));
@@ -252,24 +265,61 @@ void mainwindow::on_duration_ready(qint64 duration_ms, const QAudioFormat& forma
     player_ = new audio_player();
     player_->moveToThread(player_thread_);
 
-    connect(decoder_, &audio_decoder::packet_ready, player_, &audio_player::enqueue_packet, Qt::QueuedConnection);
-
     connect(player_, &audio_player::progress_update, this, &mainwindow::on_progress_update, Qt::QueuedConnection);
-    connect(player_, &audio_player::spectrum_data_ready, this, &mainwindow::on_spectrum_data_ready, Qt::QueuedConnection);
     connect(player_, &audio_player::playback_finished, this, &mainwindow::on_playback_finished, Qt::QueuedConnection);
+    connect(player_, &audio_player::playback_ready, this, &mainwindow::on_player_ready, Qt::QueuedConnection);
+    connect(player_, &audio_player::playback_error, this, &mainwindow::on_player_error, Qt::QueuedConnection);
 
     connect(player_thread_, &QThread::finished, player_, &QObject::deleteLater);
     player_thread_->start();
     player_thread_->setPriority(QThread::TimeCriticalPriority);
 
-    QMetaObject::invokeMethod(player_, "start_playback", Qt::QueuedConnection, Q_ARG(QAudioFormat, format), Q_ARG(qint64, 0));
-
-    is_playing_ = true;
-    spectrum_widget_->start_playback();
+    LOG_DEBUG("session {} requesting player to prepare for playback", session_id);
+    QMetaObject::invokeMethod(
+        player_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(QAudioFormat, format), Q_ARG(qint64, 0));
 }
 
-void mainwindow::on_progress_update(qint64 current_ms)
+void mainwindow::on_player_ready(qint64 session_id)
 {
+    if (session_id != current_session_id_)
+    {
+        LOG_WARN("session {} ignoring player_ready for obsolete session current is {}", session_id, current_session_id_);
+        return;
+    }
+    LOG_INFO("session {} player is ready requesting decoder to resume", session_id);
+    is_playing_ = true;
+    spectrum_widget_->start_playback();
+    emit request_resume_decoding();
+}
+
+void mainwindow::on_player_error(const QString& error_message)
+{
+    QMessageBox::critical(this, "播放错误", error_message);
+    stop_playback();
+}
+
+void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
+{
+    if (session_id != current_session_id_ && packet != nullptr)    // Allow nullptr (EOF) from old sessions to pass to avoid hang
+    {
+        // Don't log here to avoid spam. The check is sufficient.
+        return;
+    }
+
+    if (player_ != nullptr)
+    {
+        QMetaObject::invokeMethod(
+            player_, "enqueue_packet", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
+    }
+    spectrum_widget_->enqueue_packet(packet);
+}
+
+void mainwindow::on_progress_update(qint64 session_id, qint64 current_ms)
+{
+    if (session_id != current_session_id_ || !is_playing_)
+    {
+        return;
+    }
     if (!is_slider_pressed_)
     {
         progress_slider_->setValue(static_cast<int>(current_ms));
@@ -277,11 +327,14 @@ void mainwindow::on_progress_update(qint64 current_ms)
     time_label_->setText(QString("%1 / %2").arg(format_time(current_ms)).arg(format_time(total_duration_ms_)));
 }
 
-void mainwindow::on_spectrum_data_ready(const std::shared_ptr<audio_packet>& packet) { spectrum_widget_->enqueue_packet(packet); }
-
-void mainwindow::on_playback_finished()
+void mainwindow::on_playback_finished(qint64 session_id)
 {
-    LOG_DEBUG("playback finished stopping");
+    if (session_id != current_session_id_)
+    {
+        LOG_INFO("session {} ignoring playback_finished for obsolete session current is {}", session_id, current_session_id_);
+        return;
+    }
+    LOG_INFO("session {} playback finished stopping", session_id);
     stop_playback();
 }
 
@@ -303,58 +356,64 @@ void mainwindow::on_seek_requested()
 
     if (is_seeking_)
     {
-        LOG_DEBUG("seek is busy pending new request to {}ms", position_ms);
+        LOG_INFO("session {} seek is busy pending new request to {}ms", current_session_id_, position_ms);
         pending_seek_ms_ = position_ms;
         return;
     }
 
-    LOG_DEBUG("starting seek to {}ms", position_ms);
+    LOG_INFO("session {} starting seek to {}ms", current_session_id_, position_ms);
     is_seeking_ = true;
 
     if (player_ != nullptr)
     {
-        QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
     }
 
-    emit request_seek(position_ms);
+    emit request_seek(current_session_id_, position_ms);
 }
 
-void mainwindow::on_seek_finished(qint64 actual_seek_ms)
+void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
 {
+    if (session_id != current_session_id_)
+    {
+        LOG_WARN("session {} ignoring seek_finished for obsolete session current is {}", session_id, current_session_id_);
+        return;
+    }
+
     if (actual_seek_ms < 0)
     {
-        LOG_WARN("seek failed resuming playback");
+        LOG_WARN("session {} seek failed resuming playback", session_id);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
         if (player_ != nullptr)
         {
-            QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection);
+            QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
         }
-        on_progress_update(progress_slider_->value());
+        on_progress_update(session_id, progress_slider_->value());
         return;
     }
 
-    LOG_DEBUG("seek finished at {}ms notifying player", actual_seek_ms);
+    LOG_INFO("session {} seek finished at {}ms notifying player", session_id, actual_seek_ms);
 
     if (player_ != nullptr)
     {
         spectrum_widget_->start_playback(actual_seek_ms);
-        QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, actual_seek_ms));
+        QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
     }
 
     if (pending_seek_ms_ != -1)
     {
-        LOG_DEBUG("pending seek found to {}ms starting it now", pending_seek_ms_);
+        LOG_INFO("session {} pending seek found to {}ms starting it now", session_id, pending_seek_ms_);
         qint64 new_seek_pos = pending_seek_ms_;
         pending_seek_ms_ = -1;
-        emit request_seek(new_seek_pos);
+        emit request_seek(session_id, new_seek_pos);
         return;
     }
 
     is_seeking_ = false;
     if (player_ != nullptr)
     {
-        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
     }
 }
 

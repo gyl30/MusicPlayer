@@ -5,6 +5,7 @@
 #include <QAudioFormat>
 #include <QTimer>
 #include <QListWidgetItem>
+#include <atomic>
 
 class QCloseEvent;
 class QKeyEvent;
@@ -32,11 +33,10 @@ class mainwindow : public QMainWindow
     ~mainwindow() override;
 
    signals:
-    void request_decoding(const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms);
+    void request_decoding(qint64 session_id, const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms);
+    void request_resume_decoding();
     void request_stop_decoding();
-    void request_seek(qint64 position_ms);
-
-    void packet_ready_for_player(const std::shared_ptr<audio_packet>& packet);
+    void request_seek(qint64 session_id, qint64 position_ms);
 
    private slots:
     void finish_playlist_edit();
@@ -51,13 +51,15 @@ class mainwindow : public QMainWindow
     void on_progress_slider_moved(int position);
     void on_seek_requested();
 
-    void on_duration_ready(qint64 duration_ms, const QAudioFormat& format);
-    void on_seek_finished(qint64 actual_seek_ms);
+    void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
+    void on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
+    void on_seek_finished(qint64 session_id, qint64 actual_seek_ms);
     void on_decoding_error(const QString& error_message);
 
-    void on_progress_update(qint64 current_ms);
-    void on_spectrum_data_ready(const std::shared_ptr<audio_packet>& packet);
-    void on_playback_finished();
+    void on_player_ready(qint64 session_id);
+    void on_player_error(const QString& error_message);
+    void on_progress_update(qint64 session_id, qint64 current_ms);
+    void on_playback_finished(qint64 session_id);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -97,6 +99,9 @@ class mainwindow : public QMainWindow
     bool is_slider_pressed_ = false;
     QString playlist_path_;
     QString current_playing_file_path_;
+
+    std::atomic<qint64> session_id_counter_{0};
+    qint64 current_session_id_ = 0;
 
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
