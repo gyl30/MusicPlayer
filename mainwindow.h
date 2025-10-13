@@ -96,6 +96,7 @@ class mainwindow : public QMainWindow
     audio_player* player_ = nullptr;
 
     bool is_playing_ = false;
+    bool is_media_loaded_ = false;
     qint64 total_duration_ms_ = 0;
     bool is_slider_pressed_ = false;
     QString playlist_path_;

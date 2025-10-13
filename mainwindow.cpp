@@ -89,6 +89,11 @@ void mainwindow::cleanup_player()
 {
     if (player_thread_ != nullptr)
     {
+        if (player_ != nullptr)
+        {
+            QMetaObject::invokeMethod(player_, "stop_playback", Qt::BlockingQueuedConnection);
+        }
+
         player_thread_->quit();
         player_thread_->wait();
         player_thread_->deleteLater();
@@ -221,13 +226,14 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 
 void mainwindow::stop_playback()
 {
-    if (!is_playing_)
+    if (!is_media_loaded_)
     {
         return;
     }
 
-    LOG_INFO("session {} stopping playback", current_session_id_);
+    LOG_INFO("session {} stopping playback and cleaning up resources", current_session_id_);
     is_playing_ = false;
+    is_media_loaded_ = false;
 
     buffered_bytes_ = 0;
     decoder_is_waiting_ = false;
@@ -235,10 +241,7 @@ void mainwindow::stop_playback()
 
     emit request_stop_decoding();
 
-    if (player_ != nullptr)
-    {
-        QMetaObject::invokeMethod(player_, "stop_playback", Qt::QueuedConnection);
-    }
+    cleanup_player();
 
     spectrum_widget_->stop_playback();
     progress_slider_->setValue(0);
@@ -261,6 +264,8 @@ void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const 
     total_duration_ms_ = duration_ms;
     progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
     time_label_->setText(QString("00:00 / %1").arg(format_time(total_duration_ms_)));
+
+    is_media_loaded_ = true;
 
     cleanup_player();
 
@@ -334,7 +339,7 @@ void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr
         }
         else
         {
-            LOG_TRACE("session {} buffer is full ({} bytes), decoder now waiting.", session_id, buffered_bytes_.load());
+            LOG_TRACE("session {} buffer is full {} bytes decoder now waiting", session_id, buffered_bytes_.load());
             decoder_is_waiting_ = true;
         }
     }
@@ -352,7 +357,7 @@ void mainwindow::on_packet_for_spectrum(const std::shared_ptr<audio_packet>& pac
         {
             if (buffered_bytes_ < buffer_high_water_mark_)
             {
-                LOG_TRACE("session {} buffer has space ({} bytes), waking up decoder.", current_session_id_, buffered_bytes_.load());
+                LOG_TRACE("session {} buffer has space {} bytes waking up decoder", current_session_id_, buffered_bytes_.load());
                 decoder_is_waiting_ = false;
                 emit request_resume_decoding();
             }
@@ -380,8 +385,15 @@ void mainwindow::on_playback_finished(qint64 session_id)
         LOG_INFO("session {} ignoring playback_finished for obsolete session current is {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("session {} playback finished stopping", session_id);
-    stop_playback();
+    LOG_INFO("session {} playback finished, now paused at end", session_id);
+
+    is_playing_ = false;
+
+    if (total_duration_ms_ > 0)
+    {
+        progress_slider_->setValue(static_cast<int>(total_duration_ms_));
+        time_label_->setText(QString("%1 / %2").arg(format_time(total_duration_ms_)).arg(format_time(total_duration_ms_)));
+    }
 }
 
 void mainwindow::on_decoding_error(const QString& error_message)
@@ -393,7 +405,7 @@ void mainwindow::on_decoding_error(const QString& error_message)
 void mainwindow::on_seek_requested()
 {
     is_slider_pressed_ = false;
-    if (!is_playing_)
+    if (!is_media_loaded_)
     {
         return;
     }
@@ -431,7 +443,7 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
         LOG_WARN("session {} seek failed resuming playback", session_id);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
-        if (player_ != nullptr)
+        if (is_playing_ && player_ != nullptr)
         {
             QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
         }
@@ -460,6 +472,9 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
     }
 
     is_seeking_ = false;
+
+    is_playing_ = true;
+
     if (player_ != nullptr)
     {
         QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
@@ -629,7 +644,7 @@ void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
             &QAction::triggered,
             [this, current_list]()
             {
-                bool is_playing_item_deleted = is_playing_ && current_list->selectedItems().contains(current_list->currentItem());
+                bool is_playing_item_deleted = is_media_loaded_ && current_list->selectedItems().contains(current_list->currentItem());
                 for (QListWidgetItem* item : current_list->selectedItems())
                 {
                     delete current_list->takeItem(current_list->row(item));

@@ -61,7 +61,7 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     if (io_device_ == nullptr)
     {
         LOG_ERROR("failed to start sink io device playback will not start");
-        emit playback_error("Failed to start audio sink device.");
+        emit playback_error("failed to start audio sink device");
         return;
     }
     LOG_INFO("audio sink started successfully");
@@ -132,6 +132,7 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     }
     LOG_INFO("session {} handling seek to {}ms", session_id_, actual_seek_ms);
     playback_start_offset_ms_ = actual_seek_ms;
+
     decoder_finished_ = false;
 
     data_queue_.clear();

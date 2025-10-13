@@ -108,10 +108,7 @@ void audio_decoder::do_decoding_cycle()
         if (receive_ret == AVERROR_EOF)
         {
             emit packet_ready(session_id_, nullptr);
-            LOG_INFO("session {} end of file reached", session_id_);
-            stop_flag_ = true;
-            close_audio_context();
-            emit decoding_finished();
+            LOG_INFO("session {} end of file reached, decoder is now idle", session_id_);
             return;
         }
 
@@ -147,6 +144,13 @@ void audio_decoder::do_seek()
 {
     if (!seek_requested_)
     {
+        return;
+    }
+
+    if (format_ctx_ == nullptr)
+    {
+        LOG_WARN("session {} seek ignored because audio context is not open", seek_session_id_);
+        emit seek_finished(seek_session_id_, -1);
         return;
     }
 

@@ -5,7 +5,6 @@
 #include <QAudioFormat>
 #include <atomic>
 #include <memory>
-#include <vector>
 #include "audio_packet.h"
 extern "C"
 {
