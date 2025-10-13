@@ -36,7 +36,8 @@ void audio_decoder::seek(qint64 session_id, qint64 position_ms)
     seek_session_id_ = session_id;
     seek_position_ms_ = position_ms;
     seek_requested_ = true;
-    LOG_INFO("session {} seek requested to {}ms", seek_session_id_, seek_position_ms_);
+    LOG_INFO("session {} queuing seek request to {}ms", seek_session_id_, seek_position_ms_);
+    QMetaObject::invokeMethod(this, "do_seek", Qt::QueuedConnection);
 }
 
 void audio_decoder::start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset)
@@ -94,8 +95,6 @@ void audio_decoder::do_decoding_cycle()
         return;
     }
 
-    seek_ffmpeg();
-
     while (!stop_flag_)
     {
         int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
@@ -144,7 +143,7 @@ void audio_decoder::do_decoding_cycle()
     }
 }
 
-void audio_decoder::seek_ffmpeg()
+void audio_decoder::do_seek()
 {
     if (!seek_requested_)
     {

@@ -38,13 +38,13 @@ class audio_decoder : public QObject
     void decoding_error(const QString& error_message);
 
    private slots:
+    void do_seek();
     void do_decoding_cycle();
 
    private:
     bool open_audio_context(const QString& file_path);
     void close_audio_context();
     void process_frame(AVFrame* frame);
-    void seek_ffmpeg();
 
    private:
     QString file_path_;
