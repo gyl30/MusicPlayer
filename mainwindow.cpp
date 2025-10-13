@@ -272,7 +272,7 @@ void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const 
     buffered_bytes_ = 0;
     decoder_is_waiting_ = false;
     buffer_high_water_mark_ = 5L * format.bytesPerFrame() * format.sampleRate();
-    LOG_INFO("session {} buffer high water mark set to {} bytes (5 seconds)", session_id, buffer_high_water_mark_);
+    LOG_INFO("session {} buffer high water mark set to {} bytes 5 seconds", session_id, buffer_high_water_mark_);
 
     player_thread_ = new QThread(this);
     player_ = new audio_player();
@@ -385,9 +385,11 @@ void mainwindow::on_playback_finished(qint64 session_id)
         LOG_INFO("session {} ignoring playback_finished for obsolete session current is {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("session {} playback finished, now paused at end", session_id);
+    LOG_INFO("session {} playback finished now paused at end", session_id);
 
+    // 音乐播放结束，不清理资源，只更新状态
     is_playing_ = false;
+    spectrum_widget_->stop_playback();
 
     if (total_duration_ms_ > 0)
     {
@@ -422,6 +424,7 @@ void mainwindow::on_seek_requested()
     LOG_INFO("session {} starting seek to {}ms", current_session_id_, position_ms);
     is_seeking_ = true;
 
+    // 暂停播放，准备接收新的 seek 位置
     if (player_ != nullptr)
     {
         QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
@@ -443,11 +446,27 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
         LOG_WARN("session {} seek failed resuming playback", session_id);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
+        // 如果 seek 失败，只有在之前是播放状态时才恢复喂食
         if (is_playing_ && player_ != nullptr)
         {
             QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
         }
         on_progress_update(session_id, progress_slider_->value());
+        return;
+    }
+
+    // 如果 seek 的实际结果非常接近文件末尾，直接转换到播放结束状态
+    if (total_duration_ms_ > 0 && total_duration_ms_ - actual_seek_ms < 250)
+    {
+        LOG_INFO("session {} seek result is at the end, transitioning to finished state", session_id);
+        is_seeking_ = false;
+
+        if (player_ != nullptr)
+        {
+            QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
+        }
+
+        on_playback_finished(session_id);
         return;
     }
 
