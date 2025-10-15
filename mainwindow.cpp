@@ -31,6 +31,8 @@
 #include "audio_decoder.h"
 #include "spectrum_widget.h"
 
+const static auto kBufferHighWatermarkSeconds = 5L;
+
 static QString format_time(qint64 time_ms)
 {
     int total_seconds = static_cast<int>(time_ms) / 1000;
@@ -330,8 +332,9 @@ void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const 
 
     buffered_bytes_ = 0;
     decoder_is_waiting_ = false;
-    buffer_high_water_mark_ = 5L * format.bytesPerFrame() * format.sampleRate();
-    LOG_INFO("session {} buffer high water mark set to {} bytes 5 seconds", session_id, buffer_high_water_mark_);
+
+    buffer_high_water_mark_ = kBufferHighWatermarkSeconds * format.bytesPerFrame() * format.sampleRate();
+    LOG_INFO("session {} buffer high water mark set to {} bytes {} seconds", session_id, buffer_high_water_mark_, kBufferHighWatermarkSeconds);
 
     player_thread_ = new QThread(this);
     player_ = new audio_player();

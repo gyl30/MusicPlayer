@@ -6,6 +6,8 @@
 #include "scoped_exit.h"
 #include "audio_player.h"
 
+constexpr int kFeedIntervalMs = 50;
+constexpr int kProgressUpdateIntervalMs = 250;
 constexpr auto kAudioBufferDurationSeconds = 2L;
 constexpr auto kQueueBufferDurationSeconds = 5L;
 
@@ -21,7 +23,7 @@ audio_player::audio_player(QObject* parent) : QObject(parent)
     connect(feed_timer_, &QTimer::timeout, this, &audio_player::feed_audio_device);
 
     progress_timer_ = new QTimer(this);
-    progress_timer_->setInterval(250);
+    progress_timer_->setInterval(kProgressUpdateIntervalMs);
     connect(progress_timer_, &QTimer::timeout, this, &audio_player::update_progress_ui);
 }
 
@@ -55,6 +57,7 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format_, this);
     auto buffer_size = default_audio_bytes_second(format_) * kAudioBufferDurationSeconds;
     audio_sink_->setBufferSize(buffer_size);
+    connect(audio_sink_, &QAudioSink::stateChanged, this, &audio_player::on_sink_state_changed);
     LOG_DEBUG("audio sink created with a buffer size of {} bytes {} seconds", buffer_size, kAudioBufferDurationSeconds);
 
     io_device_ = audio_sink_->start();
@@ -68,7 +71,7 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
 
     is_playing_ = true;
 
-    feed_timer_->start(50);
+    feed_timer_->start(kFeedIntervalMs);
     progress_timer_->start();
     LOG_INFO("session {} all timers started at {}", session_id_, QDateTime::currentMSecsSinceEpoch());
 
@@ -158,6 +161,7 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
         else
         {
             LOG_DEBUG("audio sink restarted successfully after seek");
+            is_playing_ = true;
         }
     }
 }
@@ -182,7 +186,7 @@ void audio_player::resume_feeding(qint64 session_id)
     if (is_playing_)
     {
         LOG_INFO("session {} resuming data feeding", session_id_);
-        feed_timer_->start(50);
+        feed_timer_->start(kFeedIntervalMs);
         progress_timer_->start();
     }
 }
@@ -282,21 +286,8 @@ void audio_player::feed_audio_device()
 
     if (data_queue_.empty() && decoder_finished_)
     {
-        LOG_INFO("session {} queue is empty and decoder has finished checking for playback end", session_id_);
-        const qint64 final_bytes_buffered = audio_sink_->bufferSize() - audio_sink_->bytesFree();
-        if (final_bytes_buffered > 100)
-        {
-            const qint64 remaining_ms = (final_bytes_buffered * 1000) / default_audio_bytes_second(format_);
-            LOG_INFO("session {} {} bytes remaining in buffer ({}ms) scheduling final stop", session_id_, final_bytes_buffered, remaining_ms);
-            QTimer::singleShot(remaining_ms + 100, this, [this]() { emit playback_finished(session_id_); });
-        }
-        else
-        {
-            LOG_INFO("session {} buffer is empty playback finished", session_id_);
-            emit playback_finished(session_id_);
-        }
+        LOG_INFO("session {} queue is empty and decoder has finished, waiting for sink to go idle", session_id_);
         feed_timer_->stop();
-        progress_timer_->stop();
     }
 }
 
@@ -313,4 +304,19 @@ void audio_player::update_progress_ui()
     LOG_DEBUG("session {} progress update processed_us {} total_ms {}", session_id_, processed_us, playback_start_offset_ms_ + processed_ms);
 
     emit progress_update(session_id_, playback_start_offset_ms_ + processed_ms);
+}
+
+void audio_player::on_sink_state_changed(QAudio::State state)
+{
+    if (state == QAudio::IdleState)
+    {
+        if (is_playing_ && decoder_finished_ && data_queue_.empty())
+        {
+            LOG_INFO("session {} sink is idle and decoder is finished, playback has truly ended", session_id_);
+            is_playing_ = false;
+            feed_timer_->stop();
+            progress_timer_->stop();
+            emit playback_finished(session_id_);
+        }
+    }
 }

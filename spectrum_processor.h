@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <deque>
 #include <QTimer>
 #include <QObject>
 #include <QElapsedTimer>
@@ -39,7 +40,7 @@ class spectrum_processor : public QObject
     std::vector<double> prev_magnitudes_;
     std::vector<double> target_magnitudes_;
 
-    std::vector<std::shared_ptr<audio_packet>> packet_queue_;
+    std::deque<std::shared_ptr<audio_packet>> packet_queue_;
 };
 
 #endif

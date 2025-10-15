@@ -84,7 +84,7 @@ void spectrum_processor::on_render_timeout()
 
     while (packet_queue_.size() >= 2 && current_playback_time >= packet_queue_[1]->ms)
     {
-        packet_queue_.erase(packet_queue_.begin());
+        packet_queue_.pop_front();
     }
 
     if (packet_queue_.empty())

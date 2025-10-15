@@ -1,10 +1,10 @@
 #ifndef AUDIO_PLAYER_H
 #define AUDIO_PLAYER_H
 
+#include <deque>
+#include <QTimer>
 #include <QObject>
 #include <QAudioSink>
-#include <QTimer>
-#include <deque>
 #include "audio_packet.h"
 
 class audio_player : public QObject
@@ -33,6 +33,7 @@ class audio_player : public QObject
    private slots:
     void feed_audio_device();
     void update_progress_ui();
+    void on_sink_state_changed(QAudio::State state);
 
    private:
     QAudioFormat format_;
