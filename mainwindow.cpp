@@ -194,7 +194,7 @@ void mainwindow::setup_ui()
     auto* left_mgmt_splitter = new QSplitter(Qt::Vertical);
     mgmt_source_playlists_ = new QListWidget();
     mgmt_source_songs_ = new QListWidget();
-    mgmt_source_songs_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    mgmt_source_songs_->setSelectionMode(QAbstractItemView::NoSelection);
     left_mgmt_splitter->addWidget(mgmt_source_playlists_);
     left_mgmt_splitter->addWidget(mgmt_source_songs_);
 
@@ -675,7 +675,7 @@ void mainwindow::on_playlist_button_clicked()
         finish_playlist_edit();
     }
     auto* button = qobject_cast<QPushButton*>(sender());
-    if (button)
+    if (button != nullptr)
     {
         QString id = button->property("playlist_id").toString();
         switch_to_playlist(id);
@@ -945,6 +945,10 @@ void mainwindow::update_management_source_songs(QListWidgetItem* item)
             QListWidgetItem* song_item = source_list->item(i);
             auto* new_item = new QListWidgetItem(song_item->text());
             new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
+
+            new_item->setFlags(new_item->flags() | Qt::ItemIsUserCheckable);
+            new_item->setCheckState(Qt::Unchecked);
+
             mgmt_source_songs_->addItem(new_item);
         }
     }
@@ -974,12 +978,21 @@ void mainwindow::update_management_dest_songs(QListWidgetItem* item)
 
 void mainwindow::add_selected_songs_to_playlist()
 {
-    QList<QListWidgetItem*> selected_songs = mgmt_source_songs_->selectedItems();
+    QList<QListWidgetItem*> checked_songs;
+    for (int i = 0; i < mgmt_source_songs_->count(); ++i)
+    {
+        QListWidgetItem* item = mgmt_source_songs_->item(i);
+        if (item != nullptr && item->checkState() == Qt::Checked)
+        {
+            checked_songs.append(item);
+        }
+    }
+
     QListWidgetItem* dest_playlist_item = mgmt_dest_playlists_->currentItem();
 
-    if (selected_songs.isEmpty() || dest_playlist_item == nullptr)
+    if (checked_songs.isEmpty() || dest_playlist_item == nullptr)
     {
-        LOG_WARN("add songs failed no songs selected or no destination playlist selected");
+        LOG_WARN("add songs failed: no songs checked or no destination playlist selected");
         return;
     }
 
@@ -992,13 +1005,18 @@ void mainwindow::add_selected_songs_to_playlist()
         return;
     }
 
-    for (QListWidgetItem* song_item : selected_songs)
+    for (QListWidgetItem* song_item : std::as_const(checked_songs))
     {
         auto* new_item = new QListWidgetItem(song_item->text());
         new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
         target_list_widget->addItem(new_item);
     }
-    LOG_INFO("added {} songs to playlist {}", selected_songs.count(), dest_playlist_item->text().toStdString());
+    LOG_INFO("added {} songs to playlist {}", checked_songs.count(), dest_playlist_item->text().toStdString());
+
+    for (QListWidgetItem* song_item : std::as_const(checked_songs))
+    {
+        song_item->setCheckState(Qt::Unchecked);
+    }
 
     update_management_dest_songs(dest_playlist_item);
 }
