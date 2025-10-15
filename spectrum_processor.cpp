@@ -19,7 +19,7 @@ static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_pack
     }
 
     std::vector<double> fft_input(fft_size);
-    for (int i = 0; i < fft_size; ++i)
+    for (size_t i = 0; i < fft_size; ++i)
     {
         fft_input[i] = static_cast<double>(pcm_data[i]) / 32768.0;
     }

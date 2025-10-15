@@ -5,7 +5,6 @@
 #include <QAudioFormat>
 #include <atomic>
 #include <memory>
-#include "audio_packet.h"
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -14,6 +13,8 @@ extern "C"
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 }
+
+#include "audio_packet.h"
 
 class audio_decoder : public QObject
 {

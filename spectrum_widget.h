@@ -1,10 +1,9 @@
 #ifndef SPECTRUM_WIDGET_H
 #define SPECTRUM_WIDGET_H
 
-#include <QWidget>
 #include <vector>
 #include <memory>
-#include <QMutex>
+#include <QWidget>
 #include "audio_packet.h"
 
 class QThread;
@@ -32,10 +31,8 @@ class spectrum_widget : public QWidget
    private:
     QThread* spectrum_thread_;
     spectrum_processor* processor_;
-
     double dynamic_min_db_ = 100.0;
     double dynamic_max_db_ = 0.0;
-
     std::vector<double> display_magnitudes_;
 };
 

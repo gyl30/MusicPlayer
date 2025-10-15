@@ -1,13 +1,12 @@
 #ifndef MAIN_WINDOW_H
 #define MAIN_WINDOW_H
 
-#pragma once
-
 #include <QMainWindow>
 #include <QAudioFormat>
 #include <QTimer>
 #include <QListWidgetItem>
 #include <atomic>
+#include <QMap>
 
 class QCloseEvent;
 class QKeyEvent;
@@ -18,7 +17,6 @@ class QListWidget;
 class QStackedWidget;
 class QVBoxLayout;
 class QPushButton;
-class QButtonGroup;
 class QLineEdit;
 class QThread;
 class QSplitter;
@@ -27,6 +25,14 @@ class spectrum_widget;
 class audio_decoder;
 class audio_player;
 struct audio_packet;
+
+struct playlist
+{
+    QString id;
+    QString name;
+    QPushButton* button = nullptr;
+    QListWidget* widget = nullptr;
+};
 
 class mainwindow : public QMainWindow
 {
@@ -46,9 +52,9 @@ class mainwindow : public QMainWindow
     void finish_playlist_edit();
     void on_playlist_context_menu_requested(const QPoint& pos);
     void on_nav_button_context_menu_requested(const QPoint& pos);
-    void on_playlist_button_clicked(int id);
+    void on_playlist_button_clicked();
     void add_new_playlist();
-    void delete_playlist(int index);
+    void delete_playlist(const QString& id);
 
     void on_list_double_clicked(QListWidgetItem* item);
     void stop_playback();
@@ -82,12 +88,13 @@ class mainwindow : public QMainWindow
     void setup_ui();
     void setup_connections();
     void cleanup_player();
-    void create_new_playlist(const QString& name, bool is_loading = false);
+    void create_new_playlist(const QString& name, bool is_loading = false, const QString& id = QString());
+    void switch_to_playlist(const QString& id);
 
     void load_playlist();
     void save_playlist();
 
-    [[nodiscard]] QListWidget* get_list_widget_by_index(int index) const;
+    [[nodiscard]] QListWidget* get_list_widget_by_id(const QString& id) const;
     [[nodiscard]] QListWidget* current_song_list_widget() const;
 
    private:
@@ -98,9 +105,11 @@ class mainwindow : public QMainWindow
     QVBoxLayout* playlist_nav_layout_ = nullptr;
     QPushButton* add_playlist_button_ = nullptr;
     QPushButton* management_button_ = nullptr;
-    QButtonGroup* playlist_button_group_ = nullptr;
     QLineEdit* currently_editing_ = nullptr;
     QFrame* nav_separator_ = nullptr;
+
+    QMap<QString, playlist> playlists_;
+    QString current_playlist_id_;
 
     QStackedWidget* playlist_stack_ = nullptr;
     spectrum_widget* spectrum_widget_ = nullptr;

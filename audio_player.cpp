@@ -1,10 +1,10 @@
-#include <QMediaDevices>
 #include <QDateTime>
 #include <QMetaObject>
+#include <QMediaDevices>
 
 #include "log.h"
-#include "audio_player.h"
 #include "scoped_exit.h"
+#include "audio_player.h"
 
 constexpr auto kAudioBufferDurationSeconds = 2L;
 constexpr auto kQueueBufferDurationSeconds = 5L;

@@ -1,9 +1,9 @@
-#include <QPainter>
-#include <QPaintEvent>
-#include <QThread>
-#include <QMetaObject>
-#include <algorithm>
 #include <cmath>
+#include <QThread>
+#include <QPainter>
+#include <algorithm>
+#include <QPaintEvent>
+#include <QMetaObject>
 #include "spectrum_widget.h"
 #include "spectrum_processor.h"
 

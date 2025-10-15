@@ -1,11 +1,12 @@
 #ifndef SPECTRUM_PROCESSOR_H
 #define SPECTRUM_PROCESSOR_H
 
-#include <QObject>
 #include <vector>
 #include <memory>
 #include <QTimer>
+#include <QObject>
 #include <QElapsedTimer>
+
 #include "audio_packet.h"
 
 class spectrum_processor : public QObject
