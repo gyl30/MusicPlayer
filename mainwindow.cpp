@@ -1,32 +1,33 @@
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QPushButton>
-#include <QStackedWidget>
-#include <QButtonGroup>
-#include <QSlider>
-#include <QLabel>
-#include <QListWidget>
-#include <QSplitter>
-#include <QLineEdit>
-#include <QMouseEvent>
-#include <QApplication>
-#include <QFileDialog>
-#include <QMediaDevices>
-#include <QStandardPaths>
-#include <QDir>
-#include <QFile>
-#include <QTextStream>
-#include <QCloseEvent>
-#include <QKeyEvent>
-#include <QMenu>
-#include <QMessageBox>
-#include <QThread>
-
-#include "log.h"
 #include "mainwindow.h"
 #include "audio_decoder.h"
 #include "audio_player.h"
+#include "log.h"
 #include "spectrum_widget.h"
+#include <QApplication>
+#include <QButtonGroup>
+#include <QCloseEvent>
+#include <QDir>
+#include <QEvent>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMediaDevices>
+#include <QMenu>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPushButton>
+#include <QSlider>
+#include <QSplitter>
+#include <QStackedWidget>
+#include <QStandardPaths>
+#include <QTextStream>
+#include <QThread>
+#include <QVBoxLayout>
 
 static QString format_time(qint64 time_ms)
 {
@@ -138,18 +139,33 @@ bool mainwindow::eventFilter(QObject* watched, QEvent* event)
 
 void mainwindow::setup_ui()
 {
+    player_view_widget_ = new QWidget();
+    auto* player_view_layout = new QHBoxLayout(player_view_widget_);
+    player_view_layout->setContentsMargins(0, 0, 0, 0);
+    player_view_layout->setSpacing(0);
+
     auto* nav_container = new QWidget();
     nav_container->setObjectName("navContainer");
+    nav_container->setMaximumWidth(200);
     playlist_nav_layout_ = new QVBoxLayout(nav_container);
     playlist_nav_layout_->setSpacing(5);
+
+    nav_separator_ = new QFrame();
+    nav_separator_->setFrameShape(QFrame::HLine);
+    nav_separator_->setFrameShadow(QFrame::Sunken);
+    playlist_nav_layout_->addWidget(nav_separator_);
+
+    management_button_ = new QPushButton("音乐管理");
+    management_button_->setObjectName("managementButton");
+    playlist_nav_layout_->addWidget(management_button_);
 
     add_playlist_button_ = new QPushButton("+ 新建播放列表");
     add_playlist_button_->setObjectName("addButton");
     playlist_nav_layout_->addWidget(add_playlist_button_);
     playlist_nav_layout_->addStretch();
 
+    auto* player_content_splitter = new QSplitter(Qt::Horizontal);
     playlist_stack_ = new QStackedWidget();
-
     auto* right_column_widget = new QWidget();
     auto* right_column_layout = new QVBoxLayout(right_column_widget);
     spectrum_widget_ = new spectrum_widget;
@@ -161,23 +177,68 @@ void mainwindow::setup_ui()
     right_column_layout->addWidget(spectrum_widget_);
     right_column_layout->addLayout(progress_layout);
 
-    auto* main_splitter = new QSplitter(Qt::Horizontal);
-    main_splitter->addWidget(nav_container);
-    main_splitter->addWidget(playlist_stack_);
-    main_splitter->addWidget(right_column_widget);
-    main_splitter->setSizes(QList<int>() << 200 << 300 << 500);
-    main_splitter->setStretchFactor(1, 1);
-    main_splitter->setStretchFactor(2, 2);
-    setCentralWidget(main_splitter);
+    player_content_splitter->addWidget(playlist_stack_);
+    player_content_splitter->addWidget(right_column_widget);
+    player_content_splitter->setSizes({200, 600});
+    player_content_splitter->setStretchFactor(0, 1);
+    player_content_splitter->setStretchFactor(1, 2);
+
+    player_view_layout->addWidget(nav_container);
+    player_view_layout->addWidget(player_content_splitter);
+    player_view_widget_->setLayout(player_view_layout);
+
+    management_view_widget_ = new QWidget();
+    auto* mgmt_main_layout = new QHBoxLayout(management_view_widget_);
+    mgmt_main_layout->setSpacing(10);
+
+    auto* left_mgmt_splitter = new QSplitter(Qt::Vertical);
+    mgmt_source_playlists_ = new QListWidget();
+    mgmt_source_songs_ = new QListWidget();
+    mgmt_source_songs_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    left_mgmt_splitter->addWidget(mgmt_source_playlists_);
+    left_mgmt_splitter->addWidget(mgmt_source_songs_);
+
+    auto* middle_controls_widget = new QWidget();
+    auto* middle_layout = new QVBoxLayout(middle_controls_widget);
+    add_songs_to_playlist_button_ = new QPushButton("->");
+    finish_management_button_ = new QPushButton("完成");
+    middle_layout->addStretch();
+    middle_layout->addWidget(add_songs_to_playlist_button_);
+    middle_layout->addWidget(finish_management_button_);
+    middle_layout->addStretch();
+    middle_controls_widget->setLayout(middle_layout);
+
+    auto* right_mgmt_splitter = new QSplitter(Qt::Vertical);
+    mgmt_dest_playlists_ = new QListWidget();
+    mgmt_dest_songs_ = new QListWidget();
+    right_mgmt_splitter->addWidget(mgmt_dest_playlists_);
+    right_mgmt_splitter->addWidget(mgmt_dest_songs_);
+
+    mgmt_main_layout->addWidget(left_mgmt_splitter, 1);
+    mgmt_main_layout->addWidget(middle_controls_widget, 0);
+    mgmt_main_layout->addWidget(right_mgmt_splitter, 1);
+
+    main_stack_widget_ = new QStackedWidget();
+    main_stack_widget_->addWidget(player_view_widget_);
+    main_stack_widget_->addWidget(management_view_widget_);
+
+    setCentralWidget(main_stack_widget_);
 }
 
 void mainwindow::setup_connections()
 {
     connect(add_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_new_playlist);
+    connect(management_button_, &QPushButton::clicked, this, &mainwindow::show_management_view);
     connect(playlist_button_group_, QOverload<int>::of(&QButtonGroup::idClicked), this, &mainwindow::on_playlist_button_clicked);
+
     connect(progress_slider_, &QSlider::sliderMoved, this, &mainwindow::on_progress_slider_moved);
     connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
+
+    connect(finish_management_button_, &QPushButton::clicked, this, &mainwindow::show_player_view);
+    connect(add_songs_to_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_selected_songs_to_playlist);
+    connect(mgmt_source_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_source_songs);
+    connect(mgmt_dest_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_dest_songs);
 
     connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::start_decoding);
     connect(this, &mainwindow::request_resume_decoding, decoder_, &audio_decoder::resume_decoding, Qt::QueuedConnection);
@@ -387,7 +448,6 @@ void mainwindow::on_playback_finished(qint64 session_id)
     }
     LOG_INFO("session {} playback finished now paused at end", session_id);
 
-    // 音乐播放结束，不清理资源，只更新状态
     is_playing_ = false;
     spectrum_widget_->stop_playback();
 
@@ -424,7 +484,6 @@ void mainwindow::on_seek_requested()
     LOG_INFO("session {} starting seek to {}ms", current_session_id_, position_ms);
     is_seeking_ = true;
 
-    // 暂停播放，准备接收新的 seek 位置
     if (player_ != nullptr)
     {
         QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
@@ -446,7 +505,6 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
         LOG_WARN("session {} seek failed resuming playback", session_id);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
-        // 如果 seek 失败，只有在之前是播放状态时才恢复喂食
         if (is_playing_ && player_ != nullptr)
         {
             QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
@@ -455,7 +513,6 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
         return;
     }
 
-    // 如果 seek 的实际结果非常接近文件末尾，直接转换到播放结束状态
     if (total_duration_ms_ > 0 && total_duration_ms_ - actual_seek_ms < 250)
     {
         LOG_INFO("session {} seek result is at the end, transitioning to finished state", session_id);
@@ -491,7 +548,6 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
     }
 
     is_seeking_ = false;
-
     is_playing_ = true;
 
     if (player_ != nullptr)
@@ -526,7 +582,7 @@ void mainwindow::create_new_playlist(const QString& name, bool is_loading)
     int new_id = playlist_stack_->addWidget(list_widget);
     playlist_button_group_->addButton(nav_button, new_id);
 
-    int insert_pos = playlist_nav_layout_->indexOf(add_playlist_button_);
+    int insert_pos = playlist_nav_layout_->indexOf(nav_separator_);
     playlist_nav_layout_->insertWidget(insert_pos, nav_button);
 
     if (!is_loading)
@@ -569,7 +625,7 @@ void mainwindow::add_new_playlist()
 
     currently_editing_ = lineEdit;
 
-    int insert_pos = playlist_nav_layout_->indexOf(add_playlist_button_);
+    int insert_pos = playlist_nav_layout_->indexOf(nav_separator_);
     playlist_nav_layout_->insertWidget(insert_pos, lineEdit);
 
     connect(lineEdit, &QLineEdit::editingFinished, this, &mainwindow::finish_playlist_edit);
@@ -646,7 +702,8 @@ void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
             &QAction::triggered,
             [this, current_list]()
             {
-                QStringList file_paths = QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.wav)");
+                QStringList file_paths =
+                    QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.wav *.mp4 *.mkv *.m4a *.webm)");
                 for (const QString& path : file_paths)
                 {
                     auto* item = new QListWidgetItem(QFileInfo(path).fileName());
@@ -780,6 +837,135 @@ void mainwindow::save_playlist()
     }
 }
 
-QListWidget* mainwindow::current_song_list_widget() const { return qobject_cast<QListWidget*>(playlist_stack_->currentWidget()); }
+QListWidget* mainwindow::current_song_list_widget() const
+{
+    if (main_stack_widget_->currentWidget() != player_view_widget_)
+    {
+        return nullptr;
+    }
+    return qobject_cast<QListWidget*>(playlist_stack_->currentWidget());
+}
 
 QListWidget* mainwindow::get_list_widget_by_index(int index) const { return qobject_cast<QListWidget*>(playlist_stack_->widget(index)); }
+
+void mainwindow::show_management_view()
+{
+    populate_management_view();
+    main_stack_widget_->setCurrentWidget(management_view_widget_);
+}
+
+void mainwindow::show_player_view() { main_stack_widget_->setCurrentWidget(player_view_widget_); }
+
+void mainwindow::populate_management_view()
+{
+    mgmt_source_playlists_->clear();
+    mgmt_dest_playlists_->clear();
+    mgmt_source_songs_->clear();
+    mgmt_dest_songs_->clear();
+
+    for (const auto& button : playlist_button_group_->buttons())
+    {
+        mgmt_source_playlists_->addItem(button->text());
+        mgmt_dest_playlists_->addItem(button->text());
+    }
+}
+
+void mainwindow::update_management_source_songs(QListWidgetItem* item)
+{
+    mgmt_source_songs_->clear();
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    QString playlist_name = item->text();
+    for (const auto& button : playlist_button_group_->buttons())
+    {
+        if (button->text() == playlist_name)
+        {
+            int id = playlist_button_group_->id(button);
+            QListWidget* source_list = get_list_widget_by_index(id);
+            if (source_list != nullptr)
+            {
+                for (int i = 0; i < source_list->count(); ++i)
+                {
+                    QListWidgetItem* song_item = source_list->item(i);
+                    auto* new_item = new QListWidgetItem(song_item->text());
+                    new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
+                    mgmt_source_songs_->addItem(new_item);
+                }
+            }
+            break;
+        }
+    }
+}
+
+void mainwindow::update_management_dest_songs(QListWidgetItem* item)
+{
+    mgmt_dest_songs_->clear();
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    QString playlist_name = item->text();
+    for (const auto& button : playlist_button_group_->buttons())
+    {
+        if (button->text() == playlist_name)
+        {
+            int id = playlist_button_group_->id(button);
+            QListWidget* source_list = get_list_widget_by_index(id);
+            if (source_list != nullptr)
+            {
+                for (int i = 0; i < source_list->count(); ++i)
+                {
+                    QListWidgetItem* song_item = source_list->item(i);
+                    auto* new_item = new QListWidgetItem(song_item->text());
+                    new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
+                    mgmt_dest_songs_->addItem(new_item);
+                }
+            }
+            break;
+        }
+    }
+}
+
+void mainwindow::add_selected_songs_to_playlist()
+{
+    QList<QListWidgetItem*> selected_songs = mgmt_source_songs_->selectedItems();
+    QListWidgetItem* dest_playlist_item = mgmt_dest_playlists_->currentItem();
+
+    if (selected_songs.isEmpty() || dest_playlist_item == nullptr)
+    {
+        LOG_WARN("add songs failed no songs selected or no destination playlist selected");
+        return;
+    }
+
+    QString dest_playlist_name = dest_playlist_item->text();
+    QListWidget* target_list_widget = nullptr;
+    for (const auto& button : playlist_button_group_->buttons())
+    {
+        if (button->text() == dest_playlist_name)
+        {
+            int id = playlist_button_group_->id(button);
+            target_list_widget = get_list_widget_by_index(id);
+            break;
+        }
+    }
+
+    if (target_list_widget == nullptr)
+    {
+        LOG_ERROR("could not find target playlist widget for name {}", dest_playlist_name.toStdString());
+        return;
+    }
+
+    for (QListWidgetItem* song_item : selected_songs)
+    {
+        auto* new_item = new QListWidgetItem(song_item->text());
+        new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
+        target_list_widget->addItem(new_item);
+    }
+    LOG_INFO("added {} songs to playlist {}", selected_songs.count(), dest_playlist_name.toStdString());
+
+    update_management_dest_songs(dest_playlist_item);
+}
