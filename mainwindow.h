@@ -2,11 +2,8 @@
 #define MAIN_WINDOW_H
 
 #include <QMainWindow>
-#include <QAudioFormat>
-#include <QTimer>
-#include <QListWidgetItem>
-#include <atomic>
 #include <QMap>
+#include "playlist_data.h"
 
 class QCloseEvent;
 class QKeyEvent;
@@ -14,26 +11,16 @@ class QEvent;
 class QSlider;
 class QLabel;
 class QListWidget;
+class QListWidgetItem;
 class QStackedWidget;
 class QVBoxLayout;
 class QPushButton;
 class QLineEdit;
-class QThread;
-class QSplitter;
 class QFrame;
 class spectrum_widget;
-class audio_decoder;
-class audio_player;
+class playback_controller;
+class playlist_manager;
 class QStatusBar;
-struct audio_packet;
-
-struct playlist
-{
-    QString id;
-    QString name;
-    QPushButton* button = nullptr;
-    QListWidget* widget = nullptr;
-};
 
 class mainwindow : public QMainWindow
 {
@@ -43,37 +30,31 @@ class mainwindow : public QMainWindow
     explicit mainwindow(QWidget* parent = nullptr);
     ~mainwindow() override;
 
-   signals:
-    void request_decoding(qint64 session_id, const QString& file_path, const QAudioFormat& target_format, qint64 initial_seek_ms);
-    void request_resume_decoding();
-    void request_stop_decoding();
-    void request_seek(qint64 session_id, qint64 position_ms);
-
    private slots:
+    void on_play_file_requested(QListWidgetItem* item);
+    void on_seek_requested();
+    void on_progress_slider_moved(int position);
+
+    void on_add_new_playlist_button_clicked();
     void finish_playlist_edit();
+    void on_delete_playlist_requested();
+    void on_rename_playlist_requested();
+    void on_add_songs_requested();
+    void on_remove_songs_requested();
+
     void on_playlist_context_menu_requested(const QPoint& pos);
     void on_nav_button_context_menu_requested(const QPoint& pos);
     void on_playlist_button_clicked();
-    void add_new_playlist();
-    void delete_playlist(const QString& id);
+    void switch_to_playlist(const QString& id);
 
-    void on_list_double_clicked(QListWidgetItem* item);
-    void stop_playback();
-    void on_progress_slider_moved(int position);
-    void on_seek_requested();
+    void update_track_info(qint64 duration_ms);
+    void update_progress(qint64 current_ms, qint64 total_ms);
+    void handle_playback_finished();
+    void handle_playback_error(const QString& error_message);
+    void handle_seek_finished(bool success);
 
-    void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
-    void on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
-    void on_seek_finished(qint64 session_id, qint64 actual_seek_ms);
-    void on_decoding_error(const QString& error_message);
-
-    void on_player_ready_for_spectrum(qint64 session_id);
-    void on_player_seek_handled(qint64 session_id);
-    void on_spectrum_ready_for_decoding(qint64 session_id);
-    void on_player_error(const QString& error_message);
-    void on_progress_update(qint64 session_id, qint64 current_ms);
-    void on_playback_finished(qint64 session_id);
-    void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
+    void rebuild_ui_from_playlists();
+    void update_playlist_content(const QString& playlist_id);
 
     void show_management_view();
     void show_player_view();
@@ -90,17 +71,14 @@ class mainwindow : public QMainWindow
    private:
     void setup_ui();
     void setup_connections();
-    void cleanup_player();
-    void create_new_playlist(const QString& name, bool is_loading = false, const QString& id = QString());
-    void switch_to_playlist(const QString& id);
-
-    void load_playlist();
-    void save_playlist();
-
-    [[nodiscard]] QListWidget* get_list_widget_by_id(const QString& id) const;
+    void clear_playlist_ui();
+    void add_playlist_to_ui(const Playlist& playlist);
     [[nodiscard]] QListWidget* current_song_list_widget() const;
 
    private:
+    playback_controller* controller_ = nullptr;
+    playlist_manager* playlist_manager_ = nullptr;
+
     QStackedWidget* main_stack_widget_ = nullptr;
     QWidget* player_view_widget_ = nullptr;
     QWidget* management_view_widget_ = nullptr;
@@ -111,7 +89,8 @@ class mainwindow : public QMainWindow
     QLineEdit* currently_editing_ = nullptr;
     QFrame* nav_separator_ = nullptr;
 
-    QMap<QString, playlist> playlists_;
+    QMap<QString, QPushButton*> playlist_buttons_;
+    QMap<QString, QListWidget*> playlist_widgets_;
     QString current_playlist_id_;
 
     QStackedWidget* playlist_stack_ = nullptr;
@@ -126,26 +105,10 @@ class mainwindow : public QMainWindow
     QPushButton* add_songs_to_playlist_button_ = nullptr;
     QPushButton* finish_management_button_ = nullptr;
 
-    QThread* decoder_thread_ = nullptr;
-    audio_decoder* decoder_ = nullptr;
-    QThread* player_thread_ = nullptr;
-    audio_player* player_ = nullptr;
-
-    bool is_playing_ = false;
-    bool is_media_loaded_ = false;
-    qint64 total_duration_ms_ = 0;
-    bool is_slider_pressed_ = false;
-    QString playlist_path_;
-    QString current_playing_file_path_;
-    std::atomic<qint64> session_id_counter_{0};
-    qint64 current_session_id_ = 0;
-    std::atomic<qint64> buffered_bytes_{0};
-    qint64 buffer_high_water_mark_ = 0;
-    bool decoder_is_waiting_ = false;
-    bool is_seeking_ = false;
-    qint64 pending_seek_ms_ = -1;
-    qint64 seek_result_ms_ = -1;
     QStatusBar* status_bar_ = nullptr;
+    bool is_slider_pressed_ = false;
+    qint64 total_duration_ms_ = 0;
+    QString current_playing_file_path_;
 };
 
 #endif

@@ -1,5 +1,4 @@
 #include <QApplication>
-#include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDir>
 #include <QEvent>
@@ -11,28 +10,20 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
-#include <QMediaDevices>
 #include <QMenu>
 #include <QMessageBox>
-#include <QMouseEvent>
 #include <QPushButton>
 #include <QSlider>
 #include <QSplitter>
 #include <QStackedWidget>
-#include <QStandardPaths>
 #include <QStatusBar>
-#include <QTextStream>
-#include <QThread>
 #include <QVBoxLayout>
-#include <QUuid>
 
 #include "log.h"
 #include "mainwindow.h"
-#include "audio_player.h"
-#include "audio_decoder.h"
 #include "spectrum_widget.h"
-
-const static auto kBufferHighWatermarkSeconds = 5L;
+#include "playlist_manager.h"
+#include "playback_controller.h"
 
 static QString format_time(qint64 time_ms)
 {
@@ -42,73 +33,29 @@ static QString format_time(qint64 time_ms)
     return QString("%1:%2").arg(minutes, 2, 10, QChar('0')).arg(seconds, 2, 10, QChar('0'));
 }
 
-static QAudioFormat default_audio_format()
-{
-    QAudioFormat format;
-    format.setSampleRate(44100);
-    format.setChannelCount(2);
-    format.setSampleFormat(QAudioFormat::Int16);
-    return format;
-}
-
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
-    qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
-
-    decoder_thread_ = new QThread(this);
-    decoder_ = new audio_decoder();
-    decoder_->moveToThread(decoder_thread_);
-    decoder_thread_->start();
+    playlist_manager_ = new playlist_manager(this);
+    controller_ = new playback_controller(this);
 
     setup_ui();
     setup_connections();
 
+    controller_->set_spectrum_widget(spectrum_widget_);
+
     qApp->installEventFilter(this);
 
-    const QString app_data_path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir dir(app_data_path);
-    if (!dir.exists())
-    {
-        dir.mkpath(".");
-    }
-    playlist_path_ = app_data_path + "/playlists.txt";
-    load_playlist();
+    playlist_manager_->load_playlists();
 
     setWindowTitle("音乐播放器");
     resize(1000, 700);
 }
 
-mainwindow::~mainwindow()
-{
-    qApp->removeEventFilter(this);
-    stop_playback();
-
-    decoder_thread_->quit();
-    decoder_thread_->wait();
-
-    cleanup_player();
-}
-
-void mainwindow::cleanup_player()
-{
-    if (player_thread_ != nullptr)
-    {
-        if (player_ != nullptr)
-        {
-            QMetaObject::invokeMethod(player_, "stop_playback", Qt::BlockingQueuedConnection);
-        }
-
-        player_thread_->quit();
-        player_thread_->wait();
-        player_thread_->deleteLater();
-        player_thread_ = nullptr;
-        player_ = nullptr;
-    }
-}
+mainwindow::~mainwindow() { qApp->removeEventFilter(this); }
 
 void mainwindow::closeEvent(QCloseEvent* event)
 {
-    save_playlist();
+    playlist_manager_->save_playlists();
     QMainWindow::closeEvent(event);
 }
 
@@ -117,7 +64,7 @@ void mainwindow::keyPressEvent(QKeyEvent* event)
     QListWidget* current_list = current_song_list_widget();
     if (event->key() == Qt::Key_Delete && current_list != nullptr && current_list->hasFocus())
     {
-        on_playlist_context_menu_requested(QPoint());
+        on_remove_songs_requested();
     }
     else
     {
@@ -197,7 +144,7 @@ void mainwindow::setup_ui()
     auto* left_mgmt_splitter = new QSplitter(Qt::Vertical);
     mgmt_source_playlists_ = new QListWidget();
     mgmt_source_songs_ = new QListWidget();
-    mgmt_source_songs_->setSelectionMode(QAbstractItemView::NoSelection);
+    mgmt_source_songs_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     left_mgmt_splitter->addWidget(mgmt_source_playlists_);
     left_mgmt_splitter->addWidget(mgmt_source_songs_);
 
@@ -233,367 +180,45 @@ void mainwindow::setup_ui()
 
 void mainwindow::setup_connections()
 {
-    connect(add_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_new_playlist);
+    connect(add_playlist_button_, &QPushButton::clicked, this, &mainwindow::on_add_new_playlist_button_clicked);
     connect(management_button_, &QPushButton::clicked, this, &mainwindow::show_management_view);
 
     connect(progress_slider_, &QSlider::sliderMoved, this, &mainwindow::on_progress_slider_moved);
     connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
     connect(progress_slider_, &QSlider::sliderReleased, this, &mainwindow::on_seek_requested);
 
+    connect(controller_, &playback_controller::track_info_ready, this, &mainwindow::update_track_info);
+    connect(controller_, &playback_controller::progress_updated, this, &mainwindow::update_progress);
+    connect(controller_, &playback_controller::playback_finished, this, &mainwindow::handle_playback_finished);
+    connect(controller_, &playback_controller::playback_error, this, &mainwindow::handle_playback_error);
+    connect(controller_, &playback_controller::seek_finished, this, &mainwindow::handle_seek_finished);
+
+    connect(playlist_manager_, &playlist_manager::playlists_changed, this, &mainwindow::rebuild_ui_from_playlists);
+    connect(playlist_manager_, &playlist_manager::playlist_content_changed, this, &mainwindow::update_playlist_content);
+
     connect(finish_management_button_, &QPushButton::clicked, this, &mainwindow::show_player_view);
     connect(add_songs_to_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_selected_songs_to_playlist);
     connect(mgmt_source_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_source_songs);
     connect(mgmt_dest_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_dest_songs);
-
-    connect(this, &mainwindow::request_decoding, decoder_, &audio_decoder::start_decoding);
-    connect(this, &mainwindow::request_resume_decoding, decoder_, &audio_decoder::resume_decoding, Qt::QueuedConnection);
-    connect(this, &mainwindow::request_stop_decoding, decoder_, &audio_decoder::shutdown, Qt::QueuedConnection);
-    connect(this, &mainwindow::request_seek, decoder_, &audio_decoder::seek, Qt::QueuedConnection);
-
-    connect(decoder_, &audio_decoder::duration_ready, this, &mainwindow::on_duration_ready, Qt::QueuedConnection);
-    connect(decoder_, &audio_decoder::packet_ready, this, &mainwindow::on_packet_from_decoder, Qt::QueuedConnection);
-    connect(decoder_, &audio_decoder::seek_finished, this, &mainwindow::on_seek_finished, Qt::QueuedConnection);
-    connect(decoder_, &audio_decoder::decoding_error, this, &mainwindow::on_decoding_error, Qt::QueuedConnection);
-
-    connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
-
-    connect(spectrum_widget_, &spectrum_widget::playback_started, this, &mainwindow::on_spectrum_ready_for_decoding, Qt::QueuedConnection);
 }
 
-void mainwindow::on_list_double_clicked(QListWidgetItem* item)
+void mainwindow::on_play_file_requested(QListWidgetItem* item)
 {
     if (item == nullptr)
     {
         return;
     }
-    if (currently_editing_ != nullptr)
-    {
-        finish_playlist_edit();
-    }
-    LOG_INFO("flow 1/14 ui item double-clicked");
-    LOG_INFO("flow 2/14 receives item");
-    stop_playback();
-
-    current_session_id_ = ++session_id_counter_;
+    LOG_INFO("flow 2 14 ui received item double-click forwarding to controller");
     current_playing_file_path_ = item->data(Qt::UserRole).toString();
-    LOG_INFO("flow 3/14 notifying decoder to start new file {} for session {}", current_playing_file_path_.toStdString(), current_session_id_);
-    emit request_decoding(current_session_id_, current_playing_file_path_, default_audio_format(), -1);
-
-    auto* list = item->listWidget();
-    for (const auto& p_id : playlists_.keys())
-    {
-        if (playlists_[p_id].widget == list)
-        {
-            switch_to_playlist(p_id);
-            break;
-        }
-    }
-}
-
-void mainwindow::stop_playback()
-{
-    if (!is_media_loaded_)
-    {
-        return;
-    }
-
-    LOG_INFO("session {} stopping playback and cleaning up resources", current_session_id_);
-    is_playing_ = false;
-    is_media_loaded_ = false;
-
-    buffered_bytes_ = 0;
-    decoder_is_waiting_ = false;
-    current_session_id_ = 0;
-
-    emit request_stop_decoding();
-
-    cleanup_player();
-
-    spectrum_widget_->stop_playback();
-    progress_slider_->setValue(0);
-    time_label_->setText("00:00 / 00:00");
-    total_duration_ms_ = 0;
-
-    is_seeking_ = false;
-    pending_seek_ms_ = -1;
-}
-
-void mainwindow::on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_WARN("session {} ignoring duration_ready for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-    LOG_INFO("flow 6/14 received audio info from decoder for session {}", session_id);
-    LOG_INFO("flow 7/14 updating ui with audio info for session {}", session_id);
-    total_duration_ms_ = duration_ms;
-    progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
-    time_label_->setText(QString("00:00 / %1").arg(format_time(total_duration_ms_)));
-
-    is_media_loaded_ = true;
-
-    cleanup_player();
-
-    buffered_bytes_ = 0;
-    decoder_is_waiting_ = false;
-
-    buffer_high_water_mark_ = kBufferHighWatermarkSeconds * format.bytesPerFrame() * format.sampleRate();
-    LOG_INFO("session {} buffer high water mark set to {} bytes {} seconds", session_id, buffer_high_water_mark_, kBufferHighWatermarkSeconds);
-
-    player_thread_ = new QThread(this);
-    player_ = new audio_player();
-    player_->moveToThread(player_thread_);
-
-    connect(player_, &audio_player::progress_update, this, &mainwindow::on_progress_update, Qt::QueuedConnection);
-    connect(player_, &audio_player::playback_finished, this, &mainwindow::on_playback_finished, Qt::QueuedConnection);
-    connect(player_, &audio_player::playback_ready, this, &mainwindow::on_player_ready_for_spectrum, Qt::QueuedConnection);
-    connect(player_, &audio_player::playback_error, this, &mainwindow::on_player_error, Qt::QueuedConnection);
-    connect(player_, &audio_player::packet_played, this, &mainwindow::on_packet_for_spectrum, Qt::QueuedConnection);
-    connect(player_, &audio_player::seek_handled, this, &mainwindow::on_player_seek_handled, Qt::QueuedConnection);
-
-    connect(player_thread_, &QThread::finished, player_, &QObject::deleteLater);
-    player_thread_->start();
-    player_thread_->setPriority(QThread::TimeCriticalPriority);
-
-    LOG_INFO("flow 8/14 notifying player to start for session {}", session_id);
-    QMetaObject::invokeMethod(
-        player_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(QAudioFormat, format), Q_ARG(qint64, 0));
-}
-
-void mainwindow::on_player_ready_for_spectrum(qint64 session_id)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_WARN("session {} ignoring player_ready for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-    LOG_INFO("flow 10/14 received ready signal from player for session {}", session_id);
-    LOG_INFO("flow 11/14 notifying spectrum to reset for session {}", session_id);
-    QMetaObject::invokeMethod(spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, 0));
-}
-
-void mainwindow::on_spectrum_ready_for_decoding(qint64 session_id)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_WARN("session {} ignoring spectrum_ready for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-    LOG_INFO("flow 12/14 & seek 10/10 received ready signal from spectrum for session {}", session_id);
-    LOG_INFO("flow 13/14 & seek 10/10 notifying decoder to start decoding for session {}", session_id);
-    is_playing_ = true;
-
-    emit request_resume_decoding();
-}
-
-void mainwindow::on_player_error(const QString& error_message)
-{
-    QMessageBox::critical(this, "播放错误", error_message);
-    stop_playback();
-}
-
-void mainwindow::on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
-{
-    if (session_id != current_session_id_ && packet != nullptr)
-    {
-        return;
-    }
-
-    if (player_ != nullptr)
-    {
-        if (packet)
-        {
-            buffered_bytes_ += static_cast<qint64>(packet->data.size());
-        }
-        else
-        {
-            LOG_INFO("flow end 2/4 received eof from decoder forwarding to player for session {}", session_id);
-        }
-
-        QMetaObject::invokeMethod(
-            player_, "enqueue_packet", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
-    }
-
-    if (packet != nullptr && is_playing_ && !is_seeking_)
-    {
-        if (buffered_bytes_ < buffer_high_water_mark_)
-        {
-            emit request_resume_decoding();
-        }
-        else
-        {
-            LOG_TRACE("session {} buffer is full {} bytes decoder now waiting", session_id, buffered_bytes_.load());
-            decoder_is_waiting_ = true;
-        }
-    }
-}
-
-void mainwindow::on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet)
-{
-    if (spectrum_widget_ != nullptr && is_playing_)
-    {
-        buffered_bytes_ -= static_cast<qint64>(packet->data.size());
-
-        spectrum_widget_->enqueue_packet(packet);
-
-        if (decoder_is_waiting_ && is_playing_ && !is_seeking_)
-        {
-            if (buffered_bytes_ < buffer_high_water_mark_)
-            {
-                LOG_TRACE("session {} buffer has space {} bytes waking up decoder", current_session_id_, buffered_bytes_.load());
-                decoder_is_waiting_ = false;
-                emit request_resume_decoding();
-            }
-        }
-    }
-}
-
-void mainwindow::on_progress_update(qint64 session_id, qint64 current_ms)
-{
-    if (session_id != current_session_id_ || !is_playing_)
-    {
-        return;
-    }
-    if (!is_slider_pressed_)
-    {
-        progress_slider_->setValue(static_cast<int>(current_ms));
-    }
-    time_label_->setText(QString("%1 / %2").arg(format_time(current_ms)).arg(format_time(total_duration_ms_)));
-}
-
-void mainwindow::on_playback_finished(qint64 session_id)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_INFO("session {} ignoring playback_finished for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-    LOG_INFO("flow end 3/4 received playback finished from player for session {}", session_id);
-    LOG_INFO("flow end 4/4 notifying spectrum to stop for session {}", session_id);
-    is_playing_ = false;
-    spectrum_widget_->stop_playback();
-
-    if (total_duration_ms_ > 0)
-    {
-        progress_slider_->setValue(static_cast<int>(total_duration_ms_));
-        time_label_->setText(QString("%1 / %2").arg(format_time(total_duration_ms_)).arg(format_time(total_duration_ms_)));
-    }
-}
-
-void mainwindow::on_decoding_error(const QString& error_message)
-{
-    QMessageBox::critical(this, "解码错误", error_message);
-    stop_playback();
+    controller_->play_file(current_playing_file_path_);
 }
 
 void mainwindow::on_seek_requested()
 {
     is_slider_pressed_ = false;
-    if (!is_media_loaded_)
-    {
-        return;
-    }
-
     qint64 position_ms = progress_slider_->value();
-    LOG_INFO("flow seek 1/10 ui requests seek to {}ms for session {}", position_ms, current_session_id_);
-    LOG_INFO("flow seek 2/10 receives seek request {}", position_ms);
-    if (is_seeking_)
-    {
-        LOG_INFO("session {} seek is busy pending new request to {}ms", current_session_id_, position_ms);
-        pending_seek_ms_ = position_ms;
-        return;
-    }
-
-    is_seeking_ = true;
-
-    if (player_ != nullptr)
-    {
-        QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
-    }
-
-    LOG_INFO("flow seek 3/10 notifying decoder to seek for session {}", current_session_id_);
-    emit request_seek(current_session_id_, position_ms);
-}
-
-void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_WARN("session {} ignoring seek_finished for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-    LOG_INFO("flow seek 5/10 received seek result from decoder for session {} {}ms", session_id, actual_seek_ms);
-
-    if (actual_seek_ms < 0)
-    {
-        LOG_WARN("flow seek 6/10 seek failed for session {} resuming playback", session_id);
-        status_bar_->showMessage("跳转失败，已恢复播放。", 3000);
-        is_seeking_ = false;
-        pending_seek_ms_ = -1;
-        if (is_playing_ && player_ != nullptr)
-        {
-            QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
-        }
-        return;
-    }
-
-    if (total_duration_ms_ > 0 && total_duration_ms_ - actual_seek_ms < 250)
-    {
-        LOG_INFO("session {} seek result is at the end, transitioning to finished state", session_id);
-        is_seeking_ = false;
-
-        if (player_ != nullptr)
-        {
-            QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
-        }
-
-        on_playback_finished(session_id);
-        return;
-    }
-
-    LOG_INFO("flow seek 7/10 notifying player to handle seek for session {}", session_id);
-    buffered_bytes_ = 0;
-    decoder_is_waiting_ = false;
-    seek_result_ms_ = actual_seek_ms;
-
-    if (player_ != nullptr)
-    {
-        QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
-    }
-}
-
-void mainwindow::on_player_seek_handled(qint64 session_id)
-{
-    if (session_id != current_session_id_)
-    {
-        LOG_WARN("session {} ignoring player_seek_handled for obsolete session current is {}", session_id, current_session_id_);
-        return;
-    }
-
-    LOG_INFO("flow seek 8/10 received seek handled signal from player for session {}", session_id);
-    if (player_ != nullptr)
-    {
-        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
-    }
-    LOG_INFO("flow seek 9/10 notifying spectrum to reset for seek for session {}", session_id);
-
-    if (spectrum_widget_ != nullptr)
-    {
-        QMetaObject::invokeMethod(
-            spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));
-    }
-
-    if (pending_seek_ms_ != -1)
-    {
-        LOG_INFO("session {} pending seek found to {}ms starting it now", session_id, pending_seek_ms_);
-        qint64 new_seek_pos = pending_seek_ms_;
-        pending_seek_ms_ = -1;
-        emit request_seek(session_id, new_seek_pos);
-        return;
-    }
-
-    is_seeking_ = false;
+    LOG_INFO("flow seek 2 10 ui requests seek to {}ms forwarding to controller", position_ms);
+    controller_->seek(position_ms);
 }
 
 void mainwindow::on_progress_slider_moved(int position)
@@ -604,108 +229,150 @@ void mainwindow::on_progress_slider_moved(int position)
     }
 }
 
-void mainwindow::create_new_playlist(const QString& name, bool is_loading, const QString& id)
+void mainwindow::update_track_info(qint64 duration_ms)
 {
-    playlist data;
-    data.id = id.isEmpty() ? QUuid::createUuid().toString() : id;
-    data.name = name;
+    LOG_INFO("flow 7 14 ui updating with new track info duration {}", duration_ms);
+    total_duration_ms_ = duration_ms;
+    progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
+    progress_slider_->setValue(0);
+    time_label_->setText(QString("00:00 / %1").arg(format_time(total_duration_ms_)));
+}
 
-    data.button = new QPushButton(name);
-    data.button->setCheckable(true);
-    data.button->setAutoExclusive(false);
-    data.button->setContextMenuPolicy(Qt::CustomContextMenu);
-    data.button->setProperty("playlist_id", data.id);
-    connect(data.button, &QPushButton::clicked, this, &mainwindow::on_playlist_button_clicked);
-    connect(data.button, &QPushButton::customContextMenuRequested, this, &mainwindow::on_nav_button_context_menu_requested);
+void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
+{
+    if (!is_slider_pressed_)
+    {
+        progress_slider_->setValue(static_cast<int>(current_ms));
+    }
+    time_label_->setText(QString("%1 / %2").arg(format_time(current_ms)).arg(format_time(total_ms)));
+}
 
-    data.widget = new QListWidget();
-    data.widget->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    data.widget->setContextMenuPolicy(Qt::CustomContextMenu);
-    data.widget->setProperty("playlist_id", data.id);
-    connect(data.widget, &QListWidget::itemDoubleClicked, this, &mainwindow::on_list_double_clicked);
-    connect(data.widget, &QListWidget::customContextMenuRequested, this, &mainwindow::on_playlist_context_menu_requested);
+void mainwindow::handle_playback_finished()
+{
+    if (total_duration_ms_ > 0)
+    {
+        progress_slider_->setValue(static_cast<int>(total_duration_ms_));
+        time_label_->setText(QString("%1 / %2").arg(format_time(total_duration_ms_)).arg(format_time(total_duration_ms_)));
+    }
+}
 
-    playlist_stack_->addWidget(data.widget);
-    playlists_.insert(data.id, data);
+void mainwindow::handle_playback_error(const QString& error_message)
+{
+    QMessageBox::critical(this, "播放错误", error_message);
+    progress_slider_->setValue(0);
+    time_label_->setText("00:00 / 00:00");
+}
+
+void mainwindow::handle_seek_finished(bool success)
+{
+    if (!success)
+    {
+        status_bar_->showMessage("跳转失败", 3000);
+    }
+}
+
+void mainwindow::clear_playlist_ui()
+{
+    for (QPushButton* button : std::as_const(playlist_buttons_))
+    {
+        playlist_nav_layout_->removeWidget(button);
+        button->deleteLater();
+    }
+    playlist_buttons_.clear();
+
+    for (QListWidget* widget : std::as_const(playlist_widgets_))
+    {
+        playlist_stack_->removeWidget(widget);
+        widget->deleteLater();
+    }
+    playlist_widgets_.clear();
+}
+
+void mainwindow::add_playlist_to_ui(const Playlist& playlist)
+{
+    auto* button = new QPushButton(playlist.name);
+    button->setCheckable(true);
+    button->setAutoExclusive(false);
+    button->setContextMenuPolicy(Qt::CustomContextMenu);
+    button->setProperty("playlist_id", playlist.id);
+    connect(button, &QPushButton::clicked, this, &mainwindow::on_playlist_button_clicked);
+    connect(button, &QPushButton::customContextMenuRequested, this, &mainwindow::on_nav_button_context_menu_requested);
+
+    auto* widget = new QListWidget();
+    widget->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    widget->setContextMenuPolicy(Qt::CustomContextMenu);
+    widget->setProperty("playlist_id", playlist.id);
+    connect(widget, &QListWidget::itemDoubleClicked, this, &mainwindow::on_play_file_requested);
+    connect(widget, &QListWidget::customContextMenuRequested, this, &mainwindow::on_playlist_context_menu_requested);
+
+    for (const auto& song : playlist.songs)
+    {
+        auto* item = new QListWidgetItem(song.fileName);
+        item->setData(Qt::UserRole, song.filePath);
+        widget->addItem(item);
+    }
+
+    playlist_stack_->addWidget(widget);
+    playlist_buttons_.insert(playlist.id, button);
+    playlist_widgets_.insert(playlist.id, widget);
 
     int insert_pos = playlist_nav_layout_->indexOf(nav_separator_);
-    playlist_nav_layout_->insertWidget(insert_pos, data.button);
+    playlist_nav_layout_->insertWidget(insert_pos, button);
+}
 
-    if (!is_loading)
+void mainwindow::rebuild_ui_from_playlists()
+{
+    LOG_INFO("rebuilding entire playlist ui");
+    clear_playlist_ui();
+
+    QList<Playlist> all_playlists = playlist_manager_->get_all_playlists();
+    for (const auto& playlist : std::as_const(all_playlists))
     {
-        switch_to_playlist(data.id);
+        add_playlist_to_ui(playlist);
+    }
+
+    if (!current_playlist_id_.isEmpty() && playlist_widgets_.contains(current_playlist_id_))
+    {
+        switch_to_playlist(current_playlist_id_);
+    }
+    else if (!all_playlists.isEmpty())
+    {
+        switch_to_playlist(all_playlists.first().id);
     }
 }
 
-void mainwindow::finish_playlist_edit()
+void mainwindow::update_playlist_content(const QString& playlist_id)
 {
-    if (currently_editing_ == nullptr)
+    LOG_INFO("updating content for playlist id {}", playlist_id.toStdString());
+    if (!playlist_widgets_.contains(playlist_id))
     {
         return;
     }
+    QListWidget* list_widget = playlist_widgets_[playlist_id];
+    list_widget->clear();
 
-    QLineEdit* line_edit = currently_editing_;
-    currently_editing_ = nullptr;
-
-    QString new_name = line_edit->text().trimmed();
-
-    playlist_nav_layout_->removeWidget(line_edit);
-    line_edit->deleteLater();
-
-    if (!new_name.isEmpty())
+    Playlist playlist_data = playlist_manager_->get_playlist_by_id(playlist_id);
+    for (const auto& song : playlist_data.songs)
     {
-        create_new_playlist(new_name, false);
+        auto* item = new QListWidgetItem(song.fileName);
+        item->setData(Qt::UserRole, song.filePath);
+        list_widget->addItem(item);
     }
 }
 
-void mainwindow::add_new_playlist()
+void mainwindow::switch_to_playlist(const QString& id)
 {
-    if (currently_editing_ != nullptr)
-    {
-        finish_playlist_edit();
-    }
-
-    auto* lineEdit = new QLineEdit("新列表", this);
-    lineEdit->selectAll();
-
-    currently_editing_ = lineEdit;
-
-    int insert_pos = playlist_nav_layout_->indexOf(nav_separator_);
-    playlist_nav_layout_->insertWidget(insert_pos, lineEdit);
-
-    connect(lineEdit, &QLineEdit::editingFinished, this, &mainwindow::finish_playlist_edit);
-
-    lineEdit->setFocus();
-}
-
-void mainwindow::delete_playlist(const QString& id)
-{
-    if (!playlists_.contains(id))
+    if (!playlist_widgets_.contains(id))
     {
         return;
     }
+    LOG_INFO("switching to playlist id {}", id.toStdString());
+    current_playlist_id_ = id;
+    playlist_stack_->setCurrentWidget(playlist_widgets_[id]);
 
-    if (playlists_.count() <= 1)
+    for (const auto& button_id : playlist_buttons_.keys())
     {
-        QMessageBox::warning(this, "操作失败", "不能删除最后一个播放列表。");
-        return;
-    }
-
-    if (is_playing_ && current_playlist_id_ == id)
-    {
-        stop_playback();
-    }
-
-    playlist data = playlists_.take(id);
-
-    playlist_nav_layout_->removeWidget(data.button);
-    playlist_stack_->removeWidget(data.widget);
-    delete data.button;
-    delete data.widget;
-
-    if (current_playlist_id_ == id && !playlists_.isEmpty())
-    {
-        switch_to_playlist(playlists_.firstKey());
+        playlist_buttons_[button_id]->setChecked(button_id == id);
     }
 }
 
@@ -723,29 +390,143 @@ void mainwindow::on_playlist_button_clicked()
     }
 }
 
-void mainwindow::switch_to_playlist(const QString& id)
+void mainwindow::finish_playlist_edit()
 {
-    if (!playlists_.contains(id))
+    if (currently_editing_ == nullptr)
     {
         return;
     }
 
-    current_playlist_id_ = id;
-    playlist_stack_->setCurrentWidget(playlists_[id].widget);
+    QLineEdit* line_edit = currently_editing_;
+    currently_editing_ = nullptr;
 
-    for (const auto& playlist : std::as_const(playlists_))
+    QString new_name = line_edit->text().trimmed();
+    QString id_to_rename = line_edit->property("playlist_id").toString();
+
+    playlist_nav_layout_->removeWidget(line_edit);
+    line_edit->deleteLater();
+
+    if (!new_name.isEmpty())
     {
-        playlist.button->setChecked(playlist.id == id);
+        if (id_to_rename.isEmpty())
+        {
+            playlist_manager_->create_new_playlist(new_name);
+        }
+        else
+        {
+            playlist_manager_->rename_playlist(id_to_rename, new_name);
+        }
     }
 }
 
-void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
+void mainwindow::on_add_new_playlist_button_clicked()
 {
     if (currently_editing_ != nullptr)
     {
         finish_playlist_edit();
     }
 
+    auto* lineEdit = new QLineEdit("新列表", this);
+    lineEdit->selectAll();
+    currently_editing_ = lineEdit;
+
+    int insert_pos = playlist_nav_layout_->indexOf(nav_separator_);
+    playlist_nav_layout_->insertWidget(insert_pos, lineEdit);
+    connect(lineEdit, &QLineEdit::editingFinished, this, &mainwindow::finish_playlist_edit);
+    lineEdit->setFocus();
+}
+
+void mainwindow::on_delete_playlist_requested()
+{
+    auto* button = qobject_cast<QPushButton*>(sender()->parent());
+    if (button == nullptr)
+    {
+        return;
+    }
+    QString id = button->property("playlist_id").toString();
+    Playlist playlist = playlist_manager_->get_playlist_by_id(id);
+    if (playlist.id.isEmpty())
+    {
+        return;
+    }
+
+    if (playlist_manager_->get_all_playlists().count() <= 1)
+    {
+        QMessageBox::warning(this, "操作失败", "不能删除最后一个播放列表。");
+        return;
+    }
+
+    if (current_playing_file_path_.contains(playlist.id))
+    {
+        controller_->stop();
+    }
+    playlist_manager_->delete_playlist(id);
+}
+
+void mainwindow::on_rename_playlist_requested()
+{
+    if (currently_editing_ != nullptr)
+    {
+        finish_playlist_edit();
+    }
+    auto* button = qobject_cast<QPushButton*>(sender()->parent());
+    if (button == nullptr)
+    {
+        return;
+    }
+    QString id = button->property("playlist_id").toString();
+    int button_index = playlist_nav_layout_->indexOf(button);
+    playlist_nav_layout_->removeWidget(button);
+
+    auto* lineEdit = new QLineEdit(button->text(), this);
+    lineEdit->setProperty("playlist_id", id);
+    lineEdit->selectAll();
+    currently_editing_ = lineEdit;
+    playlist_nav_layout_->insertWidget(button_index, lineEdit);
+    connect(lineEdit, &QLineEdit::editingFinished, this, &mainwindow::finish_playlist_edit);
+    lineEdit->setFocus();
+}
+
+void mainwindow::on_add_songs_requested()
+{
+    QStringList file_paths = QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.wav *.mp4 *.mkv *.m4a *.webm)");
+    if (!file_paths.isEmpty())
+    {
+        playlist_manager_->add_songs_to_playlist(current_playlist_id_, file_paths);
+    }
+}
+
+void mainwindow::on_remove_songs_requested()
+{
+    QListWidget* current_list = current_song_list_widget();
+    if (current_list == nullptr || current_list->selectedItems().isEmpty())
+    {
+        return;
+    }
+
+    QList<int> indices_to_remove;
+    bool is_playing_item_deleted = false;
+    for (QListWidgetItem* item : current_list->selectedItems())
+    {
+        if (item->data(Qt::UserRole).toString() == current_playing_file_path_)
+        {
+            is_playing_item_deleted = true;
+        }
+        indices_to_remove.append(current_list->row(item));
+    }
+
+    playlist_manager_->remove_songs_from_playlist(current_playlist_id_, indices_to_remove);
+
+    if (is_playing_item_deleted)
+    {
+        controller_->stop();
+        progress_slider_->setValue(0);
+        time_label_->setText("00:00 / 00:00");
+    }
+}
+
+void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
+{
     auto* current_list = current_song_list_widget();
     if (current_list == nullptr)
     {
@@ -753,40 +534,13 @@ void mainwindow::on_playlist_context_menu_requested(const QPoint& pos)
     }
 
     QMenu context_menu;
-
     QAction* add_action = context_menu.addAction("添加音乐到当前列表...");
-    connect(add_action,
-            &QAction::triggered,
-            [this, current_list]()
-            {
-                QStringList file_paths =
-                    QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.wav *.mp4 *.mkv *.m4a *.webm)");
-                for (const QString& path : file_paths)
-                {
-                    auto* item = new QListWidgetItem(QFileInfo(path).fileName());
-                    item->setData(Qt::UserRole, path);
-                    current_list->addItem(item);
-                }
-            });
-
+    connect(add_action, &QAction::triggered, this, &mainwindow::on_add_songs_requested);
     context_menu.addSeparator();
 
     QAction* delete_action = context_menu.addAction("从列表中删除");
     delete_action->setEnabled(!current_list->selectedItems().isEmpty());
-    connect(delete_action,
-            &QAction::triggered,
-            [this, current_list]()
-            {
-                bool is_playing_item_deleted = is_media_loaded_ && current_list->selectedItems().contains(current_list->currentItem());
-                for (QListWidgetItem* item : current_list->selectedItems())
-                {
-                    delete current_list->takeItem(current_list->row(item));
-                }
-                if (is_playing_item_deleted)
-                {
-                    stop_playback();
-                }
-            });
+    connect(delete_action, &QAction::triggered, this, &mainwindow::on_remove_songs_requested);
 
     context_menu.exec(current_list->mapToGlobal(pos));
 }
@@ -804,123 +558,14 @@ void mainwindow::on_nav_button_context_menu_requested(const QPoint& pos)
         return;
     }
 
-    QString id = button->property("playlist_id").toString();
-    if (id.isEmpty())
-    {
-        return;
-    }
+    QMenu context_menu(this);
+    QAction* rename_action = context_menu.addAction("重命名");
+    connect(rename_action, &QAction::triggered, this, &mainwindow::on_rename_playlist_requested);
 
-    QMenu context_menu;
     QAction* delete_action = context_menu.addAction("删除播放列表 \"" + button->text() + "\"");
-    connect(delete_action, &QAction::triggered, this, [this, id]() { delete_playlist(id); });
+    connect(delete_action, &QAction::triggered, this, &mainwindow::on_delete_playlist_requested);
 
     context_menu.exec(button->mapToGlobal(pos));
-}
-
-void mainwindow::load_playlist()
-{
-    QFile playlist_file(playlist_path_);
-    if (!playlist_file.exists() || !playlist_file.open(QIODevice::ReadOnly | QIODevice::Text))
-    {
-        LOG_INFO("playlists file not found creating a default list");
-        create_new_playlist("默认列表", false);
-        return;
-    }
-
-    LOG_INFO("loading playlists from {}", playlist_path_.toStdString());
-    QTextStream in(&playlist_file);
-    QString current_id;
-    QString current_name;
-    QList<QString> song_paths;
-
-    auto finalize_current_playlist = [&]()
-    {
-        if (!current_id.isEmpty() && !current_name.isEmpty())
-        {
-            create_new_playlist(current_name, true, current_id);
-            QListWidget* widget = get_list_widget_by_id(current_id);
-            if (widget)
-            {
-                for (const QString& path : std::as_const(song_paths))
-                {
-                    QFileInfo file_info(path);
-                    if (file_info.exists() && file_info.isFile())
-                    {
-                        auto* item = new QListWidgetItem(file_info.fileName());
-                        item->setData(Qt::UserRole, path);
-                        widget->addItem(item);
-                    }
-                    else
-                    {
-                        LOG_WARN("file from playlist not found skipping {}", path.toStdString());
-                    }
-                }
-            }
-        }
-        current_id.clear();
-        current_name.clear();
-        song_paths.clear();
-    };
-
-    while (!in.atEnd())
-    {
-        QString line = in.readLine().trimmed();
-        if (line.startsWith("[PLAYLIST_ID]"))
-        {
-            finalize_current_playlist();
-            current_id = line.mid(13);
-        }
-        else if (line.startsWith("[PLAYLIST_NAME]"))
-        {
-            current_name = line.mid(15);
-        }
-        else if (line.startsWith("[PLAYLIST]"))
-        {
-            finalize_current_playlist();
-            current_id = QUuid::createUuid().toString();
-            current_name = line.mid(10);
-        }
-        else if (!line.isEmpty())
-        {
-            song_paths.append(line);
-        }
-    }
-    finalize_current_playlist();
-
-    if (playlists_.isEmpty())
-    {
-        create_new_playlist("默认列表", false);
-    }
-    else
-    {
-        switch_to_playlist(playlists_.firstKey());
-    }
-}
-
-void mainwindow::save_playlist()
-{
-    QFile playlist_file(playlist_path_);
-    if (!playlist_file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
-    {
-        LOG_ERROR("open playlists file failed {}", playlist_path_.toStdString());
-        return;
-    }
-
-    LOG_INFO("saving playlists to {}", playlist_path_.toStdString());
-    QTextStream out(&playlist_file);
-    for (const auto& id : playlists_.keys())
-    {
-        const playlist& data = playlists_[id];
-        out << "[PLAYLIST_ID]" << data.id << "\n";
-        out << "[PLAYLIST_NAME]" << data.name << "\n";
-        if (data.widget != nullptr)
-        {
-            for (int j = 0; j < data.widget->count(); ++j)
-            {
-                out << data.widget->item(j)->data(Qt::UserRole).toString() << "\n";
-            }
-        }
-    }
 }
 
 QListWidget* mainwindow::current_song_list_widget() const
@@ -929,16 +574,7 @@ QListWidget* mainwindow::current_song_list_widget() const
     {
         return nullptr;
     }
-    return get_list_widget_by_id(current_playlist_id_);
-}
-
-QListWidget* mainwindow::get_list_widget_by_id(const QString& id) const
-{
-    if (playlists_.contains(id))
-    {
-        return playlists_[id].widget;
-    }
-    return nullptr;
+    return playlist_widgets_.value(current_playlist_id_, nullptr);
 }
 
 void mainwindow::show_management_view()
@@ -956,15 +592,14 @@ void mainwindow::populate_management_view()
     mgmt_source_songs_->clear();
     mgmt_dest_songs_->clear();
 
-    for (const auto& id : playlists_.keys())
+    for (const auto& playlist : playlist_manager_->get_all_playlists())
     {
-        const playlist& data = playlists_[id];
-        auto* source_item = new QListWidgetItem(data.name);
-        source_item->setData(Qt::UserRole, data.id);
+        auto* source_item = new QListWidgetItem(playlist.name);
+        source_item->setData(Qt::UserRole, playlist.id);
         mgmt_source_playlists_->addItem(source_item);
 
-        auto* dest_item = new QListWidgetItem(data.name);
-        dest_item->setData(Qt::UserRole, data.id);
+        auto* dest_item = new QListWidgetItem(playlist.name);
+        dest_item->setData(Qt::UserRole, playlist.id);
         mgmt_dest_playlists_->addItem(dest_item);
     }
 }
@@ -978,20 +613,12 @@ void mainwindow::update_management_source_songs(QListWidgetItem* item)
     }
 
     QString playlist_id = item->data(Qt::UserRole).toString();
-    QListWidget* source_list = get_list_widget_by_id(playlist_id);
-    if (source_list != nullptr)
+    Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
+    for (const auto& song : playlist.songs)
     {
-        for (int i = 0; i < source_list->count(); ++i)
-        {
-            QListWidgetItem* song_item = source_list->item(i);
-            auto* new_item = new QListWidgetItem(song_item->text());
-            new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
-
-            new_item->setFlags(new_item->flags() | Qt::ItemIsUserCheckable);
-            new_item->setCheckState(Qt::Unchecked);
-
-            mgmt_source_songs_->addItem(new_item);
-        }
+        auto* new_item = new QListWidgetItem(song.fileName);
+        new_item->setData(Qt::UserRole, song.filePath);
+        mgmt_source_songs_->addItem(new_item);
     }
 }
 
@@ -1002,62 +629,37 @@ void mainwindow::update_management_dest_songs(QListWidgetItem* item)
     {
         return;
     }
-
     QString playlist_id = item->data(Qt::UserRole).toString();
-    QListWidget* dest_list = get_list_widget_by_id(playlist_id);
-    if (dest_list != nullptr)
+    Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
+    for (const auto& song : playlist.songs)
     {
-        for (int i = 0; i < dest_list->count(); ++i)
-        {
-            QListWidgetItem* song_item = dest_list->item(i);
-            auto* new_item = new QListWidgetItem(song_item->text());
-            new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
-            mgmt_dest_songs_->addItem(new_item);
-        }
+        auto* new_item = new QListWidgetItem(song.fileName);
+        new_item->setData(Qt::UserRole, song.filePath);
+        mgmt_dest_songs_->addItem(new_item);
     }
 }
 
 void mainwindow::add_selected_songs_to_playlist()
 {
-    QList<QListWidgetItem*> checked_songs;
+    QStringList songs_to_add;
     for (int i = 0; i < mgmt_source_songs_->count(); ++i)
     {
         QListWidgetItem* item = mgmt_source_songs_->item(i);
-        if (item != nullptr && item->checkState() == Qt::Checked)
+        if (item != nullptr && item->isSelected())
         {
-            checked_songs.append(item);
+            songs_to_add.append(item->data(Qt::UserRole).toString());
         }
     }
 
     QListWidgetItem* dest_playlist_item = mgmt_dest_playlists_->currentItem();
 
-    if (checked_songs.isEmpty() || dest_playlist_item == nullptr)
+    if (songs_to_add.isEmpty() || dest_playlist_item == nullptr)
     {
-        LOG_WARN("add songs failed: no songs checked or no destination playlist selected");
+        LOG_WARN("add songs failed no songs selected or no destination playlist selected");
         return;
     }
 
     QString dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toString();
-    QListWidget* target_list_widget = get_list_widget_by_id(dest_playlist_id);
-
-    if (target_list_widget == nullptr)
-    {
-        LOG_ERROR("could not find target playlist widget for id {}", dest_playlist_id.toStdString());
-        return;
-    }
-
-    for (QListWidgetItem* song_item : std::as_const(checked_songs))
-    {
-        auto* new_item = new QListWidgetItem(song_item->text());
-        new_item->setData(Qt::UserRole, song_item->data(Qt::UserRole));
-        target_list_widget->addItem(new_item);
-    }
-    LOG_INFO("added {} songs to playlist {}", checked_songs.count(), dest_playlist_item->text().toStdString());
-
-    for (QListWidgetItem* song_item : std::as_const(checked_songs))
-    {
-        song_item->setCheckState(Qt::Unchecked);
-    }
-
+    playlist_manager_->add_songs_to_playlist(dest_playlist_id, songs_to_add);
     update_management_dest_songs(dest_playlist_item);
 }
