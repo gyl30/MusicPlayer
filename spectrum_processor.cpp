@@ -51,7 +51,7 @@ void spectrum_processor::process_packet(const std::shared_ptr<audio_packet>& pac
     }
 }
 
-void spectrum_processor::start_playback(qint64 start_offset_ms)
+void spectrum_processor::reset_and_start(qint64 start_offset_ms)
 {
     render_timer_->stop();
     packet_queue_.clear();

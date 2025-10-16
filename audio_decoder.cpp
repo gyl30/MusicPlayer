@@ -83,7 +83,7 @@ void audio_decoder::resume_decoding()
         LOG_WARN("resume decoding requested but decoder is stopped");
         return;
     }
-    LOG_INFO("flow 13/14 & 10/10 received resume signal starting decoding cycle for session {}", session_id_);
+    LOG_TRACE("flow 13/14 & 10/10 received resume signal starting decoding cycle for session {}", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 

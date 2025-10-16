@@ -48,14 +48,14 @@ void spectrum_widget::enqueue_packet(const std::shared_ptr<audio_packet>& packet
     QMetaObject::invokeMethod(processor_, "process_packet", Qt::QueuedConnection, Q_ARG(std::shared_ptr<audio_packet>, packet));
 }
 
-void spectrum_widget::start_playback(qint64 session_id, qint64 start_offset_ms)
+void spectrum_widget::reset_and_start(qint64 session_id, qint64 start_offset_ms)
 {
     session_id_ = session_id;
     LOG_INFO("flow 11/14 & 9/10 received start/reset request for session {}", session_id_);
     dynamic_min_db_ = 100.0;
     dynamic_max_db_ = 0.0;
 
-    QMetaObject::invokeMethod(processor_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
+    QMetaObject::invokeMethod(processor_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
     LOG_INFO("flow 12/14 & 10/10 has reset notifying mainwindow it is ready for session {}", session_id_);
     emit playback_started(session_id_);
 }

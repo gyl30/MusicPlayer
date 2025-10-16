@@ -24,6 +24,7 @@ class QFrame;
 class spectrum_widget;
 class audio_decoder;
 class audio_player;
+class QStatusBar;
 struct audio_packet;
 
 struct playlist
@@ -144,6 +145,7 @@ class mainwindow : public QMainWindow
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
+    QStatusBar* status_bar_ = nullptr;
 };
 
 #endif

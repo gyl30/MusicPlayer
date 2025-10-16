@@ -19,7 +19,7 @@ class spectrum_widget : public QWidget
 
    public slots:
     void enqueue_packet(const std::shared_ptr<audio_packet>& packet);
-    void start_playback(qint64 session_id, qint64 start_offset_ms = 0);
+    void reset_and_start(qint64 session_id, qint64 start_offset_ms = 0);
     void stop_playback();
 
    signals:

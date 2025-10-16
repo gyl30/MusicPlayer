@@ -20,6 +20,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
+#include <QStatusBar>
 #include <QTextStream>
 #include <QThread>
 #include <QVBoxLayout>
@@ -225,6 +226,9 @@ void mainwindow::setup_ui()
     main_stack_widget_->addWidget(management_view_widget_);
 
     setCentralWidget(main_stack_widget_);
+
+    status_bar_ = new QStatusBar();
+    setStatusBar(status_bar_);
 }
 
 void mainwindow::setup_connections()
@@ -366,7 +370,7 @@ void mainwindow::on_player_ready_for_spectrum(qint64 session_id)
     }
     LOG_INFO("flow 10/14 received ready signal from player for session {}", session_id);
     LOG_INFO("flow 11/14 notifying spectrum to reset for session {}", session_id);
-    QMetaObject::invokeMethod(spectrum_widget_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, 0));
+    QMetaObject::invokeMethod(spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, 0));
 }
 
 void mainwindow::on_spectrum_ready_for_decoding(qint64 session_id)
@@ -524,13 +528,13 @@ void mainwindow::on_seek_finished(qint64 session_id, qint64 actual_seek_ms)
     if (actual_seek_ms < 0)
     {
         LOG_WARN("flow seek 6/10 seek failed for session {} resuming playback", session_id);
+        status_bar_->showMessage("跳转失败，已恢复播放。", 3000);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
         if (is_playing_ && player_ != nullptr)
         {
             QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
         }
-        on_progress_update(session_id, progress_slider_->value());
         return;
     }
 
@@ -577,7 +581,7 @@ void mainwindow::on_player_seek_handled(qint64 session_id)
     if (spectrum_widget_ != nullptr)
     {
         QMetaObject::invokeMethod(
-            spectrum_widget_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));
+            spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));
     }
 
     if (pending_seek_ms_ != -1)

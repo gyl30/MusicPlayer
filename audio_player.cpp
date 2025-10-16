@@ -285,8 +285,7 @@ void audio_player::feed_audio_device()
 
         if (bytes_written_this_cycle > 0)
         {
-            LOG_INFO(
-                "session {} write summary wrote {} packets totaling {} bytes", session_id_, packets_written_this_cycle, bytes_written_this_cycle);
+            LOG_TRACE("session {} write  {} packets totaling {} bytes", session_id_, packets_written_this_cycle, bytes_written_this_cycle);
         }
     }
 

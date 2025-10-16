@@ -22,7 +22,7 @@ class spectrum_processor : public QObject
     void magnitudes_ready(const std::vector<double>& magnitudes);
 
    public slots:
-    void start_playback(qint64 start_offset_ms);
+    void reset_and_start(qint64 start_offset_ms);
     void stop_playback();
     void process_packet(const std::shared_ptr<audio_packet>& packet);
 
