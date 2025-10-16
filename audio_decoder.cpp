@@ -33,24 +33,24 @@ void audio_decoder::shutdown() { stop_flag_ = true; }
 
 void audio_decoder::seek(qint64 session_id, qint64 position_ms)
 {
+    LOG_INFO("flow seek 3/10 received seek request for session {} to {}ms", session_id, position_ms);
     seek_session_id_ = session_id;
     seek_position_ms_ = position_ms;
     seek_requested_ = true;
-    LOG_INFO("session {} queuing seek request to {}ms", seek_session_id_, seek_position_ms_);
     QMetaObject::invokeMethod(this, "do_seek", Qt::QueuedConnection);
 }
 
 void audio_decoder::start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset)
 {
     session_id_ = session_id;
-    LOG_INFO("session {} received start_decoding request", session_id_);
+    LOG_INFO("flow 3/14 received start request for session {}", session_id_);
 
     if (!stop_flag_.load())
     {
         LOG_WARN("decoder is already running stopping previous task first");
         stop_flag_ = true;
     }
-
+    LOG_INFO("flow 4/14 resetting internal state for session {}", session_id_);
     file_path_ = file;
     target_format_ = fmt;
     target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
@@ -58,6 +58,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, const
     seek_requested_ = false;
     seek_position_ms_ = -1;
 
+    LOG_INFO("flow 5/14 opening audio file for session {}", session_id_);
     if (!open_audio_context(file_path_))
     {
         LOG_ERROR("init audio context failed {}", file.toStdString());
@@ -82,6 +83,7 @@ void audio_decoder::resume_decoding()
         LOG_WARN("resume decoding requested but decoder is stopped");
         return;
     }
+    LOG_INFO("flow 13/14 & 10/10 received resume signal starting decoding cycle for session {}", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
@@ -107,6 +109,7 @@ void audio_decoder::do_decoding_cycle()
 
         if (receive_ret == AVERROR_EOF)
         {
+            LOG_INFO("flow end 1/4 finished decoding file for session {} sending eof signal", session_id_);
             emit packet_ready(session_id_, nullptr);
             LOG_INFO("session {} end of file reached, decoder is now idle", session_id_);
             return;
@@ -142,6 +145,7 @@ void audio_decoder::do_decoding_cycle()
 
 void audio_decoder::do_seek()
 {
+    LOG_INFO("flow seek 4/10 is executing seek for session {}", seek_session_id_);
     if (!seek_requested_)
     {
         return;
@@ -165,11 +169,13 @@ void audio_decoder::do_seek()
     {
         LOG_INFO("session {} seek to {}ms successful", current_seek_id, target_pos_ms);
         avcodec_flush_buffers(codec_ctx_);
+        LOG_INFO("flow seek 5/10 notifying mainwindow of successful seek for session {}", current_seek_id);
         emit seek_finished(current_seek_id, target_pos_ms);
     }
     else
     {
         LOG_WARN("session {} seek to {}ms failed {}", current_seek_id, target_pos_ms, ffmpeg_error_string(ret));
+        LOG_INFO("flow seek 5/10 notifying mainwindow of failed seek for session {}", current_seek_id);
         emit seek_finished(current_seek_id, -1);
     }
 }
@@ -318,7 +324,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     if (format_ctx_->duration != AV_NOPTS_VALUE)
     {
         qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
-        LOG_INFO("session {} audio duration {}ms", session_id_, duration_ms);
+        LOG_INFO("flow 6/14 notifying mainwindow with audio info for session {}", session_id_);
         emit duration_ready(session_id_, duration_ms, target_format_);
     }
 

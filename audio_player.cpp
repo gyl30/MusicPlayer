@@ -36,9 +36,10 @@ audio_player::~audio_player()
 void audio_player::start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms)
 {
     session_id_ = session_id;
-    LOG_INFO("session {} received start playback command offset {}ms", session_id_, start_offset_ms);
+    LOG_INFO("flow 8/14 received start playback command for session {}", session_id_);
     LOG_DEBUG("sample rate {} channels {} sample format {}", format.sampleRate(), format.channelCount(), (int)format.sampleFormat());
 
+    LOG_INFO("flow 9/14 resetting state for session {}", session_id_);
     format_ = format;
     playback_start_offset_ms_ = start_offset_ms;
     decoder_finished_ = false;
@@ -75,6 +76,7 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     progress_timer_->start();
     LOG_INFO("session {} all timers started at {}", session_id_, QDateTime::currentMSecsSinceEpoch());
 
+    LOG_INFO("flow 10/14 notifying mainwindow that it is ready for session {}", session_id_);
     emit playback_ready(session_id_);
 }
 
@@ -113,7 +115,7 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
     if (packet == nullptr)
     {
         decoder_finished_ = true;
-        LOG_DEBUG("end of stream signal nullptr packet received");
+        LOG_INFO("flow end 2/4 received eof signal from mainwindow for session {}", session_id_);
     }
     else
     {
@@ -133,7 +135,8 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         return;
     }
-    LOG_INFO("session {} handling seek to {}ms", session_id_, actual_seek_ms);
+    LOG_INFO("flow seek 7/10 received seek request for session {}", session_id);
+    LOG_INFO("flow seek 8/10 clearing buffers and resetting device for session {}", session_id);
     playback_start_offset_ms_ = actual_seek_ms;
 
     decoder_finished_ = false;
@@ -152,18 +155,9 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         audio_sink_->reset();
         LOG_DEBUG("audio sink reset");
-        io_device_ = audio_sink_->start();
-        if (io_device_ == nullptr)
-        {
-            LOG_ERROR("failed to restart sink io device after seek");
-            is_playing_ = false;
-        }
-        else
-        {
-            LOG_DEBUG("audio sink restarted successfully after seek");
-            is_playing_ = true;
-        }
     }
+    LOG_INFO("flow seek 8/10 finished handling seek notifying mainwindow for session {}", session_id);
+    emit seek_handled(session_id_);
 }
 
 void audio_player::pause_feeding(qint64 session_id)
@@ -183,6 +177,18 @@ void audio_player::resume_feeding(qint64 session_id)
     {
         return;
     }
+    io_device_ = audio_sink_->start();
+    if (io_device_ == nullptr)
+    {
+        LOG_ERROR("failed to restart sink io device after seek");
+        is_playing_ = false;
+    }
+    else
+    {
+        LOG_DEBUG("audio sink restarted successfully after seek");
+        is_playing_ = true;
+    }
+
     if (is_playing_)
     {
         LOG_INFO("session {} resuming data feeding", session_id_);
@@ -286,7 +292,7 @@ void audio_player::feed_audio_device()
 
     if (data_queue_.empty() && decoder_finished_)
     {
-        LOG_INFO("session {} queue is empty and decoder has finished, waiting for sink to go idle", session_id_);
+        LOG_INFO("flow end 3/4 queue is empty and decoder has finished waiting for sink to go idle for session {}", session_id_);
         feed_timer_->stop();
     }
 }
@@ -312,7 +318,7 @@ void audio_player::on_sink_state_changed(QAudio::State state)
     {
         if (is_playing_ && decoder_finished_ && data_queue_.empty())
         {
-            LOG_INFO("session {} sink is idle and decoder is finished, playback has truly ended", session_id_);
+            LOG_INFO("flow end 3/4 sink is idle notifying mainwindow that playback has finished for session {}", session_id_);
             is_playing_ = false;
             feed_timer_->stop();
             progress_timer_->stop();

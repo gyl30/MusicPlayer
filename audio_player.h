@@ -21,6 +21,7 @@ class audio_player : public QObject
     void playback_ready(qint64 session_id);
     void playback_error(const QString& error_message);
     void packet_played(const std::shared_ptr<audio_packet>& packet);
+    void seek_handled(qint64 session_id);
 
    public slots:
     void start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms = 0);

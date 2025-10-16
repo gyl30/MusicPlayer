@@ -66,7 +66,9 @@ class mainwindow : public QMainWindow
     void on_seek_finished(qint64 session_id, qint64 actual_seek_ms);
     void on_decoding_error(const QString& error_message);
 
-    void on_player_ready(qint64 session_id);
+    void on_player_ready_for_spectrum(qint64 session_id);
+    void on_player_seek_handled(qint64 session_id);
+    void on_spectrum_ready_for_decoding(qint64 session_id);
     void on_player_error(const QString& error_message);
     void on_progress_update(qint64 session_id, qint64 current_ms);
     void on_playback_finished(qint64 session_id);
@@ -141,6 +143,7 @@ class mainwindow : public QMainWindow
     bool decoder_is_waiting_ = false;
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
+    qint64 seek_result_ms_ = -1;
 };
 
 #endif
