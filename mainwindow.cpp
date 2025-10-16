@@ -272,8 +272,7 @@ void mainwindow::on_list_double_clicked(QListWidgetItem* item)
 
     current_session_id_ = ++session_id_counter_;
     current_playing_file_path_ = item->data(Qt::UserRole).toString();
-    LOG_INFO(
-        "flow 3/14 notifying decoder to start new file {} for session {}", current_playing_file_path_.toStdString(), current_session_id_);
+    LOG_INFO("flow 3/14 notifying decoder to start new file {} for session {}", current_playing_file_path_.toStdString(), current_session_id_);
     emit request_decoding(current_session_id_, current_playing_file_path_, default_audio_format(), -1);
 
     auto* list = item->listWidget();
@@ -381,11 +380,7 @@ void mainwindow::on_spectrum_ready_for_decoding(qint64 session_id)
     LOG_INFO("flow 13/14 & seek 10/10 notifying decoder to start decoding for session {}", session_id);
     is_playing_ = true;
 
-    if (player_ != nullptr)
-    {
-        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
-        emit request_resume_decoding();
-    }
+    emit request_resume_decoding();
 }
 
 void mainwindow::on_player_error(const QString& error_message)
@@ -573,9 +568,13 @@ void mainwindow::on_player_seek_handled(qint64 session_id)
     }
 
     LOG_INFO("flow seek 8/10 received seek handled signal from player for session {}", session_id);
+    if (player_ != nullptr)
+    {
+        QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
+    }
     LOG_INFO("flow seek 9/10 notifying spectrum to reset for seek for session {}", session_id);
 
-    if (spectrum_widget_)
+    if (spectrum_widget_ != nullptr)
     {
         QMetaObject::invokeMethod(
             spectrum_widget_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));

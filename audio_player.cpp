@@ -180,7 +180,7 @@ void audio_player::resume_feeding(qint64 session_id)
     io_device_ = audio_sink_->start();
     if (io_device_ == nullptr)
     {
-        LOG_ERROR("failed to restart sink io device after seek");
+        LOG_ERROR("failed to start sink io device after pause or seek");
         is_playing_ = false;
     }
     else
