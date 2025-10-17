@@ -19,7 +19,7 @@ set(SANITIZER_COMPILE_FLAGS "")
 set(SANITIZER_LINK_FLAGS "")
 
 if(ENABLE_ASAN)
-    message(STATUS "AddressSanitizer (ASan) is enabled.")
+    message(STATUS "AddressSanititizer (ASan) is enabled.")
     list(APPEND SANITIZER_COMPILE_FLAGS -fsanitize=address -fno-omit-frame-pointer -g)
     list(APPEND SANITIZER_LINK_FLAGS -fsanitize=address)
 endif()
@@ -36,24 +36,37 @@ if(ENABLE_UBSAN)
     list(APPEND SANITIZER_LINK_FLAGS -fsanitize=undefined)
 endif()
 
-
 set(HARDENING_FLAGS_COMMON
     -Wall -Wformat -Wformat=2 -Wconversion -Wimplicit-fallthrough
     -Werror=format-security
-    -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
-    -D_GLIBCXX_ASSERTIONS
     -fstack-clash-protection -fstack-protector-strong
-    -fPIE
 )
-set(HARDENING_LINKER_FLAGS
-    -pie
-    -Wl,-z,nodlopen
-    -Wl,-z,noexecstack
-    -Wl,-z,relro
-    -Wl,-z,now
-    -Wl,--as-needed
-    -Wl,--no-copy-dt-needed-entries
-)
+
+if(UNIX AND NOT APPLE)
+    list(APPEND HARDENING_FLAGS_COMMON
+        -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
+        -fPIE
+    )
+endif()
+
+list(APPEND HARDENING_FLAGS_COMMON -D_GLIBCXX_ASSERTIONS)
+
+# Initialize the variable empty first.
+set(HARDENING_LINKER_FLAGS "")
+
+# Apply linker flags ONLY on Linux.
+if(UNIX AND NOT APPLE)
+    list(APPEND HARDENING_LINKER_FLAGS
+        -pie
+        -Wl,-z,noexecstack
+        -Wl,-z,relro
+        -Wl,-z,now
+        -Wl,--as-needed
+        -Wl,-z,nodlopen
+        -Wl,--no-copy-dt-needed-entries
+    )
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     message(STATUS "GCC detected, adding GCC-specific hardening flags.")
     list(APPEND HARDENING_FLAGS_COMMON -Wtrampolines)
@@ -72,7 +85,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(STATUS "Clang detected, most hardening flags are compatible.")
 endif()
-# 4. 特定于CPU架构的控制流保护选项
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     message(STATUS "x86_64 architecture detected, enabling Control-Flow Protection.")
     list(APPEND HARDENING_FLAGS_COMMON -fcf-protection=full)
@@ -80,13 +93,13 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
     message(STATUS "aarch64 architecture detected, enabling Branch Protection.")
     list(APPEND HARDENING_FLAGS_COMMON -mbranch-protection=standard)
 endif()
+
 set(HARDENING_FLAGS_PRODUCTION
     -fno-delete-null-pointer-checks
     -fno-strict-overflow
     -fno-strict-aliasing
     -ftrivial-auto-var-init=zero
 )
-
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -133,7 +146,10 @@ target_link_libraries(MusicPlayer PRIVATE
     Qt6::Multimedia
     ${FFMPEG_LIBRARIES}
 )
-set_target_properties(MusicPlayer PROPERTIES
-    WIN32_EXECUTABLE TRUE
-    MACOSX_BUNDLE TRUE
-)
+
+if(WIN32)
+    set_target_properties(MusicPlayer PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+if(APPLE)
+    set_target_properties(MusicPlayer PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
