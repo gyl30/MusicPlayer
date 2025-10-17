@@ -2,6 +2,10 @@
 #include "fftreal.h"
 #include "spectrum_processor.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 static double lerp(double a, double b, double t) { return a + (t * (b - a)); }
 
 static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_packet>& packet)
@@ -21,8 +25,10 @@ static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_pack
     std::vector<double> fft_input(fft_size);
     for (size_t i = 0; i < fft_size; ++i)
     {
-        fft_input[i] = static_cast<double>(pcm_data[i]) / 32768.0;
+        double window = 0.5 * (1.0 - cos(2.0 * M_PI * i / (fft_size - 1)));
+        fft_input[i] = (static_cast<double>(pcm_data[i]) / 32768.0) * window;
     }
+
     fft_real<double> fft(fft_size);
     fft.do_fft(fft_input.data());
 
