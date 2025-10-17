@@ -25,7 +25,7 @@ class audio_decoder : public QObject
     ~audio_decoder() override;
 
    public slots:
-    void start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset = -1);
+    void start_decoding(qint64 session_id, const QString& file, qint64 offset = -1);
     void resume_decoding();
     void shutdown();
     void seek(qint64 session_id, qint64 position_ms);
@@ -66,6 +66,7 @@ class audio_decoder : public QObject
     AVRational time_base_;
     QAudioFormat target_format_;
     AVSampleFormat target_ffmpeg_fmt_ = AV_SAMPLE_FMT_NONE;
+    qint64 accumulated_ms_ = 0;
 };
 
 #endif

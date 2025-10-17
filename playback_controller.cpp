@@ -7,14 +7,6 @@
 #include "playback_controller.h"
 
 const static auto kBufferHighWatermarkSeconds = 5L;
-static QAudioFormat default_audio_format()
-{
-    QAudioFormat format;
-    format.setSampleRate(44100);
-    format.setChannelCount(2);
-    format.setSampleFormat(QAudioFormat::Int16);
-    return format;
-}
 
 playback_controller::playback_controller(QObject* parent) : QObject(parent)
 {
@@ -65,7 +57,6 @@ void playback_controller::play_file(const QString& file_path)
                               Qt::QueuedConnection,
                               Q_ARG(qint64, current_session_id_),
                               Q_ARG(QString, file_path),
-                              Q_ARG(QAudioFormat, default_audio_format()),
                               Q_ARG(qint64, -1));
 }
 

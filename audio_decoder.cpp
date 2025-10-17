@@ -40,7 +40,7 @@ void audio_decoder::seek(qint64 session_id, qint64 position_ms)
     QMetaObject::invokeMethod(this, "do_seek", Qt::QueuedConnection);
 }
 
-void audio_decoder::start_decoding(qint64 session_id, const QString& file, const QAudioFormat& fmt, qint64 offset)
+void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint64 offset)
 {
     session_id_ = session_id;
     LOG_INFO("flow 3/14 received start request for session {}", session_id_);
@@ -52,9 +52,6 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, const
     }
     LOG_INFO("flow 4/14 resetting internal state for session {}", session_id_);
     file_path_ = file;
-    target_format_ = fmt;
-    target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
-
     seek_requested_ = false;
     seek_position_ms_ = -1;
 
@@ -66,6 +63,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, const
         return;
     }
 
+    accumulated_ms_ = 0;
     stop_flag_ = false;
 
     if (offset > 0)
@@ -169,6 +167,7 @@ void audio_decoder::do_seek()
     {
         LOG_INFO("session {} seek to {}ms successful", current_seek_id, target_pos_ms);
         avcodec_flush_buffers(codec_ctx_);
+        accumulated_ms_ = target_pos_ms;
         LOG_INFO("flow seek 5/10 notifying mainwindow of successful seek for session {}", current_seek_id);
         emit seek_finished(current_seek_id, target_pos_ms);
     }
@@ -195,7 +194,15 @@ void audio_decoder::process_frame(AVFrame* frame)
     if (frame->pts != AV_NOPTS_VALUE)
     {
         timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
+        accumulated_ms_ = timestamp_ms;
     }
+    else
+    {
+        qint64 duration_ms = static_cast<qint64>(frame->nb_samples) * 1000 / codec_ctx_->sample_rate;
+        timestamp_ms = accumulated_ms_;
+        accumulated_ms_ += duration_ms;
+    }
+
     LOG_TRACE("session {} decoded packet data len {} pts {} ms {}", session_id_, buffer_size, frame->pts, timestamp_ms);
     if (buffer_size > 0)
     {
@@ -269,8 +276,9 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 
     target_format_.setSampleRate(codec_ctx_->sample_rate);
     target_format_.setChannelCount(codec_ctx_->ch_layout.nb_channels);
+    target_format_.setSampleFormat(QAudioFormat::Int16);
+    target_ffmpeg_fmt_ = get_av_sample_format(target_format_.sampleFormat());
 
-    AVSampleFormat target_sample_fmt = get_av_sample_format(target_format_.sampleFormat());
     int target_sample_rate = target_format_.sampleRate();
     AVChannelLayout target_ch_layout;
     av_channel_layout_default(&target_ch_layout, target_format_.channelCount());
@@ -280,12 +288,12 @@ bool audio_decoder::open_audio_context(const QString& file_path)
              av_get_sample_fmt_name(codec_ctx_->sample_fmt),
              codec_ctx_->ch_layout.nb_channels,
              target_sample_rate,
-             av_get_sample_fmt_name(target_sample_fmt),
+             av_get_sample_fmt_name(target_ffmpeg_fmt_),
              target_format_.channelCount());
 
     ret = swr_alloc_set_opts2(&swr_ctx_,
                               &target_ch_layout,
-                              target_sample_fmt,
+                              target_ffmpeg_fmt_,
                               target_sample_rate,
                               &codec_ctx_->ch_layout,
                               codec_ctx_->sample_fmt,
