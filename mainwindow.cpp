@@ -489,7 +489,7 @@ void mainwindow::on_rename_playlist_requested()
 
 void mainwindow::on_add_songs_requested()
 {
-    QStringList file_paths = QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.wav *.mp4 *.mkv *.m4a *.webm)");
+    QStringList file_paths = QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.ape *.wav *.mp4 *.mkv *.m4a *.webm)");
     if (!file_paths.isEmpty())
     {
         playlist_manager_->add_songs_to_playlist(current_playlist_id_, file_paths);
