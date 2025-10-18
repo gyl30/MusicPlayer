@@ -53,6 +53,7 @@ class mainwindow : public QMainWindow
     void handle_playback_error(const QString& error_message);
     void handle_seek_finished(bool success);
     void on_playback_started(const QString& file_path, const QString& file_name);
+    void on_current_song_selection_changed(QListWidgetItem* current, QListWidgetItem* previous);
 
     void rebuild_ui_from_playlists();
     void update_playlist_content(const QString& playlist_id);
@@ -74,7 +75,7 @@ class mainwindow : public QMainWindow
     void setup_connections();
     void clear_playlist_ui();
     void add_playlist_to_ui(const Playlist& playlist);
-    void clear_playing_highlight();
+    void clear_playing_indicator();
     [[nodiscard]] QListWidget* current_song_list_widget() const;
 
    private:
