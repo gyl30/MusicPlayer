@@ -1,29 +1,32 @@
-#include <QDateTime>
+#include <QMutexLocker>
 #include <QMetaObject>
-#include <QMediaDevices>
 #include <numeric>
-
+#include <algorithm>
 #include "log.h"
-#include "scoped_exit.h"
 #include "audio_player.h"
 
-constexpr int kFeedIntervalMs = 50;
-constexpr int kLongFeedIntervalMs = 1000;
 constexpr int kProgressUpdateIntervalMs = 250;
-constexpr auto kAudioBufferDurationSeconds = 2L;
-constexpr auto kQueueBufferDurationSeconds = 5L;
-constexpr auto kBufferLowWatermarkSeconds = 1L;
+constexpr auto kBufferLowWatermarkSeconds = 2L;
 
-static int default_audio_bytes_second(const QAudioFormat& format) { return format.bytesPerFrame() * format.sampleRate(); }
+void audio_player::audio_callback(void* userdata, Uint8* stream, int len)
+{
+    auto* player = static_cast<audio_player*>(userdata);
+    if (player != nullptr)
+    {
+        player->fill_audio_buffer(stream, len);
+    }
+}
 
 audio_player::audio_player(QObject* parent) : QObject(parent)
 {
-    LOG_DEBUG("音频播放器已创建");
-
-    feed_timer_ = new QTimer(this);
-    feed_timer_->setSingleShot(true);
-    feed_timer_->setTimerType(Qt::PreciseTimer);
-    connect(feed_timer_, &QTimer::timeout, this, &audio_player::feed_audio_device);
+    if (SDL_Init(SDL_INIT_AUDIO) < 0)
+    {
+        LOG_ERROR("无法初始化 sdl 音频 {}", SDL_GetError());
+    }
+    else
+    {
+        LOG_DEBUG("sdl 音频子系统已初始化");
+    }
 
     progress_timer_ = new QTimer(this);
     progress_timer_->setInterval(kProgressUpdateIntervalMs);
@@ -33,81 +36,104 @@ audio_player::audio_player(QObject* parent) : QObject(parent)
 audio_player::~audio_player()
 {
     stop_playback();
-    LOG_DEBUG("音频播放器已销毁");
+    SDL_Quit();
+    LOG_DEBUG("音频播放器已销毁 sdl 已退出");
+}
+
+void audio_player::on_playback_completed_internal()
+{
+    if (!is_playing_.load() || session_id_ == 0)
+    {
+        return;
+    }
+
+    LOG_INFO("结束流程 3/4 sdl 缓冲区播放完毕 暂停设备并通知控制中心 会话id {}", session_id_);
+
+    is_playing_ = false;
+    progress_timer_->stop();
+
+    if (device_id_ != 0)
+    {
+        SDL_PauseAudioDevice(device_id_, 1);
+    }
+
+    emit playback_finished(session_id_);
 }
 
 void audio_player::start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms)
 {
     session_id_ = session_id;
-    LOG_INFO("播放流程 8/14 播放器收到启动命令 会话ID {}", session_id_);
-    LOG_DEBUG("音频参数: 采样率 {}, 声道数 {}, 样本格式 {}", format.sampleRate(), format.channelCount(), (int)format.sampleFormat());
+    LOG_INFO("播放流程 8/14 sdl 播放器收到启动命令 会话id {}", session_id_);
 
-    LOG_INFO("播放流程 9/14 重置播放器状态并启动音频设备 会话ID {}", session_id_);
-    format_ = format;
-    playback_start_offset_ms_ = start_offset_ms;
-    decoder_finished_ = false;
-    low_water_mark_triggered_ = true;
+    stop_playback();
 
-    buffer_low_water_mark_ = default_audio_bytes_second(format) * kBufferLowWatermarkSeconds;
-    LOG_DEBUG("缓冲区低水位线设置为 {} 字节 ({} 秒)", buffer_low_water_mark_, kBufferLowWatermarkSeconds);
+    last_format_ = format;
 
-    data_queue_.clear();
-    qint64 max_queue_size = default_audio_bytes_second(format) * kQueueBufferDurationSeconds;
-    LOG_DEBUG("队列最大容量设置为 {} 字节 ({} 秒)", max_queue_size, kQueueBufferDurationSeconds);
+    SDL_AudioSpec desired_spec;
+    SDL_zero(desired_spec);
+    desired_spec.freq = format.sampleRate();
+    desired_spec.channels = static_cast<uint8_t>(format.channelCount());
+    desired_spec.format = AUDIO_S16LSB;
+    desired_spec.silence = 0;
+    desired_spec.samples = 2048;
+    desired_spec.callback = audio_callback;
+    desired_spec.userdata = this;
 
-    if (audio_sink_ != nullptr)
+    device_id_ = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &audio_spec_, 0);
+
+    if (device_id_ == 0)
     {
-        LOG_WARN("发现已存在的 audio_sink，将停止并删除它");
-        audio_sink_->stop();
-        delete audio_sink_;
-    }
-
-    audio_sink_ = new QAudioSink(QMediaDevices::defaultAudioOutput(), format_, this);
-    auto buffer_size = default_audio_bytes_second(format_) * kAudioBufferDurationSeconds;
-    audio_sink_->setBufferSize(buffer_size);
-    connect(audio_sink_, &QAudioSink::stateChanged, this, &audio_player::on_sink_state_changed);
-    LOG_DEBUG("音频设备已创建，缓冲区大小为 {} 字节 ({} 秒)", buffer_size, kAudioBufferDurationSeconds);
-
-    io_device_ = audio_sink_->start();
-    if (io_device_ == nullptr)
-    {
-        LOG_ERROR("启动音频设备IO失败，播放将无法开始");
-        emit playback_error("启动音频设备失败");
+        LOG_ERROR("sdl 打开音频设备失败 {}", SDL_GetError());
+        emit playback_error(QString("打开音频设备失败 %1").arg(SDL_GetError()));
         return;
     }
-    LOG_INFO("音频设备启动成功");
+    LOG_INFO("sdl 音频设备已打开 id {}", device_id_);
+    LOG_DEBUG("sdl 设备参数 频率 {}hz 声道 {} 格式 {} 缓冲区大小 {} 字节",
+              audio_spec_.freq,
+              audio_spec_.channels,
+              (int)audio_spec_.format,
+              audio_spec_.size);
 
+    playback_start_offset_ms_ = start_offset_ms;
+    bytes_processed_by_device_ = 0;
+    decoder_finished_ = false;
     is_playing_ = true;
 
-    QMetaObject::invokeMethod(this, "feed_audio_device", Qt::QueuedConnection);
-    progress_timer_->start();
-    LOG_INFO("会话 {} 所有定时器已在 {} 启动", session_id_, QDateTime::currentMSecsSinceEpoch());
+    qint64 bytes_per_second = static_cast<qint64>(audio_spec_.freq) * audio_spec_.channels * static_cast<qint64>(sizeof(qint16));
+    buffer_low_water_mark_ = bytes_per_second * kBufferLowWatermarkSeconds;
+    low_water_mark_triggered_ = true;
+    LOG_DEBUG("sdl 缓冲区低水位线设置为 {} 字节 {} 秒", buffer_low_water_mark_, kBufferLowWatermarkSeconds);
 
-    LOG_INFO("播放流程 10/14 播放器准备就绪通知控制中心 会话ID {}", session_id_);
+    progress_timer_->start();
+    SDL_PauseAudioDevice(device_id_, 0);
+
+    LOG_INFO("播放流程 10/14 sdl 播放器准备就绪 通知控制中心 会话id {}", session_id_);
     emit playback_ready(session_id_);
 }
 
 void audio_player::stop_playback()
 {
-    if (!is_playing_.load())
+    if (!is_playing_.load() && device_id_ == 0)
     {
         return;
     }
-    LOG_INFO("停止流程 3/4 播放器收到停止命令会话ID {}", session_id_);
+    LOG_INFO("停止流程 3/4 sdl 播放器收到停止命令 会话id {}", session_id_);
     is_playing_ = false;
 
-    feed_timer_->stop();
     progress_timer_->stop();
-    LOG_DEBUG("所有定时器已停止");
 
-    data_queue_.clear();
-
-    if (audio_sink_ != nullptr)
+    if (device_id_ != 0)
     {
-        audio_sink_->stop();
-        LOG_DEBUG("音频设备已停止");
+        SDL_LockAudioDevice(device_id_);
+        SDL_PauseAudioDevice(device_id_, 1);
+        SDL_CloseAudioDevice(device_id_);
+        device_id_ = 0;
+        SDL_UnlockAudioDevice(device_id_);
+        LOG_DEBUG("sdl 音频设备已关闭");
     }
-    io_device_ = nullptr;
+
+    QMutexLocker locker(&queue_mutex_);
+    data_queue_.clear();
 }
 
 void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
@@ -117,26 +143,16 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
         return;
     }
 
-    bool queue_was_empty = data_queue_.empty();
-
     if (packet == nullptr)
     {
+        LOG_INFO("结束流程 2/4 sdl 收到来自控制中心的文件结束信号");
         decoder_finished_ = true;
-        LOG_INFO("结束流程 2/4 收到来自控制中心的文件结束信号 会话ID {}", session_id_);
     }
     else
     {
+        QMutexLocker locker(&queue_mutex_);
         data_queue_.push_back(packet);
         low_water_mark_triggered_ = false;
-    }
-
-    if (queue_was_empty && !data_queue_.empty())
-    {
-        LOG_TRACE("队列曾为空，现有数据，通过 invokeMethod 触发数据供给");
-        if (!feed_timer_->isActive())
-        {
-            QMetaObject::invokeMethod(this, "feed_audio_device", Qt::QueuedConnection);
-        }
     }
 }
 
@@ -146,213 +162,174 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         return;
     }
-    LOG_INFO("跳转流程 7/10 播放器收到跳转处理请求 会话ID {} 实际毫秒 {}", session_id, actual_seek_ms);
-    LOG_INFO("跳转流程 8/10 正在清空缓冲区并重置音频设备 会话ID {}", session_id);
-    playback_start_offset_ms_ = actual_seek_ms;
+    LOG_INFO("跳转流程 7/10 sdl 播放器收到跳转处理请求");
 
+    if (device_id_ != 0)
+    {
+        SDL_CloseAudioDevice(device_id_);
+        device_id_ = 0;
+        LOG_DEBUG("sdl 音频设备已为跳转关闭");
+    }
+
+    if (!last_format_.isValid())
+    {
+        LOG_ERROR("sdl 无法重新打开设备 最后一次使用的音频格式无效");
+        emit playback_error("无法在播放结束后跳转 音频格式信息已丢失");
+        return;
+    }
+
+    SDL_AudioSpec desired_spec;
+    SDL_zero(desired_spec);
+    desired_spec.freq = last_format_.sampleRate();
+    desired_spec.channels = static_cast<uint8_t>(last_format_.channelCount());
+    desired_spec.format = AUDIO_S16LSB;
+    desired_spec.silence = 0;
+    desired_spec.samples = 2048;
+    desired_spec.callback = audio_callback;
+    desired_spec.userdata = this;
+
+    device_id_ = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &audio_spec_, 0);
+    if (device_id_ == 0)
+    {
+        LOG_ERROR("sdl 在 seek 期间重新打开音频设备失败 {}", SDL_GetError());
+        emit playback_error("为跳转操作重新打开音频设备失败");
+        return;
+    }
+    LOG_INFO("sdl 音频设备已为 seek 重新打开 id {}", device_id_);
+
+    {
+        QMutexLocker locker(&queue_mutex_);
+        data_queue_.clear();
+        LOG_INFO("跳转流程 8/10 sdl 播放器数据队列已为跳转清空");
+    }
+
+    playback_start_offset_ms_ = actual_seek_ms;
+    bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
     low_water_mark_triggered_ = true;
+    is_playing_ = true;
 
-    data_queue_.clear();
-    LOG_DEBUG("播放器数据队列已为跳转清空");
-
-    if (audio_sink_ != nullptr && audio_sink_->state() != QAudio::StoppedState)
+    if (!progress_timer_->isActive())
     {
-        audio_sink_->stop();
-        LOG_DEBUG("音频设备已为跳转停止");
+        progress_timer_->start();
     }
 
-    if (audio_sink_ != nullptr)
-    {
-        audio_sink_->reset();
-        LOG_DEBUG("音频设备已重置");
-    }
-    LOG_INFO("跳转流程 8/10 跳转处理完毕，通知控制中心 会话ID {}", session_id);
+    LOG_INFO("跳转流程 8/10 sdl 跳转处理完毕 通知控制中心");
     emit seek_handled(session_id_);
 }
 
-void audio_player::pause_feeding(qint64 session_id)
+void audio_player::pause_feeding(qint64 session_id) const
 {
-    if (session_id != session_id_)
+    if (session_id != session_id_ || device_id_ == 0)
     {
         return;
     }
-    LOG_INFO("会话 {} 暂停数据供给", session_id_);
-    feed_timer_->stop();
-    progress_timer_->stop();
+    SDL_PauseAudioDevice(device_id_, 1);
+    LOG_INFO("sdl 音频设备已暂停");
 }
 
-void audio_player::resume_feeding(qint64 session_id)
+void audio_player::resume_feeding(qint64 session_id) const
 {
-    if (session_id != session_id_)
+    if (session_id != session_id_ || device_id_ == 0)
     {
         return;
     }
-    io_device_ = audio_sink_->start();
-    if (io_device_ == nullptr)
-    {
-        LOG_ERROR("暂停或跳转后启动音频设备IO失败");
-        is_playing_ = false;
-    }
-    else
-    {
-        LOG_DEBUG("跳转后音频设备成功重启");
-        is_playing_ = true;
-    }
+    SDL_PauseAudioDevice(device_id_, 0);
+    LOG_INFO("sdl 音频设备已恢复");
+}
 
-    if (is_playing_)
+void audio_player::fill_audio_buffer(Uint8* stream, int len)
+{
+    SDL_memset(stream, 0, static_cast<size_t>(len));
+
+    bool should_finish = false;
     {
-        LOG_INFO("会话 {} 恢复数据供给", session_id_);
-        if (!feed_timer_->isActive())
+        QMutexLocker locker(&queue_mutex_);
+        if (data_queue_.empty() && decoder_finished_)
         {
-            QMetaObject::invokeMethod(this, "feed_audio_device", Qt::QueuedConnection);
+            should_finish = true;
         }
-        progress_timer_->start();
     }
-}
 
-void audio_player::feed_audio_device()
-{
-    LOG_TRACE("会话 {} feed_audio_device 已触发", session_id_);
-
-    if (!is_playing_ || io_device_ == nullptr || audio_sink_ == nullptr)
+    if (should_finish)
     {
-        LOG_TRACE("会话 {} 数据供给中止，播放器未就绪", session_id_);
+        decoder_finished_ = false;
+        QMetaObject::invokeMethod(this, "on_playback_completed_internal", Qt::QueuedConnection);
         return;
     }
 
-    static bool is_feeding = false;
-    if (is_feeding)
+    int bytes_filled_this_cycle = 0;
     {
-        LOG_TRACE("会话 {} 因重入跳过此次数据供给", session_id_);
-        return;
-    }
-    is_feeding = true;
-    DEFER(is_feeding = false;);
-
-    if (audio_sink_->state() == QAudio::StoppedState)
-    {
-        LOG_WARN("会话 {} 音频设备处于停止状态，不再安排数据供给", session_id_);
-        return;
-    }
-
-    const qint64 total_buffer_bytes = audio_sink_->bufferSize();
-    qint64 bytes_to_write = audio_sink_->bytesFree();
-    qint64 bytes_buffered_before = total_buffer_bytes - bytes_to_write;
-
-    LOG_TRACE("会话 {} 写入前缓冲区状态: 总计 {}, 已缓冲 {}, 空闲 {}", session_id_, total_buffer_bytes, bytes_buffered_before, bytes_to_write);
-
-    if (data_queue_.empty())
-    {
-        LOG_TRACE("会话 {} 数据队列为空，无可写入内容", session_id_);
-    }
-    else if (bytes_to_write > 0)
-    {
-        qint64 bytes_written_this_cycle = 0;
-        int packets_written_this_cycle = 0;
-
-        while (!data_queue_.empty())
+        QMutexLocker locker(&queue_mutex_);
+        if (!is_playing_ || data_queue_.empty())
         {
-            auto& next_packet = data_queue_.front();
-            if (!next_packet || next_packet->data.empty())
+            return;
+        }
+
+        int bytes_to_fill = len;
+        Uint8* stream_ptr = stream;
+
+        while (bytes_to_fill > 0 && !data_queue_.empty())
+        {
+            auto& packet = data_queue_.front();
+            size_t packet_size = packet->data.size();
+
+            size_t bytes_to_copy = std::min(static_cast<size_t>(bytes_to_fill), packet_size);
+
+            SDL_memcpy(stream_ptr, packet->data.data(), bytes_to_copy);
+            emit packet_played(packet);
+            stream_ptr += bytes_to_copy;
+
+            bytes_to_fill -= static_cast<int>(bytes_to_copy);
+
+            if (bytes_to_copy == packet_size)
             {
-                LOG_WARN("会话 {} 在队列中发现空数据包，将其丢弃", session_id_);
-                data_queue_.pop_front();
-                continue;
-            }
-
-            auto packet_size = static_cast<qint64>(next_packet->data.size());
-            if (bytes_to_write >= packet_size)
-            {
-                emit packet_played(next_packet);
-                qint64 written_bytes = io_device_->write(reinterpret_cast<const char*>(next_packet->data.data()), packet_size);
-
-                if (written_bytes != packet_size)
-                {
-                    LOG_WARN("会话 {} 向设备写入数据不足，预期 {} 字节，实际写入 {}", session_id_, packet_size, written_bytes);
-                    if (written_bytes <= 0)
-                    {
-                        break;
-                    }
-                }
-
-                bytes_written_this_cycle += written_bytes;
-                packets_written_this_cycle++;
-                bytes_to_write -= written_bytes;
                 data_queue_.pop_front();
             }
             else
             {
-                break;
+                packet->data.erase(packet->data.begin(), packet->data.begin() + static_cast<int>(bytes_to_copy));
             }
         }
-        if (bytes_written_this_cycle > 0)
-        {
-            LOG_TRACE("会话 {} 写入 {} 个数据包，总计 {} 字节", session_id_, packets_written_this_cycle, bytes_written_this_cycle);
-        }
+        bytes_filled_this_cycle = len - bytes_to_fill;
     }
+    bytes_processed_by_device_ += bytes_filled_this_cycle;
 
     if (!low_water_mark_triggered_)
     {
-        qint64 remaining_bytes = std::accumulate(
-            data_queue_.begin(), data_queue_.end(), 0LL, [](qint64 sum, const auto& packet) { return sum + (packet ? packet->data.size() : 0); });
+        qint64 remaining_bytes;
+        {
+            QMutexLocker locker(&queue_mutex_);
+            remaining_bytes = std::accumulate(data_queue_.begin(),
+                                              data_queue_.end(),
+                                              0LL,
+                                              [](qint64 sum, const auto& pkt) { return sum + (pkt ? static_cast<qint64>(pkt->data.size()) : 0); });
+        }
 
         if (remaining_bytes < buffer_low_water_mark_)
         {
-            LOG_TRACE("会话 {} 缓冲区水位低 ({} 字节)，请求更多数据", session_id_, remaining_bytes);
-            emit buffer_level_low(session_id_);
+            LOG_TRACE("sdl 缓冲区水位低 {} 字节 请求更多数据", remaining_bytes);
+            QMetaObject::invokeMethod(this, "buffer_level_low", Qt::QueuedConnection, Q_ARG(qint64, session_id_));
             low_water_mark_triggered_ = true;
         }
-    }
-
-    if (data_queue_.empty() && decoder_finished_)
-    {
-        LOG_INFO("结束流程 3/4 数据队列已空且解码完成 等待音频设备空闲 会话ID {}", session_id_);
-    }
-    else if (is_playing_)
-    {
-        qint64 buffered_ms = 0;
-        const auto bytes_per_second = format_.sampleRate() * format_.bytesPerFrame();
-
-        if (bytes_per_second > 0)
-        {
-            const qint64 used_bytes = audio_sink_->bufferSize() - audio_sink_->bytesFree();
-            buffered_ms = (used_bytes * 1000) / bytes_per_second;
-        }
-
-        qint64 next_interval_ms = (buffered_ms > kLongFeedIntervalMs) ? kLongFeedIntervalMs : kFeedIntervalMs;
-
-        LOG_TRACE("下次数据供给计划在 {} 毫秒后，硬件缓冲区有 {} 毫秒的音频", next_interval_ms, buffered_ms);
-        feed_timer_->start(static_cast<int>(next_interval_ms));
     }
 }
 
 void audio_player::update_progress_ui()
 {
-    if (!is_playing_ || audio_sink_ == nullptr)
+    if (!is_playing_ || device_id_ == 0)
     {
         return;
     }
 
-    const qint64 processed_us = audio_sink_->processedUSecs();
-    const qint64 processed_ms = processed_us / 1000;
+    qint64 bytes_per_second = static_cast<qint64>(audio_spec_.freq) * audio_spec_.channels * static_cast<qint64>(sizeof(qint16));
+    if (bytes_per_second == 0)
+    {
+        return;
+    }
 
-    LOG_DEBUG("会话 {} 进度更新: 已处理 {} 微秒，总计 {} 毫秒", session_id_, processed_us, playback_start_offset_ms_ + processed_ms);
+    qint64 processed_bytes = bytes_processed_by_device_.load();
+    qint64 processed_ms = (processed_bytes * 1000) / bytes_per_second;
 
     emit progress_update(session_id_, playback_start_offset_ms_ + processed_ms);
-}
-
-void audio_player::on_sink_state_changed(QAudio::State state)
-{
-    if (state == QAudio::IdleState)
-    {
-        if (is_playing_ && decoder_finished_ && data_queue_.empty())
-        {
-            LOG_INFO("结束流程 3/4 音频设备已空闲 通知控制中心播放已结束 会话ID {}", session_id_);
-            is_playing_ = false;
-            feed_timer_->stop();
-            progress_timer_->stop();
-            emit playback_finished(session_id_);
-        }
-    }
 }
