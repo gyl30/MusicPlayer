@@ -24,7 +24,7 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 
     decoder_thread_->start();
-    LOG_INFO("playback controller initialized and decoder thread started");
+    LOG_INFO("播放控制器已初始化，解码器线程已启动");
 }
 
 playback_controller::~playback_controller()
@@ -32,7 +32,7 @@ playback_controller::~playback_controller()
     stop();
     decoder_thread_->quit();
     decoder_thread_->wait();
-    LOG_INFO("playback controller destroyed");
+    LOG_INFO("播放控制器已销毁");
 }
 
 void playback_controller::set_spectrum_widget(spectrum_widget* widget)
@@ -42,7 +42,7 @@ void playback_controller::set_spectrum_widget(spectrum_widget* widget)
     {
         connect(
             spectrum_widget_, &spectrum_widget::playback_started, this, &playback_controller::on_spectrum_ready_for_decoding, Qt::QueuedConnection);
-        LOG_INFO("spectrum widget set for playback controller");
+        LOG_INFO("已为播放控制器设置频谱部件");
     }
 }
 
@@ -55,7 +55,7 @@ void playback_controller::play_file(const QString& file_path)
 
     QFileInfo file_info(file_path);
     QString file_name = file_info.fileName();
-    LOG_INFO("controller emitting playback started signal path {} name {}", file_path.toStdString(), file_name.toStdString());
+    LOG_INFO("控制器发出 playback_started 信号，路径 {}，名称 {}", file_path.toStdString(), file_name.toStdString());
     emit playback_started(file_path, file_name);
 
     LOG_INFO("播放流程 3/14 通知解码器开始处理文件 {} 会话ID {}", file_path.toStdString(), current_session_id_);
@@ -103,7 +103,7 @@ void playback_controller::seek(qint64 position_ms)
 
     if (is_seeking_)
     {
-        LOG_INFO("session {} seek is busy pending new request to {}ms", current_session_id_, position_ms);
+        LOG_INFO("会话 {} 跳转正忙，将新的跳转请求 (至 {}ms) 置为待处理", current_session_id_, position_ms);
         pending_seek_ms_ = position_ms;
         return;
     }
@@ -123,7 +123,7 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
 {
     if (session_id != current_session_id_)
     {
-        LOG_WARN("session {} ignoring duration_ready for obsolete session current is {}", session_id, current_session_id_);
+        LOG_WARN("会话 {} 忽略已过时会话的 duration_ready 信号，当前会话为 {}", session_id, current_session_id_);
         return;
     }
     LOG_INFO("播放流程 6/14 从解码器收到音频信息 会话ID {}", session_id);
@@ -136,7 +136,7 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
     buffered_bytes_ = 0;
     decoder_is_waiting_ = false;
     buffer_high_water_mark_ = kBufferHighWatermarkSeconds * format.bytesPerFrame() * format.sampleRate();
-    LOG_INFO("session {} buffer high water mark set to {} bytes {} seconds", session_id, buffer_high_water_mark_, kBufferHighWatermarkSeconds);
+    LOG_INFO("会话 {} 缓冲区高水位线设置为 {} 字节 ({} 秒)", session_id, buffer_high_water_mark_, kBufferHighWatermarkSeconds);
 
     player_thread_ = new QThread(this);
     player_ = new audio_player();
@@ -184,14 +184,14 @@ void playback_controller::on_spectrum_ready_for_decoding(qint64 session_id)
 
 void playback_controller::on_player_error(const QString& error_message)
 {
-    LOG_ERROR("received player error {}", error_message.toStdString());
+    LOG_ERROR("收到播放器错误: {}", error_message.toStdString());
     emit playback_error(error_message);
     stop();
 }
 
 void playback_controller::on_decoding_error(const QString& error_message)
 {
-    LOG_ERROR("received decoder error {}", error_message.toStdString());
+    LOG_ERROR("收到解码器错误: {}", error_message.toStdString());
     emit playback_error(error_message);
     stop();
 }
@@ -202,6 +202,8 @@ void playback_controller::on_packet_from_decoder(qint64 session_id, const std::s
     {
         return;
     }
+
+    LOG_TRACE("控制器从解码器收到数据包，会话 {}，时间戳 {}ms", session_id, packet ? packet->ms : -1);
 
     if (player_ == nullptr)
     {
@@ -228,7 +230,7 @@ void playback_controller::on_packet_from_decoder(qint64 session_id, const std::s
         }
         else
         {
-            LOG_TRACE("session {} buffer is full {} bytes decoder now waiting", session_id, buffered_bytes_.load());
+            LOG_TRACE("会话 {} 缓冲区已满 ({} 字节)，解码器现在等待", session_id, buffered_bytes_.load());
             decoder_is_waiting_ = true;
         }
     }
@@ -251,7 +253,7 @@ void playback_controller::on_buffer_level_low(qint64 session_id)
     }
     if (decoder_is_waiting_ && is_playing_ && !is_seeking_)
     {
-        LOG_TRACE("session {} buffer has space waking up decoder", current_session_id_);
+        LOG_TRACE("会话 {} 缓冲区有空间，唤醒解码器", current_session_id_);
         decoder_is_waiting_ = false;
         QMetaObject::invokeMethod(decoder_, "resume_decoding", Qt::QueuedConnection);
     }
@@ -270,7 +272,7 @@ void playback_controller::on_playback_finished(qint64 session_id)
 {
     if (session_id != current_session_id_)
     {
-        LOG_INFO("session {} ignoring playback_finished for obsolete session current is {}", session_id, current_session_id_);
+        LOG_INFO("会话 {} 忽略已过时会话的播放结束信号，当前会话为 {}", session_id, current_session_id_);
         return;
     }
     LOG_INFO("结束流程 3/4 从播放器收到播放完成信号 会话ID {}", session_id);
@@ -287,10 +289,10 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
 {
     if (session_id != current_session_id_)
     {
-        LOG_WARN("session {} ignoring seek_finished for obsolete session current is {}", session_id, current_session_id_);
+        LOG_WARN("会话 {} 忽略已过时会话的跳转完成信号，当前会话为 {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("跳转流程 5/10 从解码器收到跳转结果 实际位置 {}ms 会话ID {}", actual_seek_ms, session_id);
+    LOG_INFO("跳转流程 5/10 从解码器收到跳转结果, 实际位置 {}ms, 会话ID {}", actual_seek_ms, session_id);
 
     if (actual_seek_ms < 0)
     {
@@ -305,9 +307,11 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
         return;
     }
 
+    emit seek_completed(actual_seek_ms);
+
     if (total_duration_ms_ > 0 && total_duration_ms_ - actual_seek_ms < 250)
     {
-        LOG_INFO("session {} seek result is at the end transitioning to finished state", session_id);
+        LOG_INFO("会话 {} 跳转结果已在文件末尾，转换到结束状态", session_id);
         is_seeking_ = false;
         if (player_ != nullptr)
         {
@@ -351,7 +355,7 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
 
     if (pending_seek_ms_ != -1)
     {
-        LOG_INFO("session {} pending seek found to {}ms starting it now", session_id, pending_seek_ms_);
+        LOG_INFO("会话 {} 发现待处理的跳转请求至 {}ms，现在开始执行", session_id, pending_seek_ms_);
         qint64 new_seek_pos = pending_seek_ms_;
         pending_seek_ms_ = -1;
         seek(new_seek_pos);
@@ -374,6 +378,6 @@ void playback_controller::cleanup_player()
         player_thread_->deleteLater();
         player_thread_ = nullptr;
         player_ = nullptr;
-        LOG_DEBUG("player and player thread cleaned up");
+        LOG_DEBUG("播放器和播放器线程已清理");
     }
 }

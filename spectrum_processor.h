@@ -41,6 +41,7 @@ class spectrum_processor : public QObject
     std::vector<double> target_magnitudes_;
 
     std::deque<std::shared_ptr<audio_packet>> packet_queue_;
+    bool needs_resync_ = false;
 };
 
 #endif

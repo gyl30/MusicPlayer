@@ -54,6 +54,7 @@ class mainwindow : public QMainWindow
     void handle_seek_finished(bool success);
     void on_playback_started(const QString& file_path, const QString& file_name);
     void on_current_song_selection_changed(QListWidgetItem* current, QListWidgetItem* previous);
+    void on_seek_completed(qint64 actual_ms);
 
     void rebuild_ui_from_playlists();
     void update_playlist_content(const QString& playlist_id);

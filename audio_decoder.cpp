@@ -47,7 +47,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
 
     if (!stop_flag_.load())
     {
-        LOG_WARN("decoder is already running stopping previous task first");
+        LOG_WARN("解码器已在运行，将先停止之前的任务");
         stop_flag_ = true;
     }
     LOG_INFO("播放流程 4/14 重置解码器内部状态 会话ID {}", session_id_);
@@ -58,7 +58,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
     LOG_INFO("播放流程 5/14 正在打开音频文件 会话ID {}", session_id_);
     if (!open_audio_context(file_path_))
     {
-        LOG_ERROR("init audio context failed {}", file.toStdString());
+        LOG_ERROR("初始化音频上下文失败: {}", file.toStdString());
         emit decoding_error("Failed to open audio file");
         return;
     }
@@ -71,17 +71,17 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
         seek(session_id_, offset);
     }
 
-    LOG_INFO("session {} decoder probed file successfully and is now waiting for resume signal", session_id_);
+    LOG_INFO("会话 {} 解码器探测文件成功，正在等待恢复信号", session_id_);
 }
 
 void audio_decoder::resume_decoding()
 {
     if (stop_flag_)
     {
-        LOG_WARN("resume decoding requested but decoder is stopped");
+        LOG_WARN("请求恢复解码，但解码器已停止");
         return;
     }
-    LOG_TRACE("resuming decoding cycle for session {}", session_id_);
+    LOG_TRACE("为会话 {} 恢复解码循环", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
@@ -89,7 +89,7 @@ void audio_decoder::do_decoding_cycle()
 {
     if (stop_flag_)
     {
-        LOG_DEBUG("decoding stopped by request");
+        LOG_DEBUG("解码已按请求停止");
         close_audio_context();
         emit decoding_finished();
         return;
@@ -109,13 +109,13 @@ void audio_decoder::do_decoding_cycle()
         {
             LOG_INFO("结束流程 1/4 文件解码完成 发送文件结束信号 会话ID {}", session_id_);
             emit packet_ready(session_id_, nullptr);
-            LOG_INFO("session {} end of file reached, decoder is now idle", session_id_);
+            LOG_INFO("会话 {} 已达文件末尾，解码器现在空闲", session_id_);
             return;
         }
 
         if (receive_ret != AVERROR(EAGAIN))
         {
-            LOG_ERROR("receive frame failed {}", ffmpeg_error_string(receive_ret));
+            LOG_ERROR("接收帧失败: {}", ffmpeg_error_string(receive_ret));
             break;
         }
 
@@ -135,7 +135,7 @@ void audio_decoder::do_decoding_cycle()
         int send_ret = avcodec_send_packet(codec_ctx_, packet_);
         if (send_ret < 0)
         {
-            LOG_WARN("send packet failed {}", ffmpeg_error_string(send_ret));
+            LOG_WARN("发送数据包失败: {}", ffmpeg_error_string(send_ret));
             continue;
         }
     }
@@ -149,33 +149,87 @@ void audio_decoder::do_seek()
         return;
     }
 
+    auto guard = make_scoped_exit([this]() {
+        seek_requested_ = false;
+        LOG_INFO("跳转流程 5/10 跳转失败 通知控制中心 会话ID {}", seek_session_id_);
+        emit seek_finished(seek_session_id_, -1);
+    });
+
     if (format_ctx_ == nullptr)
     {
-        LOG_WARN("session {} seek ignored because audio context is not open", seek_session_id_);
-        emit seek_finished(seek_session_id_, -1);
+        LOG_WARN("会话 {} 跳转被忽略，因为音频上下文未打开", seek_session_id_);
         return;
     }
 
     qint64 current_seek_id = seek_session_id_;
     qint64 target_pos_ms = seek_position_ms_;
     qint64 seek_target_ts = av_rescale_q(target_pos_ms, {1, 1000}, time_base_);
+    LOG_DEBUG("跳转到 目标毫秒: {} 目标时间戳: {}", target_pos_ms, seek_target_ts);
     int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
 
-    seek_requested_ = false;
-
-    if (ret >= 0)
+    if (ret < 0)
     {
-        LOG_INFO("session {} seek to {}ms successful", current_seek_id, target_pos_ms);
-        avcodec_flush_buffers(codec_ctx_);
-        accumulated_ms_ = target_pos_ms;
-        LOG_INFO("跳转流程 5/10 跳转成功 通知控制中心 会话ID {}", current_seek_id);
-        emit seek_finished(current_seek_id, target_pos_ms);
+        LOG_WARN("会话 {} av_seek_frame 跳转至 {}ms 失败: {}", current_seek_id, target_pos_ms, ffmpeg_error_string(ret));
+        return;
     }
-    else
+
+    avcodec_flush_buffers(codec_ctx_);
+    LOG_DEBUG("跳转后解码器缓冲区已清空");
+
+    while (true)
     {
-        LOG_WARN("session {} seek to {}ms failed {}", current_seek_id, target_pos_ms, ffmpeg_error_string(ret));
-        LOG_INFO("跳转流程 5/10 跳转失败 通知控制中心 会话ID {}", current_seek_id);
-        emit seek_finished(current_seek_id, -1);
+        int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
+        if (receive_ret == 0)
+        {
+            qint64 actual_ms = 0;
+            if (frame_->pts != AV_NOPTS_VALUE)
+            {
+                actual_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame_->pts));
+            }
+            else
+            {
+                actual_ms = target_pos_ms;
+            }
+
+            accumulated_ms_ = actual_ms;
+            LOG_INFO("会话 {} 跳转成功, 第一帧 pts {} 对应精确时间 {}ms", current_seek_id, frame_->pts, actual_ms);
+            LOG_INFO("跳转流程 5/10 跳转成功 通知控制中心 会话ID {}", current_seek_id);
+            emit seek_finished(current_seek_id, actual_ms);
+
+            avcodec_receive_frame(codec_ctx_, frame_);
+
+            guard.cancel();
+            seek_requested_ = false;
+            return;
+        }
+
+        if (receive_ret != AVERROR(EAGAIN))
+        {
+            LOG_ERROR("跳转后接收帧失败: {}", ffmpeg_error_string(receive_ret));
+            return;
+        }
+
+        int read_ret = av_read_frame(format_ctx_, packet_);
+        if (read_ret < 0)
+        {
+            LOG_WARN("跳转后 av_read_frame 失败，可能已达文件末尾: {}", ffmpeg_error_string(read_ret));
+            return;
+        }
+
+        if (packet_->stream_index == audio_stream_index_)
+        {
+            int send_ret = avcodec_send_packet(codec_ctx_, packet_);
+            av_packet_unref(packet_);
+            if (send_ret < 0)
+            {
+                LOG_WARN("跳转后发送数据包失败: {}", ffmpeg_error_string(send_ret));
+                return;
+            }
+        }
+        else
+        {
+            av_packet_unref(packet_);
+        }
     }
 }
 
@@ -184,7 +238,7 @@ void audio_decoder::process_frame(AVFrame* frame)
     int converted_samples = swr_convert(swr_ctx_, &swr_data_, target_format_.sampleRate(), (const uint8_t**)frame->data, frame->nb_samples);
     if (converted_samples < 0)
     {
-        LOG_ERROR("convert failed {}", ffmpeg_error_string(converted_samples));
+        LOG_ERROR("转换失败: {}", ffmpeg_error_string(converted_samples));
         return;
     }
 
@@ -203,7 +257,7 @@ void audio_decoder::process_frame(AVFrame* frame)
         accumulated_ms_ += duration_ms;
     }
 
-    LOG_TRACE("session {} decoded packet data len {} pts {} ms {}", session_id_, buffer_size, frame->pts, timestamp_ms);
+    LOG_TRACE("会话 {} 解码数据包: 长度 {}, pts {}, 时间戳 {}ms", session_id_, buffer_size, frame->pts, timestamp_ms);
     if (buffer_size > 0)
     {
         auto packet = std::make_shared<audio_packet>();
@@ -221,25 +275,25 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     int ret = avformat_open_input(&format_ctx_, file_path.toUtf8().constData(), nullptr, nullptr);
     if (ret != 0)
     {
-        LOG_ERROR("open input failed {} {}", file_path.toStdString(), ffmpeg_error_string(ret));
+        LOG_ERROR("打开输入失败: {} {}", file_path.toStdString(), ffmpeg_error_string(ret));
         return false;
     }
-    LOG_INFO("open input file {}", file_path.toStdString());
+    LOG_INFO("打开输入文件: {}", file_path.toStdString());
 
     ret = avformat_find_stream_info(format_ctx_, nullptr);
     if (ret < 0)
     {
-        LOG_ERROR("find stream info failed {}", ffmpeg_error_string(ret));
+        LOG_ERROR("查找流信息失败: {}", ffmpeg_error_string(ret));
         return false;
     }
 
     audio_stream_index_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (audio_stream_index_ < 0)
     {
-        LOG_ERROR("could not find audio stream in file {}", file_path.toStdString());
+        LOG_ERROR("无法在文件中找到音频流: {}", file_path.toStdString());
         return false;
     }
-    LOG_INFO("find stream info audio index {}", audio_stream_index_);
+    LOG_INFO("找到音频流索引: {}", audio_stream_index_);
 
     AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
     time_base_ = audio_stream->time_base;
@@ -248,31 +302,31 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
     if (codec == nullptr)
     {
-        LOG_ERROR("not found codec for id {}", (int)audio_stream->codecpar->codec_id);
+        LOG_ERROR("未找到编解码器, ID: {}", (int)audio_stream->codecpar->codec_id);
         return false;
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);
     if (codec_ctx_ == nullptr)
     {
-        LOG_ERROR("could not allocate codec context");
+        LOG_ERROR("无法分配编解码器上下文");
         return false;
     }
 
     ret = avcodec_parameters_to_context(codec_ctx_, audio_stream->codecpar);
     if (ret < 0)
     {
-        LOG_ERROR("codec parameters to context failed {}", ffmpeg_error_string(ret));
+        LOG_ERROR("编解码器参数到上下文失败: {}", ffmpeg_error_string(ret));
         return false;
     }
-    LOG_INFO("codec parameters to context success {}", codec->name);
+    LOG_INFO("编解码器参数到上下文成功: {}", codec->name);
 
     if (avcodec_open2(codec_ctx_, codec, nullptr) < 0)
     {
-        LOG_ERROR("open codec failed {} {}", codec->name, ffmpeg_error_string(ret));
+        LOG_ERROR("打开编解码器失败: {} {}", codec->name, ffmpeg_error_string(ret));
         return false;
     }
-    LOG_INFO("open codec success {}", codec->name);
+    LOG_INFO("打开编解码器成功: {}", codec->name);
 
     target_format_.setSampleRate(codec_ctx_->sample_rate);
     target_format_.setChannelCount(codec_ctx_->ch_layout.nb_channels);
@@ -283,7 +337,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     AVChannelLayout target_ch_layout;
     av_channel_layout_default(&target_ch_layout, target_format_.channelCount());
 
-    LOG_INFO("configuring resampler src rate {} fmt {} layout {} dst rate {} fmt {} layout {}",
+    LOG_INFO("配置重采样器: 源 速率 {}, 格式 {}, 布局 {} -> 目标 速率 {}, 格式 {}, 布局 {}",
              codec_ctx_->sample_rate,
              av_get_sample_fmt_name(codec_ctx_->sample_fmt),
              codec_ctx_->ch_layout.nb_channels,
@@ -302,14 +356,14 @@ bool audio_decoder::open_audio_context(const QString& file_path)
                               nullptr);
     if (ret != 0)
     {
-        LOG_ERROR("swr alloc set opts failed {}", ffmpeg_error_string(ret));
+        LOG_ERROR("swr_alloc_set_opts 失败: {}", ffmpeg_error_string(ret));
         return false;
     }
 
     ret = swr_init(swr_ctx_);
     if (ret != 0)
     {
-        LOG_ERROR("swr init failed {}", ffmpeg_error_string(ret));
+        LOG_ERROR("swr_init 失败: {}", ffmpeg_error_string(ret));
         return false;
     }
     AVSampleFormat target_fmt = get_av_sample_format(target_format_.sampleFormat());
@@ -317,7 +371,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     int alloc_ret = av_samples_alloc(&swr_data_, &swr_data_linesize_, target_format_.channelCount(), target_format_.sampleRate(), target_fmt, 0);
     if (alloc_ret < 0)
     {
-        LOG_ERROR("sample alloc failed {}", ffmpeg_error_string(alloc_ret));
+        LOG_ERROR("样本分配失败: {}", ffmpeg_error_string(alloc_ret));
         return false;
     }
 
@@ -325,7 +379,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     packet_ = av_packet_alloc();
     if (frame_ == nullptr || packet_ == nullptr)
     {
-        LOG_ERROR("frame or packet alloc failed");
+        LOG_ERROR("帧或包分配失败");
         return false;
     }
 

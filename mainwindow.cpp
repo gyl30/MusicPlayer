@@ -179,11 +179,11 @@ void mainwindow::setup_ui()
     status_bar_ = new QStatusBar();
     setStatusBar(status_bar_);
 
-    LOG_INFO("mainwindow creating permanent widget for status bar");
+    LOG_INFO("主窗口：为状态栏创建永久部件");
     file_path_label_ = new QLabel(this);
     status_bar_->addPermanentWidget(file_path_label_);
 
-    LOG_INFO("mainwindow ui setup finished");
+    LOG_INFO("主窗口：UI设置完成");
 }
 
 void mainwindow::setup_connections()
@@ -200,8 +200,9 @@ void mainwindow::setup_connections()
     connect(controller_, &playback_controller::playback_finished, this, &mainwindow::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &mainwindow::handle_playback_error);
     connect(controller_, &playback_controller::seek_finished, this, &mainwindow::handle_seek_finished);
+    connect(controller_, &playback_controller::seek_completed, this, &mainwindow::on_seek_completed);
 
-    LOG_INFO("mainwindow connecting playback started signal");
+    LOG_INFO("主窗口：正在连接 playback_started 信号");
     connect(controller_, &playback_controller::playback_started, this, &mainwindow::on_playback_started);
 
     connect(playlist_manager_, &playlist_manager::playlists_changed, this, &mainwindow::rebuild_ui_from_playlists);
@@ -211,7 +212,7 @@ void mainwindow::setup_connections()
     connect(add_songs_to_playlist_button_, &QPushButton::clicked, this, &mainwindow::add_selected_songs_to_playlist);
     connect(mgmt_source_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_source_songs);
     connect(mgmt_dest_playlists_, &QListWidget::currentItemChanged, this, &mainwindow::update_management_dest_songs);
-    LOG_INFO("mainwindow connections setup finished");
+    LOG_INFO("主窗口：信号槽连接设置完成");
 }
 
 void mainwindow::on_play_file_requested(QListWidgetItem* item)
@@ -261,7 +262,7 @@ void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
 
 void mainwindow::handle_playback_finished()
 {
-    LOG_INFO("mainwindow handling playback finished resetting ui");
+    LOG_INFO("主窗口：处理播放结束，重置UI");
     clear_playing_indicator();
     setWindowTitle("音乐播放器");
     file_path_label_->clear();
@@ -292,7 +293,7 @@ void mainwindow::handle_seek_finished(bool success)
 
 void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
 {
-    LOG_INFO("mainwindow received playback started signal updating ui for path {}", file_path.toStdString());
+    LOG_INFO("主窗口：收到播放开始信号，为路径 {} 更新UI", file_path.toStdString());
     clear_playing_indicator();
 
     bool item_found = false;
@@ -303,7 +304,7 @@ void mainwindow::on_playback_started(const QString& file_path, const QString& fi
             QListWidgetItem* item = list_widget->item(i);
             if (item->data(Qt::UserRole).toString() == file_path)
             {
-                LOG_INFO("found matching item in playlist applying playing indicator");
+                LOG_INFO("在播放列表中找到匹配项，应用播放指示器");
                 currently_playing_item_ = item;
 
                 QFont font = item->font();
@@ -328,34 +329,41 @@ void mainwindow::on_playback_started(const QString& file_path, const QString& fi
 
     if (!item_found)
     {
-        LOG_WARN("could not find list widget item for path {} cannot set indicator", file_path.toStdString());
+        LOG_WARN("无法为路径 {} 找到列表项，无法设置指示器", file_path.toStdString());
     }
 
-    LOG_INFO("updating window title and status bar");
+    LOG_INFO("正在更新窗口标题和状态栏");
     setWindowTitle(QString("正在播放: %1").arg(file_name));
     file_path_label_->setText(file_path);
 }
 
 void mainwindow::on_current_song_selection_changed(QListWidgetItem* current, QListWidgetItem* previous)
 {
-    LOG_INFO("mainwindow selection changed handling style for playing item");
+    LOG_INFO("主窗口：选择项变更，处理播放中项目的样式");
     if (previous != nullptr && previous == currently_playing_item_)
     {
-        LOG_INFO("playing item lost focus restoring alternate base color");
+        LOG_INFO("播放中项目失去焦点，恢复交替背景色");
         previous->setBackground(palette().alternateBase());
     }
 
     if (current != nullptr && current == currently_playing_item_)
     {
-        LOG_INFO("playing item gained focus letting system handle highlight color");
+        LOG_INFO("播放中项目获得焦点，由系统处理高亮颜色");
     }
+}
+
+void mainwindow::on_seek_completed(qint64 actual_ms)
+{
+    LOG_INFO("UI界面更新至实际跳转位置: {}ms", actual_ms);
+    progress_slider_->setValue(static_cast<int>(actual_ms));
+    time_label_->setText(QString("%1 / %2").arg(format_time(actual_ms)).arg(format_time(total_duration_ms_)));
 }
 
 void mainwindow::clear_playing_indicator()
 {
     if (currently_playing_item_ != nullptr)
     {
-        LOG_INFO("clearing previous item playing indicator");
+        LOG_INFO("正在清除上一个项目的播放指示器");
 
         QFont font = currently_playing_item_->font();
         font.setBold(false);
@@ -405,7 +413,7 @@ void mainwindow::add_playlist_to_ui(const Playlist& playlist)
     connect(widget, &QListWidget::itemDoubleClicked, this, &mainwindow::on_play_file_requested);
     connect(widget, &QListWidget::customContextMenuRequested, this, &mainwindow::on_playlist_context_menu_requested);
 
-    LOG_INFO("connecting current item changed signal for playlist {}", playlist.id.toStdString());
+    LOG_INFO("正在为播放列表 {} 连接 currentItemChanged 信号", playlist.id.toStdString());
     connect(widget, &QListWidget::currentItemChanged, this, &mainwindow::on_current_song_selection_changed);
 
     for (const auto& song : playlist.songs)
@@ -425,7 +433,7 @@ void mainwindow::add_playlist_to_ui(const Playlist& playlist)
 
 void mainwindow::rebuild_ui_from_playlists()
 {
-    LOG_INFO("rebuilding entire playlist ui");
+    LOG_INFO("正在重建整个播放列表UI");
     clear_playlist_ui();
 
     QList<Playlist> all_playlists = playlist_manager_->get_all_playlists();
@@ -446,7 +454,7 @@ void mainwindow::rebuild_ui_from_playlists()
 
 void mainwindow::update_playlist_content(const QString& playlist_id)
 {
-    LOG_INFO("updating content for playlist id {}", playlist_id.toStdString());
+    LOG_INFO("正在更新播放列表ID {} 的内容", playlist_id.toStdString());
     if (!playlist_widgets_.contains(playlist_id))
     {
         return;
@@ -469,7 +477,7 @@ void mainwindow::switch_to_playlist(const QString& id)
     {
         return;
     }
-    LOG_INFO("switching to playlist id {}", id.toStdString());
+    LOG_INFO("正在切换到播放列表ID {}", id.toStdString());
     current_playlist_id_ = id;
     playlist_stack_->setCurrentWidget(playlist_widgets_[id]);
 
@@ -623,7 +631,7 @@ void mainwindow::on_remove_songs_requested()
 
     if (is_playing_item_deleted)
     {
-        LOG_INFO("playing item was deleted stopping playback and clearing ui");
+        LOG_INFO("正在播放的项目被删除，停止播放并清理UI");
         controller_->stop();
         clear_playing_indicator();
         setWindowTitle("音乐播放器");
@@ -763,7 +771,7 @@ void mainwindow::add_selected_songs_to_playlist()
 
     if (songs_to_add.isEmpty() || dest_playlist_item == nullptr)
     {
-        LOG_WARN("add songs failed no songs selected or no destination playlist selected");
+        LOG_WARN("添加歌曲失败：未选择歌曲或未选择目标播放列表");
         return;
     }
 
