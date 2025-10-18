@@ -33,6 +33,7 @@ class playback_controller : public QObject
     void playback_finished();
     void playback_error(const QString& error_message);
     void seek_finished(bool success);
+    void playback_started(const QString& file_path, const QString& file_name);
 
    private slots:
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);

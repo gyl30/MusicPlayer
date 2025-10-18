@@ -1,5 +1,6 @@
 #include <QThread>
 #include <QMetaObject>
+#include <QFileInfo>
 #include "log.h"
 #include "audio_player.h"
 #include "audio_decoder.h"
@@ -51,6 +52,12 @@ void playback_controller::play_file(const QString& file_path)
     stop();
 
     current_session_id_ = ++session_id_counter_;
+
+    QFileInfo file_info(file_path);
+    QString file_name = file_info.fileName();
+    LOG_INFO("controller emitting playback started signal path {} name {}", file_path.toStdString(), file_name.toStdString());
+    emit playback_started(file_path, file_name);
+
     LOG_INFO("播放流程 3/14 通知解码器开始处理文件 {} 会话ID {}", file_path.toStdString(), current_session_id_);
     QMetaObject::invokeMethod(
         decoder_, "start_decoding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_), Q_ARG(QString, file_path), Q_ARG(qint64, -1));
