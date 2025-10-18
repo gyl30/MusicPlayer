@@ -147,7 +147,6 @@ target_link_libraries(MusicPlayer PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     SDL2::SDL2
-    SDL2::SDL2main
     ${FFMPEG_LIBRARIES}
 )
 
