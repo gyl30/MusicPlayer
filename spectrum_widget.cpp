@@ -51,18 +51,18 @@ void spectrum_widget::enqueue_packet(const std::shared_ptr<audio_packet>& packet
 void spectrum_widget::reset_and_start(qint64 session_id, qint64 start_offset_ms)
 {
     session_id_ = session_id;
-    LOG_INFO("flow 11/14 & 9/10 received start/reset request for session {}", session_id_);
+    LOG_INFO("播放流程 11/14 & 跳转流程 9/10 频谱部件收到启动或重置请求 会话ID {}", session_id_);
     dynamic_min_db_ = 100.0;
     dynamic_max_db_ = 0.0;
 
     QMetaObject::invokeMethod(processor_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
-    LOG_INFO("flow 12/14 & 10/10 has reset notifying mainwindow it is ready for session {}", session_id_);
+    LOG_INFO("播放流程 12/14 & 跳转流程 10/10 频谱部件已重置 通知控制中心就绪 会话ID {}", session_id_);
     emit playback_started(session_id_);
 }
 
 void spectrum_widget::stop_playback()
 {
-    LOG_INFO("flow end 4/4 received stop request for session {} will freeze last frame", session_id_);
+    LOG_INFO("结束流程 4/4 收到停止请求 冻结最后一帧频谱 会话ID {}", session_id_);
     QMetaObject::invokeMethod(processor_, "stop_playback", Qt::QueuedConnection);
 }
 

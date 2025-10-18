@@ -46,6 +46,7 @@ class playback_controller : public QObject
     void on_progress_update(qint64 session_id, qint64 current_ms);
     void on_playback_finished(qint64 session_id);
     void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
+    void on_buffer_level_low(qint64 session_id);
 
    private:
     void cleanup_player();

@@ -208,7 +208,7 @@ void mainwindow::on_play_file_requested(QListWidgetItem* item)
     {
         return;
     }
-    LOG_INFO("flow 2 14 ui received item double-click forwarding to controller");
+    LOG_INFO("播放流程 1/14 UI层接收到播放请求 转发至控制中心");
     current_playing_file_path_ = item->data(Qt::UserRole).toString();
     controller_->play_file(current_playing_file_path_);
 }
@@ -217,7 +217,7 @@ void mainwindow::on_seek_requested()
 {
     is_slider_pressed_ = false;
     qint64 position_ms = progress_slider_->value();
-    LOG_INFO("flow seek 2 10 ui requests seek to {}ms forwarding to controller", position_ms);
+    LOG_INFO("跳转流程 1/10 UI层请求跳转至 {}ms 转发至控制中心", position_ms);
     controller_->seek(position_ms);
 }
 
@@ -231,7 +231,7 @@ void mainwindow::on_progress_slider_moved(int position)
 
 void mainwindow::update_track_info(qint64 duration_ms)
 {
-    LOG_INFO("flow 7 14 ui updating with new track info duration {}", duration_ms);
+    LOG_INFO("播放流程 7/14 UI层收到音轨信息 更新时长 {}ms", duration_ms);
     total_duration_ms_ = duration_ms;
     progress_slider_->setRange(0, static_cast<int>(total_duration_ms_));
     progress_slider_->setValue(0);
@@ -489,7 +489,8 @@ void mainwindow::on_rename_playlist_requested()
 
 void mainwindow::on_add_songs_requested()
 {
-    QStringList file_paths = QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.ape *.wav *.mp4 *.mkv *.m4a *.webm)");
+    QStringList file_paths =
+        QFileDialog::getOpenFileNames(this, "选择音乐文件", "", "音频文件 (*.mp3 *.flac *.ogg *.ape *.wav *.mp4 *.mkv *.m4a *.webm)");
     if (!file_paths.isEmpty())
     {
         playlist_manager_->add_songs_to_playlist(current_playlist_id_, file_paths);
