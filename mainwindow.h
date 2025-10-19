@@ -2,6 +2,7 @@
 #define MAIN_WINDOW_H
 
 #include <QMainWindow>
+#include "playlist_data.h"
 
 class volume_meter;
 class QCloseEvent;
@@ -13,6 +14,7 @@ class QPushButton;
 class spectrum_widget;
 class playback_controller;
 class playlist_manager;
+class quick_editor;
 
 class mainwindow : public QMainWindow
 {
@@ -31,13 +33,24 @@ class mainwindow : public QMainWindow
     void on_stop_clicked();
     void on_volume_changed(int value);
 
+    void on_song_tree_context_menu_requested(const QPoint& pos);
+    void on_create_playlist_action();
+    void on_rename_playlist_action();
+    void on_delete_playlist_action();
+    void on_add_songs_action();
+    void on_remove_songs_action();
+    void on_editing_finished(bool accepted, const QString& text);
+
+    void on_playlist_added(const Playlist& new_playlist);
+    void on_playlist_removed(const QString& playlist_id);
+    void on_playlist_renamed(const QString& playlist_id);
+    void on_songs_changed(const QString& playlist_id);
+
     void update_track_info(qint64 duration_ms);
     void on_playback_started(const QString& file_path, const QString& file_name);
     void update_progress(qint64 current_ms, qint64 total_ms);
     void handle_playback_finished();
     void handle_playback_error(const QString& error_message);
-
-    void rebuild_ui_from_playlists();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -46,6 +59,7 @@ class mainwindow : public QMainWindow
     void setup_ui();
     void setup_connections();
     void clear_playing_indicator();
+    void populate_playlists_on_startup();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -66,9 +80,12 @@ class mainwindow : public QMainWindow
     QLabel* time_label_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
+    QTreeWidgetItem* context_menu_item_ = nullptr;
+    QTreeWidgetItem* clicked_song_item_ = nullptr;
     QString current_playing_file_path_;
     bool is_playing_ = false;
     bool is_paused_ = false;
     bool is_slider_pressed_ = false;
+    bool is_creating_playlist_ = false;
 };
 #endif

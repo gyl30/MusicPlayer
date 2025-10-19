@@ -120,6 +120,7 @@ add_executable(MusicPlayer
     spectrum_widget.cpp
     audio_decoder.cpp
     audio_player.cpp
+    quick_editor.cpp
     volumemeter.cpp
 )
 

@@ -26,8 +26,10 @@ class playlist_manager : public QObject
     void rename_playlist(const QString& id, const QString& new_name);
 
    signals:
-    void playlists_changed();
-    void playlist_content_changed(const QString& playlist_id);
+    void playlist_added(const Playlist& new_playlist);
+    void playlist_removed(const QString& playlist_id);
+    void playlist_renamed(const QString& playlist_id);
+    void songs_changed_in_playlist(const QString& playlist_id);
 
    private:
     QMap<QString, Playlist> playlists_;
