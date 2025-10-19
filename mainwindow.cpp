@@ -85,21 +85,6 @@ void mainwindow::setup_ui()
 
     spectrum_widget_ = new spectrum_widget(this);
     progress_slider_ = new QSlider(Qt::Horizontal);
-    progress_slider_->setStyleSheet(R"(
-        QSlider::groove:horizontal {
-            border: 1px solid #bbb;
-            background: white;
-            height: 4px;
-            border-radius: 2px;
-        }
-        QSlider::handle:horizontal {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #b4b4b4, stop:1 #8f8f8f);
-            border: 1px solid #5c5c5c;
-            width: 12px;
-            margin: -4px 0;
-            border-radius: 6px;
-        }
-    )");
 
     left_display_v_layout->addWidget(spectrum_widget_, 1);
     left_display_v_layout->addWidget(progress_slider_);
