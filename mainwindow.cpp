@@ -142,7 +142,7 @@ void mainwindow::setup_ui()
     song_title_label_ = new QLabel("Music Player", this);
 
     time_label_ = new QLabel("00:00 / 00:00", this);
-    time_label_->setFixedWidth(100);
+    time_label_->setFixedWidth(160);
     time_label_->setAlignment(Qt::AlignCenter);
 
     auto* button_container = new QWidget();
@@ -564,7 +564,8 @@ void mainwindow::update_track_info(qint64 duration_ms)
     progress_slider_->setRange(0, static_cast<int>(duration_ms));
     QTime total_time = QTime(0, 0).addMSecs(static_cast<int>(duration_ms));
     QString format = duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
-    time_label_->setText(QString("00:00 / %1").arg(total_time.toString(format)));
+    QString current_time_str = QTime(0, 0).toString(format);
+    time_label_->setText(QString("%1 / %2").arg(current_time_str).arg(total_time.toString(format)));
 }
 
 void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
