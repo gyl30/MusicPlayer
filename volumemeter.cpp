@@ -7,13 +7,13 @@
 
 volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent) { setMouseTracking(true); }
 
-void volume_meter::mousePressEvent(QMouseEvent* event) { set_value_from_position(event->pos()); }
+void volume_meter::mousePressEvent(QMouseEvent* event) { setValueFromPosition(event->pos()); }
 
 void volume_meter::mouseMoveEvent(QMouseEvent* event)
 {
     if ((event->buttons() & Qt::LeftButton) != 0U)
     {
-        set_value_from_position(event->pos());
+        setValueFromPosition(event->pos());
     }
 }
 
@@ -33,11 +33,37 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     {
         double y = height() - ((i + 1) * blockHeight);
         QRectF blockRect(0, y, width(), blockHeight);
-        painter.fillRect(blockRect.adjusted(2, 2, -2, -2), option.palette.color(QPalette::Highlight));
+        painter.fillRect(blockRect.adjusted(2, 2, -2, -2), QColor(173, 216, 230));
     }
 }
 
-void volume_meter::set_value_from_position(const QPoint& pos)
+void volume_meter::wheelEvent(QWheelEvent* event)
+{
+    const int singleStep = 5;
+    int currentValue = value();
+    int newValue = currentValue;
+
+    if (event->angleDelta().y() > 0)
+    {
+        newValue += singleStep;
+    }
+    else if (event->angleDelta().y() < 0)
+    {
+        newValue -= singleStep;
+    }
+
+    newValue = qBound(minimum(), newValue, maximum());
+
+    if (newValue != currentValue)
+    {
+        setValue(newValue);
+        emit value_changed(newValue);
+    }
+
+    event->accept();
+}
+
+void volume_meter::setValueFromPosition(const QPoint& pos)
 {
     double ratio = static_cast<double>(height() - pos.y()) / static_cast<double>(height());
     int newValue = static_cast<int>(ratio * maximum());

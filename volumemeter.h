@@ -2,6 +2,7 @@
 #define VOLUMEMETER_H
 
 #include <QProgressBar>
+#include <QWheelEvent>
 
 class volume_meter : public QProgressBar
 {
@@ -17,9 +18,10 @@ class volume_meter : public QProgressBar
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
    private:
-    void set_value_from_position(const QPoint& pos);
+    void setValueFromPosition(const QPoint& pos);
 };
 
 #endif
