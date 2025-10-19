@@ -26,6 +26,8 @@ class playback_controller : public QObject
     void play_file(const QString& file_path);
     void seek(qint64 position_ms);
     void stop();
+    void pause_resume();
+    void set_volume(int volume_percent);
 
    signals:
     void track_info_ready(qint64 duration_ms);
@@ -64,6 +66,7 @@ class playback_controller : public QObject
     qint64 total_duration_ms_ = 0;
     std::atomic<qint64> session_id_counter_{0};
     qint64 current_session_id_ = 0;
+    bool is_paused_ = false;
     std::atomic<qint64> buffered_bytes_{0};
     qint64 buffer_high_water_mark_ = 0;
     bool decoder_is_waiting_ = false;

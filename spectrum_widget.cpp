@@ -1,31 +1,25 @@
 #include <cmath>
 #include <QThread>
 #include <QPainter>
+#include <QPainterPath>
+#include <QLinearGradient>
 #include <algorithm>
 #include <QPaintEvent>
 #include <QMetaObject>
-#include "log.h"
+
 #include "spectrum_widget.h"
 #include "spectrum_processor.h"
 
-constexpr int kNumBars = 25;
-constexpr int kBlockHeight = 15;
-constexpr int kBlockSpacing = 4;
+constexpr int kNumBars = 128;
 constexpr double kMinDbRange = 20.0;
 constexpr double kMaxDbDecayRate = 0.3;
 constexpr double kMinDbRiseRate = 0.2;
-constexpr double kIdleBarHeight = 2.0;
 
 spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
 {
     qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
     qRegisterMetaType<std::vector<double>>("std::vector<double>");
-
-    setAutoFillBackground(true);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, Qt::black);
-    setPalette(pal);
-    setMinimumHeight(100);
+    setAutoFillBackground(false);
 
     spectrum_thread_ = new QThread(this);
     processor_ = new spectrum_processor();
@@ -51,20 +45,13 @@ void spectrum_widget::enqueue_packet(const std::shared_ptr<audio_packet>& packet
 void spectrum_widget::reset_and_start(qint64 session_id, qint64 start_offset_ms)
 {
     session_id_ = session_id;
-    LOG_INFO("播放流程 11/14 & 跳转流程 9/10 频谱部件收到重置请求 会话ID {} 偏移 {}ms", session_id_, start_offset_ms);
     dynamic_min_db_ = 100.0;
     dynamic_max_db_ = 0.0;
-
     QMetaObject::invokeMethod(processor_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
-    LOG_INFO("播放流程 12/14 & 跳转流程 10/10 频谱部件已重置，通知控制中心 会话ID {}", session_id_);
     emit playback_started(session_id_);
 }
 
-void spectrum_widget::stop_playback()
-{
-    LOG_INFO("结束流程 4/4 收到停止请求 冻结最后一帧频谱 会话ID {}", session_id_);
-    QMetaObject::invokeMethod(processor_, "stop_playback", Qt::QueuedConnection);
-}
+void spectrum_widget::stop_playback() { QMetaObject::invokeMethod(processor_, "stop_playback", Qt::QueuedConnection); }
 
 void spectrum_widget::update_display(const std::vector<double>& magnitudes)
 {
@@ -72,23 +59,13 @@ void spectrum_widget::update_display(const std::vector<double>& magnitudes)
     update();
 }
 
-void spectrum_widget::paintEvent(QPaintEvent* event)
+void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
 {
-    QWidget::paintEvent(event);
     QPainter painter(this);
-    painter.setPen(Qt::NoPen);
+    painter.setRenderHint(QPainter::Antialiasing);
 
     if (display_magnitudes_.empty())
     {
-        painter.setBrush(QColor(60, 60, 60));
-        double total_bar_width = static_cast<double>(width()) / kNumBars;
-        double bar_draw_width = total_bar_width * 0.8;
-        for (int i = 0; i < kNumBars; ++i)
-        {
-            double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
-            QRectF block_rect(bar_x_position, height() - kIdleBarHeight, bar_draw_width, kIdleBarHeight);
-            painter.drawRect(block_rect);
-        }
         return;
     }
 
@@ -99,6 +76,7 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
     {
         data_points_per_bar = 1;
     }
+
     for (size_t i = 0; i < kNumBars; ++i)
     {
         double avg_magnitude = 0;
@@ -123,37 +101,16 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
         current_frame_min_db = std::min(db, current_frame_min_db);
         current_frame_max_db = std::max(db, current_frame_max_db);
     }
-    if (current_frame_max_db > dynamic_max_db_)
-    {
-        dynamic_max_db_ = current_frame_max_db;
-    }
-    else
-    {
-        dynamic_max_db_ -= kMaxDbDecayRate;
-        dynamic_max_db_ = std::max(dynamic_max_db_, current_frame_max_db);
-    }
-    if (current_frame_min_db < dynamic_min_db_)
-    {
-        dynamic_min_db_ = current_frame_min_db;
-    }
-    else
-    {
-        dynamic_min_db_ += kMinDbRiseRate;
-        dynamic_min_db_ = std::min(dynamic_min_db_, current_frame_min_db);
-    }
+    dynamic_max_db_ =
+        (current_frame_max_db > dynamic_max_db_) ? current_frame_max_db : std::max(dynamic_max_db_ - kMaxDbDecayRate, current_frame_max_db);
+    dynamic_min_db_ =
+        (current_frame_min_db < dynamic_min_db_) ? current_frame_min_db : std::min(dynamic_min_db_ + kMinDbRiseRate, current_frame_min_db);
+    double range = std::max(dynamic_max_db_ - dynamic_min_db_, kMinDbRange);
 
-    double range = dynamic_max_db_ - dynamic_min_db_;
-    range = std::max(range, kMinDbRange);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(173, 216, 230));
 
-    QLinearGradient gradient(0, 0, 0, height());
-    gradient.setColorAt(0.0, Qt::red);
-    gradient.setColorAt(0.45, Qt::yellow);
-    gradient.setColorAt(1.0, Qt::green);
-
-    QBrush idle_brush(QColor(60, 60, 60));
-
-    double total_bar_width = static_cast<double>(width()) / kNumBars;
-    double bar_draw_width = total_bar_width * 0.8;
+    double bar_width = static_cast<double>(width()) / kNumBars;
 
     for (int i = 0; i < kNumBars; ++i)
     {
@@ -161,28 +118,11 @@ void spectrum_widget::paintEvent(QPaintEvent* event)
         double height_ratio = (db_value - dynamic_min_db_) / range;
         double bar_height = qBound(0.0, height_ratio, 1.0) * height();
 
-        double bar_x_position = (i * total_bar_width) + (total_bar_width * 0.1);
-
-        if (bar_height < kIdleBarHeight)
+        if (bar_height > 0)
         {
-            bar_height = kIdleBarHeight;
-            painter.setBrush(idle_brush);
-        }
-        else
-        {
-            painter.setBrush(gradient);
-        }
-
-        double height_to_draw = bar_height;
-        double current_block_bottom_y = height();
-        while (height_to_draw > 0)
-        {
-            double current_block_h = std::min(height_to_draw, static_cast<double>(kBlockHeight));
-            double block_top_y = current_block_bottom_y - current_block_h;
-            QRectF block_rect(bar_x_position, block_top_y, bar_draw_width, current_block_h);
-            painter.drawRect(block_rect);
-            height_to_draw -= (kBlockHeight + kBlockSpacing);
-            current_block_bottom_y -= (kBlockHeight + kBlockSpacing);
+            double x = i * bar_width;
+            QRectF bar_rect(x, height() - bar_height, bar_width, bar_height);
+            painter.drawRect(bar_rect);
         }
     }
 }

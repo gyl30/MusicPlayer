@@ -40,6 +40,12 @@ audio_player::~audio_player()
     LOG_DEBUG("音频播放器已销毁 sdl 已退出");
 }
 
+void audio_player::set_volume(int volume_percent)
+{
+    volume_ = static_cast<float>(qBound(0, volume_percent, 100)) / 100.0F;
+    LOG_DEBUG("音量已设置为 {}", volume_.load());
+}
+
 void audio_player::on_playback_completed_internal()
 {
     if (!is_playing_.load() || session_id_ == 0)
@@ -267,28 +273,36 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
         }
 
         int bytes_to_fill = len;
-        Uint8* stream_ptr = stream;
+        auto* stream_ptr = reinterpret_cast<int16_t*>(stream);
 
         while (bytes_to_fill > 0 && !data_queue_.empty())
         {
             auto& packet = data_queue_.front();
-            size_t packet_size = packet->data.size();
 
-            size_t bytes_to_copy = std::min(static_cast<size_t>(bytes_to_fill), packet_size);
+            const auto* packet_data = reinterpret_cast<const int16_t*>(packet->data.data());
+            const size_t packet_samples = packet->data.size() / sizeof(int16_t);
+            const size_t samples_to_fill = static_cast<size_t>(bytes_to_fill) / sizeof(int16_t);
+            const size_t samples_to_copy = std::min(packet_samples, samples_to_fill);
 
-            SDL_memcpy(stream_ptr, packet->data.data(), bytes_to_copy);
+            float current_volume = volume_.load();
+            for (size_t i = 0; i < samples_to_copy; ++i)
+            {
+                stream_ptr[i] = static_cast<int16_t>(static_cast<float>(packet_data[i]) * current_volume);
+            }
+
             emit packet_played(packet);
-            stream_ptr += bytes_to_copy;
+            stream_ptr += samples_to_copy;
 
-            bytes_to_fill -= static_cast<int>(bytes_to_copy);
+            size_t bytes_copied = samples_to_copy * sizeof(int16_t);
+            bytes_to_fill -= static_cast<int>(bytes_copied);
 
-            if (bytes_to_copy == packet_size)
+            if (bytes_copied == packet->data.size())
             {
                 data_queue_.pop_front();
             }
             else
             {
-                packet->data.erase(packet->data.begin(), packet->data.begin() + static_cast<int>(bytes_to_copy));
+                packet->data.erase(packet->data.begin(), packet->data.begin() + static_cast<int>(bytes_copied));
             }
         }
         bytes_filled_this_cycle = len - bytes_to_fill;

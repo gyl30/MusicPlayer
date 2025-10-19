@@ -1,24 +1,24 @@
 #include <QApplication>
-#include <QPixmap>
-#include <QPainter>
-#include <QFont>
+#include <QFile>
 #include <QIcon>
+#include <QPainter>
+#include <QPixmap>
 #include "log.h"
 #include "mainwindow.h"
 #include "scoped_exit.h"
 
-static QIcon emoji_to_icon(const QString &emoji, int size)
+static QIcon create_text_icon(const QString& text, int size)
 {
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     auto font = QApplication::font();
-    font.setPointSizeF(size * 0.8);
+    font.setPointSizeF(size * 0.7);
     painter.setFont(font);
-    painter.setPen(Qt::black);
-    painter.drawText(pixmap.rect(), Qt::AlignCenter, emoji);
+    painter.setPen(Qt::white);
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, text);
     painter.end();
-    return pixmap;
+    return QIcon{pixmap};
 }
 
 int main(int argc, char* argv[])
@@ -28,8 +28,9 @@ int main(int argc, char* argv[])
     DEFER(shutdown_log());
 
     QApplication app(argc, argv);
+
     mainwindow main_window;
-    QApplication::setWindowIcon(emoji_to_icon("♫ ", 64));
+    main_window.setWindowIcon(create_text_icon("♫", 64));
     main_window.show();
-    return app.exec();
+    return QApplication::exec();
 }

@@ -36,6 +36,7 @@ class audio_player : public QObject
     void handle_seek(qint64 session_id, qint64 actual_seek_ms);
     void pause_feeding(qint64 session_id) const;
     void resume_feeding(qint64 session_id) const;
+    void set_volume(int volume_percent);
 
    private:
     void fill_audio_buffer(Uint8* stream, int len);
@@ -64,6 +65,8 @@ class audio_player : public QObject
     bool low_water_mark_triggered_ = false;
 
     QAudioFormat last_format_;
+
+    std::atomic<float> volume_{1.0F};
 };
 
 #endif

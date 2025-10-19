@@ -115,11 +115,12 @@ add_executable(MusicPlayer
     log.cpp
     mainwindow.cpp
     playback_controller.cpp
-    playlist_manager.cpp
     spectrum_processor.cpp
+    playlist_manager.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
     audio_player.cpp
+    volumemeter.cpp
 )
 
 target_compile_options(MusicPlayer PRIVATE
