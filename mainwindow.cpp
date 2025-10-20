@@ -68,6 +68,7 @@ void mainwindow::closeEvent(QCloseEvent* event)
     playlist_manager_->save_playlists();
     QMainWindow::closeEvent(event);
 }
+
 void mainwindow::setup_ui()
 {
     auto* central_widget = new QWidget(this);
@@ -108,17 +109,20 @@ void mainwindow::setup_ui()
     prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "");
     play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
     next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
+    shuffle_button_ = new QPushButton(QIcon(":/icons/shuffle.svg"), "");
 
     QSize icon_size(24, 24);
     stop_button_->setIconSize(icon_size);
     prev_button_->setIconSize(icon_size);
     play_pause_button_->setIconSize(QSize(28, 28));
     next_button_->setIconSize(icon_size);
+    shuffle_button_->setIconSize(icon_size);
 
     stop_button_->setToolTip("停止");
     prev_button_->setToolTip("上一首");
     play_pause_button_->setToolTip("播放/暂停");
     next_button_->setToolTip("下一首");
+    shuffle_button_->setToolTip("随机播放");
 
     song_title_label_ = new QLabel("Music Player", this);
     song_title_label_->setObjectName("songTitleLabel");
@@ -128,10 +132,16 @@ void mainwindow::setup_ui()
     time_label_->setAlignment(Qt::AlignCenter);
 
     auto* all_buttons_container = new QWidget();
-    all_buttons_container->setMaximumHeight(40);
     auto* button_grid_layout = new QGridLayout(all_buttons_container);
     button_grid_layout->setContentsMargins(0, 0, 0, 0);
     button_grid_layout->setSpacing(10);
+
+    auto* left_buttons_group = new QWidget();
+    auto* left_layout = new QHBoxLayout(left_buttons_group);
+    left_layout->setContentsMargins(0, 0, 0, 0);
+    left_layout->setSpacing(10);
+    left_layout->addWidget(shuffle_button_);
+    left_layout->addWidget(prev_button_);
 
     auto* right_buttons_group = new QWidget();
     auto* right_layout = new QHBoxLayout(right_buttons_group);
@@ -140,7 +150,7 @@ void mainwindow::setup_ui()
     right_layout->addWidget(next_button_);
     right_layout->addWidget(stop_button_);
 
-    button_grid_layout->addWidget(prev_button_, 0, 0, Qt::AlignRight);
+    button_grid_layout->addWidget(left_buttons_group, 0, 0, Qt::AlignRight);
     button_grid_layout->addWidget(play_pause_button_, 0, 1, Qt::AlignCenter);
     button_grid_layout->addWidget(right_buttons_group, 0, 2, Qt::AlignLeft);
 
