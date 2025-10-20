@@ -122,6 +122,7 @@ add_executable(MusicPlayer
     audio_player.cpp
     quick_editor.cpp
     volumemeter.cpp
+    resources.qrc
 )
 
 target_compile_options(MusicPlayer PRIVATE

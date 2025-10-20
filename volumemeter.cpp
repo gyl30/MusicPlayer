@@ -5,7 +5,11 @@
 
 #include "volumemeter.h"
 
-volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent) { setMouseTracking(true); }
+volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent)
+{
+    setMouseTracking(true);
+    setAutoFillBackground(false);
+}
 
 void volume_meter::mousePressEvent(QMouseEvent* event) { setValueFromPosition(event->pos()); }
 
@@ -23,8 +27,6 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     QStyleOptionProgressBar option;
     initStyleOption(&option);
 
-    painter.drawControl(QStyle::CE_ProgressBarGroove, option);
-
     const int numBlocks = 10;
     double blockHeight = static_cast<double>(height()) / numBlocks;
     int litBlocks = static_cast<int>((static_cast<double>(value()) / maximum()) * numBlocks);
@@ -33,7 +35,7 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     {
         double y = height() - ((i + 1) * blockHeight);
         QRectF blockRect(0, y, width(), blockHeight);
-        painter.fillRect(blockRect.adjusted(2, 2, -2, -2), QColor(173, 216, 230));
+        painter.fillRect(blockRect.adjusted(1, 1, -1, -1), QColor(173, 216, 230));
     }
 }
 

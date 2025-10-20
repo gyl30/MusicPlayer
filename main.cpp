@@ -1,25 +1,9 @@
 #include <QApplication>
 #include <QFile>
 #include <QIcon>
-#include <QPainter>
-#include <QPixmap>
 #include "log.h"
 #include "mainwindow.h"
 #include "scoped_exit.h"
-
-static QIcon create_text_icon(const QString& text, int size)
-{
-    QPixmap pixmap(size, size);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    auto font = QApplication::font();
-    font.setPointSizeF(size * 0.7);
-    painter.setFont(font);
-    painter.setPen(Qt::white);
-    painter.drawText(pixmap.rect(), Qt::AlignCenter, text);
-    painter.end();
-    return QIcon{pixmap};
-}
 
 int main(int argc, char* argv[])
 {
@@ -29,8 +13,21 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
 
+    QFile style_file(":/style/stylesheet.qss");
+    if (style_file.open(QFile::ReadOnly))
+    {
+        QString style_sheet = QLatin1String(style_file.readAll());
+        app.setStyleSheet(style_sheet);
+        style_file.close();
+        LOG_INFO("样式表加载成功");
+    }
+    else
+    {
+        LOG_WARN("无法加载样式表文件");
+    }
+
     mainwindow main_window;
-    main_window.setWindowIcon(create_text_icon("♫", 64));
+    main_window.setWindowIcon(QIcon(":/icons/app_icon.svg"));
     main_window.show();
     return QApplication::exec();
 }

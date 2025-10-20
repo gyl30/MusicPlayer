@@ -1,0 +1,13 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="/">
+    <file alias="icons/app_icon.svg">icons/app_icon.svg</file>
+    <file alias="icons/play.svg">icons/play.svg</file>
+    <file alias="icons/pause.svg">icons/pause.svg</file>
+    <file alias="icons/stop.svg">icons/stop.svg</file>
+    <file alias="icons/next.svg">icons/next.svg</file>
+    <file alias="icons/previous.svg">icons/previous.svg</file>
+    <file alias="icons/playlist.svg">icons/playlist.svg</file>
+    <file alias="icons/song.svg">icons/song.svg</file>
+    <file alias="style/stylesheet.qss">style/stylesheet.qss</file>
+</qresource>
+</RCC>

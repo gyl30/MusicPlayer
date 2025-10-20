@@ -8,8 +8,6 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QIcon>
-#include <QPainter>
-#include <QPixmap>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSlider>
@@ -20,6 +18,7 @@
 #include <QTime>
 #include <QMenu>
 #include <QAction>
+#include <QFont>
 
 #include "log.h"
 #include "mainwindow.h"
@@ -46,19 +45,6 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, const QString& id)
     return nullptr;
 }
 
-static QIcon create_music_note_icon()
-{
-    QPixmap pixmap(16, 16);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(QPen(Qt::black, 2));
-    painter.drawLine(11, 2, 11, 12);
-    painter.drawEllipse(4, 9, 7, 5);
-    painter.drawLine(11, 2, 14, 4);
-    return QIcon{pixmap};
-}
-
 mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 {
     playlist_manager_ = new playlist_manager(this);
@@ -82,7 +68,6 @@ void mainwindow::closeEvent(QCloseEvent* event)
     playlist_manager_->save_playlists();
     QMainWindow::closeEvent(event);
 }
-
 void mainwindow::setup_ui()
 {
     auto* central_widget = new QWidget(this);
@@ -90,7 +75,7 @@ void mainwindow::setup_ui()
     setCentralWidget(central_widget);
 
     auto* main_layout = new QVBoxLayout(central_widget);
-    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->setContentsMargins(10, 10, 10, 10);
     main_layout->setSpacing(0);
 
     song_tree_widget_ = new QTreeWidget();
@@ -98,84 +83,93 @@ void mainwindow::setup_ui()
     song_tree_widget_->setColumnCount(1);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    song_tree_widget_->setIndentation(0);
+    song_tree_widget_->setIndentation(10);
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
     auto* bottom_container = new QWidget();
     bottom_container->setObjectName("bottomContainer");
-    bottom_container->setFixedHeight(130);
+    bottom_container->setFixedHeight(150);
 
     auto* bottom_h_layout = new QHBoxLayout(bottom_container);
-    bottom_h_layout->setContentsMargins(5, 5, 5, 5);
-    bottom_h_layout->setSpacing(10);
+    bottom_h_layout->setContentsMargins(0, 0, 0, 0);
+    bottom_h_layout->setSpacing(0);
 
     auto* left_panel = new QWidget();
-    auto* left_v_layout = new QVBoxLayout(left_panel);
-    left_v_layout->setContentsMargins(0, 0, 0, 0);
-    left_v_layout->setSpacing(5);
-
-    auto* display_area = new QWidget();
-    auto* left_display_v_layout = new QVBoxLayout(display_area);
-    left_display_v_layout->setContentsMargins(0, 0, 0, 0);
-    left_display_v_layout->setSpacing(5);
+    auto* main_grid_layout = new QGridLayout(left_panel);
+    main_grid_layout->setContentsMargins(0, 10, 10, 5);
+    main_grid_layout->setSpacing(5);
+    main_grid_layout->setVerticalSpacing(3);
 
     spectrum_widget_ = new spectrum_widget(this);
     progress_slider_ = new QSlider(Qt::Horizontal);
 
-    left_display_v_layout->addWidget(spectrum_widget_, 1);
-    left_display_v_layout->addWidget(progress_slider_);
+    stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "");
+    prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "");
+    play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
+    next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
 
-    auto* button_panel = new QWidget();
-    auto* grid_layout = new QGridLayout(button_panel);
-    grid_layout->setContentsMargins(0, 0, 0, 0);
+    QSize icon_size(24, 24);
+    stop_button_->setIconSize(icon_size);
+    prev_button_->setIconSize(icon_size);
+    play_pause_button_->setIconSize(QSize(28, 28));
+    next_button_->setIconSize(icon_size);
 
-    stop_button_ = new QPushButton();
-    prev_button_ = new QPushButton();
-    play_pause_button_ = new QPushButton();
-    next_button_ = new QPushButton();
-    stop_button_->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
-    prev_button_->setIcon(style()->standardIcon(QStyle::SP_MediaSkipBackward));
-    play_pause_button_->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    next_button_->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
+    stop_button_->setToolTip("停止");
+    prev_button_->setToolTip("上一首");
+    play_pause_button_->setToolTip("播放/暂停");
+    next_button_->setToolTip("下一首");
 
     song_title_label_ = new QLabel("Music Player", this);
+    song_title_label_->setObjectName("songTitleLabel");
 
     time_label_ = new QLabel("00:00 / 00:00", this);
-    time_label_->setFixedWidth(160);
+    time_label_->setFixedWidth(120);
     time_label_->setAlignment(Qt::AlignCenter);
 
-    auto* button_container = new QWidget();
-    auto* buttons_only_layout = new QHBoxLayout(button_container);
-    buttons_only_layout->setContentsMargins(0, 0, 0, 0);
-    buttons_only_layout->setSpacing(6);
-    buttons_only_layout->addWidget(stop_button_);
-    buttons_only_layout->addWidget(prev_button_);
-    buttons_only_layout->addWidget(play_pause_button_);
-    buttons_only_layout->addWidget(next_button_);
+    auto* all_buttons_container = new QWidget();
+    all_buttons_container->setMaximumHeight(40);
+    auto* button_grid_layout = new QGridLayout(all_buttons_container);
+    button_grid_layout->setContentsMargins(0, 0, 0, 0);
+    button_grid_layout->setSpacing(10);
 
-    grid_layout->addWidget(song_title_label_, 0, 0, Qt::AlignLeft);
-    grid_layout->addWidget(button_container, 0, 1, Qt::AlignCenter);
-    grid_layout->addWidget(time_label_, 0, 2, Qt::AlignRight);
+    auto* right_buttons_group = new QWidget();
+    auto* right_layout = new QHBoxLayout(right_buttons_group);
+    right_layout->setContentsMargins(0, 0, 0, 0);
+    right_layout->setSpacing(10);
+    right_layout->addWidget(next_button_);
+    right_layout->addWidget(stop_button_);
 
-    grid_layout->setColumnStretch(0, 1);
-    grid_layout->setColumnStretch(1, 0);
-    grid_layout->setColumnStretch(2, 1);
+    button_grid_layout->addWidget(prev_button_, 0, 0, Qt::AlignRight);
+    button_grid_layout->addWidget(play_pause_button_, 0, 1, Qt::AlignCenter);
+    button_grid_layout->addWidget(right_buttons_group, 0, 2, Qt::AlignLeft);
 
-    left_v_layout->addWidget(display_area, 1);
-    left_v_layout->addWidget(button_panel);
+    button_grid_layout->setColumnStretch(0, 1);
+    button_grid_layout->setColumnStretch(2, 1);
+
+    main_grid_layout->addWidget(spectrum_widget_, 0, 0, 1, 3);
+    main_grid_layout->addWidget(progress_slider_, 1, 0, 1, 3);
+    main_grid_layout->addWidget(song_title_label_, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    main_grid_layout->addWidget(all_buttons_container, 2, 1, Qt::AlignCenter);
+    main_grid_layout->addWidget(time_label_, 2, 2, Qt::AlignRight | Qt::AlignVCenter);
+
+    main_grid_layout->setColumnStretch(0, 1);
+    main_grid_layout->setColumnStretch(1, 0);
+    main_grid_layout->setColumnStretch(2, 1);
+    main_grid_layout->setRowStretch(0, 1);
 
     volume_meter_ = new volume_meter();
-    volume_meter_->setFixedWidth(12);
+    volume_meter_->setFixedWidth(8);
     volume_meter_->setRange(0, 100);
     volume_meter_->setValue(80);
     volume_meter_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     volume_meter_->setOrientation(Qt::Vertical);
+    volume_meter_->setToolTip("音量");
 
     bottom_h_layout->addWidget(left_panel, 1);
     bottom_h_layout->addWidget(volume_meter_);
 
-    main_layout->addWidget(bottom_container);
+    main_layout->addWidget(bottom_container); // top
     main_layout->addWidget(song_tree_widget_, 1);
 }
 
@@ -216,13 +210,13 @@ void mainwindow::populate_playlists_on_startup()
         auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
         playlist_item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
-        playlist_item->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+        playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
         playlist_item->setExpanded(true);
 
         for (const auto& song : playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(playlist_item);
-            song_item->setIcon(0, (create_music_note_icon()));
+            song_item->setIcon(0, QIcon(":/icons/song.svg"));
             song_item->setText(0, song.fileName);
             song_item->setData(0, Qt::UserRole, song.filePath);
         }
@@ -237,7 +231,7 @@ void mainwindow::on_playlist_added(const Playlist& new_playlist)
     auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
     playlist_item->setText(0, QString("%1 [0]").arg(new_playlist.name));
     playlist_item->setData(0, Qt::UserRole, new_playlist.id);
-    playlist_item->setIcon(0, style()->standardIcon(QStyle::SP_DirIcon));
+    playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
     playlist_item->setExpanded(true);
     song_tree_widget_->blockSignals(false);
 }
@@ -266,7 +260,7 @@ void mainwindow::on_songs_changed(const QString& playlist_id)
         for (const auto& song : playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(item);
-            song_item->setIcon(0, (create_music_note_icon()));
+            song_item->setIcon(0, QIcon(":/icons/song.svg"));
             song_item->setText(0, song.fileName);
             song_item->setData(0, Qt::UserRole, song.filePath);
         }
@@ -494,7 +488,7 @@ void mainwindow::on_play_pause_clicked()
     {
         is_paused_ = !is_paused_;
         controller_->pause_resume();
-        play_pause_button_->setIcon(style()->standardIcon(is_paused_ ? QStyle::SP_MediaPlay : QStyle::SP_MediaPause));
+        play_pause_button_->setIcon(is_paused_ ? QIcon(":/icons/play.svg") : QIcon(":/icons/pause.svg"));
     }
 }
 
@@ -548,7 +542,7 @@ void mainwindow::on_prev_clicked()
 void mainwindow::on_stop_clicked()
 {
     controller_->stop();
-    play_pause_button_->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
     is_playing_ = false;
     is_paused_ = false;
     song_title_label_->setText("Music Player");
@@ -572,14 +566,17 @@ void mainwindow::on_playback_started(const QString& file_path, const QString& fi
 {
     is_playing_ = true;
     is_paused_ = false;
-    play_pause_button_->setIcon(style()->standardIcon(QStyle::SP_MediaPause));
+    play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
     song_title_label_->setText(file_name);
     clear_playing_indicator();
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == file_path)
     {
         currently_playing_item_ = clicked_song_item_;
-        currently_playing_item_->setForeground(0, QBrush(QColor("#D94600")));
+        QFont font = currently_playing_item_->font(0);
+        font.setBold(true);
+        currently_playing_item_->setFont(0, font);
+        currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
         song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
     }
 }
@@ -602,7 +599,7 @@ void mainwindow::handle_playback_finished()
 {
     is_playing_ = false;
     is_paused_ = false;
-    play_pause_button_->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
     on_next_clicked();
 }
 
@@ -610,6 +607,9 @@ void mainwindow::clear_playing_indicator()
 {
     if (currently_playing_item_ != nullptr)
     {
+        QFont font = currently_playing_item_->font(0);
+        font.setBold(false);
+        currently_playing_item_->setFont(0, font);
         currently_playing_item_->setForeground(0, QBrush(palette().text()));
         currently_playing_item_ = nullptr;
     }
