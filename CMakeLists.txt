@@ -105,7 +105,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg)
 find_package(SDL2 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
@@ -149,6 +149,7 @@ target_link_directories(MusicPlayer PRIVATE
 target_link_libraries(MusicPlayer PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
+    Qt6::Svg
     SDL2::SDL2
     ${FFMPEG_LIBRARIES}
 )
