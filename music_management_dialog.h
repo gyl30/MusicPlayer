@@ -6,6 +6,7 @@
 #include "playlist_data.h"
 
 class QListWidget;
+class QListWidgetItem;
 class QPushButton;
 class playlist_manager;
 
@@ -20,6 +21,7 @@ class music_management_dialog : public QDialog
    private slots:
     void on_source_playlist_selected();
     void on_dest_playlist_selected();
+    void on_source_song_item_clicked(QListWidgetItem* item);
     void on_copy_button_clicked();
     void on_move_button_clicked();
     void on_delete_button_clicked();

@@ -83,6 +83,7 @@ void music_management_dialog::setup_connections()
 {
     connect(source_playlists_list_, &QListWidget::currentItemChanged, this, &music_management_dialog::on_source_playlist_selected);
     connect(dest_playlists_list_, &QListWidget::currentItemChanged, this, &music_management_dialog::on_dest_playlist_selected);
+    connect(source_songs_list_, &QListWidget::itemClicked, this, &music_management_dialog::on_source_song_item_clicked);
 
     connect(copy_button_, &QPushButton::clicked, this, &music_management_dialog::on_copy_button_clicked);
     connect(move_button_, &QPushButton::clicked, this, &music_management_dialog::on_move_button_clicked);
@@ -173,6 +174,23 @@ void music_management_dialog::update_songs_list(QListWidget* songs_list_widget, 
 
 void music_management_dialog::on_source_playlist_selected() { update_songs_list(source_songs_list_, source_playlists_list_, true); }
 void music_management_dialog::on_dest_playlist_selected() { update_songs_list(dest_songs_list_, dest_playlists_list_, false); }
+
+void music_management_dialog::on_source_song_item_clicked(QListWidgetItem* item)
+{
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    if (item->checkState() == Qt::Checked)
+    {
+        item->setCheckState(Qt::Unchecked);
+    }
+    else
+    {
+        item->setCheckState(Qt::Checked);
+    }
+}
 
 void music_management_dialog::on_copy_button_clicked()
 {
