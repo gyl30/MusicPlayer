@@ -18,6 +18,7 @@
 #include <QTime>
 #include <QMenu>
 #include <QAction>
+#include <QRandomGenerator>
 #include <QFont>
 
 #include "log.h"
@@ -112,6 +113,7 @@ void mainwindow::setup_ui()
     next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
     shuffle_button_ = new QPushButton(QIcon(":/icons/shuffle.svg"), "");
     manage_button_ = new QPushButton(QIcon(":/icons/manage.svg"), "");
+    shuffle_button_->setObjectName("shuffleButton");
 
     QSize icon_size(24, 24);
     stop_button_->setIconSize(icon_size);
@@ -199,6 +201,7 @@ void mainwindow::setup_connections()
     connect(next_button_, &QPushButton::clicked, this, &mainwindow::on_next_clicked);
     connect(prev_button_, &QPushButton::clicked, this, &mainwindow::on_prev_clicked);
     connect(stop_button_, &QPushButton::clicked, this, &mainwindow::on_stop_clicked);
+    connect(shuffle_button_, &QPushButton::clicked, this, &mainwindow::on_shuffle_clicked);
     connect(manage_button_, &QPushButton::clicked, this, &mainwindow::on_manage_playlists_action);
 
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &mainwindow::on_tree_item_double_clicked);
@@ -214,6 +217,71 @@ void mainwindow::setup_connections()
     connect(playlist_manager_, &playlist_manager::playlist_removed, this, &mainwindow::on_playlist_removed);
     connect(playlist_manager_, &playlist_manager::playlist_renamed, this, &mainwindow::on_playlist_renamed);
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &mainwindow::on_songs_changed);
+}
+
+void mainwindow::on_shuffle_clicked()
+{
+    is_shuffle_mode_ = !is_shuffle_mode_;
+    LOG_INFO("随机播放模式切换为: {}", is_shuffle_mode_);
+    update_shuffle_button_style();
+
+    if (is_shuffle_mode_ && currently_playing_item_ != nullptr)
+    {
+        QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
+        int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
+        generate_shuffled_list(playlist_item, current_song_index);
+        current_shuffle_index_ = 0;
+    }
+    else if (!is_shuffle_mode_)
+    {
+        shuffled_indices_.clear();
+        current_shuffle_index_ = -1;
+    }
+}
+
+void mainwindow::generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index)
+{
+    if (playlist_item == nullptr)
+    {
+        return;
+    }
+    shuffled_indices_.clear();
+    const int song_count = playlist_item->childCount();
+    if (song_count == 0)
+    {
+        return;
+    }
+
+    for (int i = 0; i < song_count; ++i)
+    {
+        shuffled_indices_.append(i);
+    }
+
+    std::shuffle(shuffled_indices_.begin(), shuffled_indices_.end(), *QRandomGenerator::global());
+    QStringList sl;
+    for (const auto& l : shuffled_indices_)
+    {
+        sl << QString::number(l);
+    }
+    auto list_str = sl.join(',');
+
+    if (start_song_index != -1)
+    {
+        const int current_pos = shuffled_indices_.indexOf(start_song_index);
+        if (current_pos != -1)
+        {
+            shuffled_indices_.swapItemsAt(0, current_pos);
+        }
+    }
+
+    LOG_INFO("已为播放列表 '{}' 生成随机队列，起始歌曲索引: {} {}", playlist_item->text(0).toStdString(), start_song_index, list_str.toStdString());
+}
+
+void mainwindow::update_shuffle_button_style()
+{
+    shuffle_button_->setProperty("shuffled", is_shuffle_mode_);
+    style()->unpolish(shuffle_button_);
+    style()->polish(shuffle_button_);
 }
 
 void mainwindow::on_manage_playlists_action()
@@ -491,6 +559,14 @@ void mainwindow::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
     }
     current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
     clicked_song_item_ = item;
+
+    if (is_shuffle_mode_)
+    {
+        QTreeWidgetItem* playlist_item = item->parent();
+        const int clicked_song_index = playlist_item->indexOfChild(item);
+        generate_shuffled_list(playlist_item, clicked_song_index);
+        current_shuffle_index_ = 0;
+    }
     controller_->play_file(current_playing_file_path_);
 }
 
@@ -522,6 +598,26 @@ void mainwindow::on_next_clicked()
     {
         return;
     }
+
+    if (is_shuffle_mode_)
+    {
+        QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
+        if (playlist_item == nullptr || shuffled_indices_.isEmpty())
+        {
+            return;
+        }
+
+        current_shuffle_index_++;
+        if (current_shuffle_index_ >= shuffled_indices_.size())
+        {
+            generate_shuffled_list(playlist_item);
+            current_shuffle_index_ = 0;
+        }
+        const int next_song_index = shuffled_indices_.at(current_shuffle_index_);
+        QTreeWidgetItem* next_item = playlist_item->child(next_song_index);
+        on_tree_item_double_clicked(next_item, 0);
+        return;
+    }
     QTreeWidgetItem* next_item = song_tree_widget_->itemBelow(currently_playing_item_);
     if (next_item == nullptr)
     {
@@ -545,6 +641,24 @@ void mainwindow::on_prev_clicked()
 {
     if (currently_playing_item_ == nullptr)
     {
+        return;
+    }
+
+    if (is_shuffle_mode_)
+    {
+        QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
+        if (playlist_item == nullptr || shuffled_indices_.isEmpty())
+        {
+            return;
+        }
+        current_shuffle_index_--;
+        if (current_shuffle_index_ < 0)
+        {
+            current_shuffle_index_ = shuffled_indices_.size() - 1;
+        }
+        const int prev_song_index = shuffled_indices_.at(current_shuffle_index_);
+        QTreeWidgetItem* prev_item = playlist_item->child(prev_song_index);
+        on_tree_item_double_clicked(prev_item, 0);
         return;
     }
     QTreeWidgetItem* prev_item = song_tree_widget_->itemAbove(currently_playing_item_);
@@ -572,6 +686,8 @@ void mainwindow::on_stop_clicked()
     song_title_label_->setText("Music Player");
     time_label_->setText("00:00 / 00:00");
     progress_slider_->setValue(0);
+    shuffled_indices_.clear();
+    current_shuffle_index_ = -1;
     clear_playing_indicator();
 }
 

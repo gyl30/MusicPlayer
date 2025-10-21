@@ -32,6 +32,11 @@ QPushButton:pressed {
     background-color: #D1D9F0;
 }
 
+QPushButton#shuffleButton[shuffled="true"] {
+    background-color: #C5CAE9;
+    border-radius: 20px;
+}
+
 QLabel {
     background-color: transparent;
 }
