@@ -116,13 +116,13 @@ add_executable(MusicPlayer
     mainwindow.cpp
     playback_controller.cpp
     spectrum_processor.cpp
-    playlist_manager.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
     audio_player.cpp
     quick_editor.cpp
     volumemeter.cpp
     resources.qrc
+    music_management_dialog.cpp
 )
 
 target_compile_options(MusicPlayer PRIVATE

@@ -27,6 +27,7 @@
 #include "playlist_manager.h"
 #include "playback_controller.h"
 #include "quick_editor.h"
+#include "music_management_dialog.h"
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, const QString& id)
 {
@@ -110,6 +111,7 @@ void mainwindow::setup_ui()
     play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
     next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
     shuffle_button_ = new QPushButton(QIcon(":/icons/shuffle.svg"), "");
+    manage_button_ = new QPushButton(QIcon(":/icons/manage.svg"), "");
 
     QSize icon_size(24, 24);
     stop_button_->setIconSize(icon_size);
@@ -117,12 +119,14 @@ void mainwindow::setup_ui()
     play_pause_button_->setIconSize(QSize(28, 28));
     next_button_->setIconSize(icon_size);
     shuffle_button_->setIconSize(icon_size);
+    manage_button_->setIconSize(icon_size);
 
     stop_button_->setToolTip("停止");
     prev_button_->setToolTip("上一首");
     play_pause_button_->setToolTip("播放/暂停");
     next_button_->setToolTip("下一首");
     shuffle_button_->setToolTip("随机播放");
+    manage_button_->setToolTip("管理音乐");
 
     song_title_label_ = new QLabel("Music Player", this);
     song_title_label_->setObjectName("songTitleLabel");
@@ -140,6 +144,7 @@ void mainwindow::setup_ui()
     auto* left_layout = new QHBoxLayout(left_buttons_group);
     left_layout->setContentsMargins(0, 0, 0, 0);
     left_layout->setSpacing(10);
+    left_layout->addWidget(manage_button_);
     left_layout->addWidget(shuffle_button_);
     left_layout->addWidget(prev_button_);
 
@@ -179,7 +184,7 @@ void mainwindow::setup_ui()
     bottom_h_layout->addWidget(left_panel, 1);
     bottom_h_layout->addWidget(volume_meter_);
 
-    main_layout->addWidget(bottom_container); // top
+    main_layout->addWidget(bottom_container);    // top
     main_layout->addWidget(song_tree_widget_, 1);
 }
 
@@ -194,6 +199,7 @@ void mainwindow::setup_connections()
     connect(next_button_, &QPushButton::clicked, this, &mainwindow::on_next_clicked);
     connect(prev_button_, &QPushButton::clicked, this, &mainwindow::on_prev_clicked);
     connect(stop_button_, &QPushButton::clicked, this, &mainwindow::on_stop_clicked);
+    connect(manage_button_, &QPushButton::clicked, this, &mainwindow::on_manage_playlists_action);
 
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &mainwindow::on_tree_item_double_clicked);
     connect(song_tree_widget_, &QTreeWidget::customContextMenuRequested, this, &mainwindow::on_song_tree_context_menu_requested);
@@ -210,6 +216,14 @@ void mainwindow::setup_connections()
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &mainwindow::on_songs_changed);
 }
 
+void mainwindow::on_manage_playlists_action()
+{
+    LOG_INFO("打开音乐管理对话框");
+    auto* dialog = new music_management_dialog(playlist_manager_, this);
+    dialog->exec();
+    LOG_INFO("音乐管理对话框已关闭");
+}
+
 void mainwindow::populate_playlists_on_startup()
 {
     LOG_DEBUG("首次从数据填充播放列表ui");
@@ -221,7 +235,7 @@ void mainwindow::populate_playlists_on_startup()
         playlist_item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
         playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
-        playlist_item->setExpanded(true);
+        playlist_item->setExpanded(false);
 
         for (const auto& song : playlist.songs)
         {
@@ -242,7 +256,7 @@ void mainwindow::on_playlist_added(const Playlist& new_playlist)
     playlist_item->setText(0, QString("%1 [0]").arg(new_playlist.name));
     playlist_item->setData(0, Qt::UserRole, new_playlist.id);
     playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
-    playlist_item->setExpanded(true);
+    playlist_item->setExpanded(false);
     song_tree_widget_->blockSignals(false);
 }
 

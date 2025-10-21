@@ -9,6 +9,7 @@
     <file alias="icons/playlist.svg">icons/playlist.svg</file>
     <file alias="icons/song.svg">icons/song.svg</file>
     <file alias="icons/shuffle.svg">icons/shuffle.svg</file>
+    <file alias="icons/manage.svg">icons/manage.svg</file>
     <file alias="style/stylesheet.qss">style/stylesheet.qss</file>
 </qresource>
 </RCC>

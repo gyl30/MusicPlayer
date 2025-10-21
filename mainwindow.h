@@ -32,6 +32,7 @@ class mainwindow : public QMainWindow
     void on_prev_clicked();
     void on_stop_clicked();
     void on_volume_changed(int value);
+    void on_manage_playlists_action();
 
     void on_song_tree_context_menu_requested(const QPoint& pos);
     void on_create_playlist_action();
@@ -76,6 +77,7 @@ class mainwindow : public QMainWindow
     QPushButton* next_button_ = nullptr;
     QPushButton* stop_button_ = nullptr;
     QPushButton* shuffle_button_ = nullptr;
+    QPushButton* manage_button_ = nullptr;
 
     QLabel* song_title_label_ = nullptr;
     QLabel* time_label_ = nullptr;
