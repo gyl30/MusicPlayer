@@ -21,6 +21,7 @@ class music_management_dialog : public QDialog
     void on_source_playlist_selected();
     void on_dest_playlist_selected();
     void on_copy_button_clicked();
+    void on_move_button_clicked();
     void on_delete_button_clicked();
     void on_done_button_clicked();
 
@@ -40,6 +41,7 @@ class music_management_dialog : public QDialog
     QListWidget* dest_songs_list_ = nullptr;
 
     QPushButton* copy_button_ = nullptr;
+    QPushButton* move_button_ = nullptr;
     QPushButton* delete_button_ = nullptr;
     QPushButton* done_button_ = nullptr;
 };

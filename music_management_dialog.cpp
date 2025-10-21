@@ -29,7 +29,6 @@ void music_management_dialog::load_initial_data()
     {
         temp_playlists_.insert(playlist.id, playlist);
     }
-    LOG_INFO("音乐管理对话框已创建并加载了 {} 个播放列表的临时副本", temp_playlists_.count());
 }
 
 void music_management_dialog::setup_ui()
@@ -48,13 +47,16 @@ void music_management_dialog::setup_ui()
     auto* action_panel = new QWidget();
     auto* action_layout = new QVBoxLayout(action_panel);
     action_layout->addStretch();
-    copy_button_ = new QPushButton("复制 >>");
+    copy_button_ = new QPushButton("复制");
     copy_button_->setToolTip("将左侧选中歌曲暂存，以复制到右侧列表");
+    move_button_ = new QPushButton("移动");
+    move_button_->setToolTip("将左侧选中歌曲移动到右侧列表，并从左侧列表中移除。");
     delete_button_ = new QPushButton("删除");
     delete_button_->setToolTip("将左侧选中歌曲暂存，以待删除");
     done_button_ = new QPushButton("完成");
-    done_button_->setToolTip("应用所有更改");
+    done_button_->setToolTip("应用更改");
     action_layout->addWidget(copy_button_);
+    action_layout->addWidget(move_button_);
     action_layout->addWidget(delete_button_);
     action_layout->addSpacing(20);
     action_layout->addWidget(done_button_);
@@ -83,6 +85,7 @@ void music_management_dialog::setup_connections()
     connect(dest_playlists_list_, &QListWidget::currentItemChanged, this, &music_management_dialog::on_dest_playlist_selected);
 
     connect(copy_button_, &QPushButton::clicked, this, &music_management_dialog::on_copy_button_clicked);
+    connect(move_button_, &QPushButton::clicked, this, &music_management_dialog::on_move_button_clicked);
     connect(delete_button_, &QPushButton::clicked, this, &music_management_dialog::on_delete_button_clicked);
     connect(done_button_, &QPushButton::clicked, this, &music_management_dialog::on_done_button_clicked);
 }
@@ -214,7 +217,68 @@ void music_management_dialog::on_copy_button_clicked()
     }
 
     dest_playlist_ref.songs.append(songs_to_add);
-    LOG_INFO("暂存复制操作: {} 首歌曲到 {}", songs_to_add.count(), dest_playlist_ref.name.toStdString());
+
+    populate_playlist_widgets();
+}
+
+void music_management_dialog::on_move_button_clicked()
+{
+    QListWidgetItem* source_playlist_item = source_playlists_list_->currentItem();
+    QListWidgetItem* dest_playlist_item = dest_playlists_list_->currentItem();
+    if (source_playlist_item == nullptr || dest_playlist_item == nullptr)
+    {
+        QMessageBox::warning(this, "操作无效", "请同时选择源播放列表和目标播放列表。");
+        return;
+    }
+
+    const QString source_playlist_id = source_playlist_item->data(Qt::UserRole).toString();
+    const QString dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toString();
+    if (source_playlist_id == dest_playlist_id)
+    {
+        QMessageBox::information(this, "操作无效", "源播放列表和目标播放列表不能相同。");
+        return;
+    }
+
+    Playlist& dest_playlist_ref = temp_playlists_[dest_playlist_id];
+    QSet<QString> dest_song_paths;
+    for (const auto& song : dest_playlist_ref.songs)
+    {
+        dest_song_paths.insert(song.filePath);
+    }
+
+    QList<Song> songs_to_add;
+    QList<int> indices_to_remove;
+    for (int i = 0; i < source_songs_list_->count(); ++i)
+    {
+        QListWidgetItem* song_item = source_songs_list_->item(i);
+        if (song_item->checkState() == Qt::Checked)
+        {
+            indices_to_remove.append(i);
+            const QString song_path = song_item->data(Qt::UserRole).toString();
+            if (!dest_song_paths.contains(song_path))
+            {
+                songs_to_add.append({song_path, song_item->text()});
+            }
+        }
+    }
+
+    if (indices_to_remove.isEmpty())
+    {
+        QMessageBox::information(this, "提示", "请在源歌曲列表中勾选要移动的歌曲。");
+        return;
+    }
+
+    if (!songs_to_add.isEmpty())
+    {
+        dest_playlist_ref.songs.append(songs_to_add);
+    }
+
+    Playlist& source_playlist_ref = temp_playlists_[source_playlist_id];
+    std::sort(indices_to_remove.begin(), indices_to_remove.end(), std::greater<>());
+    for (int index : indices_to_remove)
+    {
+        source_playlist_ref.songs.removeAt(index);
+    }
 
     populate_playlist_widgets();
 }
@@ -251,7 +315,6 @@ void music_management_dialog::on_delete_button_clicked()
             source_playlist_ref.songs.removeAt(index);
         }
     }
-    LOG_INFO("暂存删除操作: 从 {} 移除 {} 首歌曲", source_playlist_ref.name.toStdString(), indices_to_remove.count());
 
     populate_playlist_widgets();
 }
@@ -269,16 +332,12 @@ static bool exist_songs(const Playlist& original_playlist, QList<Song> songs)
 }
 void music_management_dialog::on_done_button_clicked()
 {
-    LOG_INFO("用户点击“完成”，开始应用更改...");
-
     for (const auto& temp_playlist : std::as_const(temp_playlists_))
     {
         Playlist original_playlist = playlist_manager_->get_playlist_by_id(temp_playlist.id);
 
         if (original_playlist.songs.count() != temp_playlist.songs.count() || exist_songs(original_playlist, temp_playlist.songs))
         {
-            LOG_INFO("播放列表 '{}' 有变动，正在应用...", temp_playlist.name.toStdString());
-
             QList<int> all_indices_to_remove;
             for (int i = 0; i < original_playlist.songs.count(); ++i)
             {
@@ -301,6 +360,5 @@ void music_management_dialog::on_done_button_clicked()
         }
     }
 
-    LOG_INFO("所有更改已应用。");
     accept();
 }
