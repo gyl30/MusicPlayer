@@ -116,6 +116,7 @@ add_executable(MusicPlayer
     mainwindow.cpp
     playback_controller.cpp
     spectrum_processor.cpp
+    playlist_manager.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
     audio_player.cpp
@@ -138,11 +139,12 @@ if(SANITIZER_COMPILE_FLAGS)
     target_link_options(MusicPlayer PRIVATE ${SANITIZER_LINK_FLAGS})
 endif()
 
-target_include_directories(MusicPlayer PRIVATE
+target_include_directories(MusicPlayer SYSTEM PRIVATE
     ${SDL2_INCLUDE_DIRS}
     ${FFMPEG_INCLUDE_DIRS}
     third/spdlog/include
 )
+
 target_link_directories(MusicPlayer PRIVATE
     ${FFMPEG_LIBRARY_DIRS}
 )
