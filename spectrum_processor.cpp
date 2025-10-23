@@ -54,7 +54,6 @@ void spectrum_processor::process_packet(const std::shared_ptr<audio_packet>& pac
 {
     if (packet)
     {
-        LOG_TRACE("频谱处理器收到数据包，时间戳 {}ms", packet->ms);
         packet_queue_.push_back(packet);
     }
 }
@@ -113,8 +112,6 @@ void spectrum_processor::on_render_timeout()
         return;
     }
 
-    LOG_TRACE("频谱渲染状态: 当前时间 {} 队列大小 {}", current_playback_time, packet_queue_.size());
-
     std::vector<double> display_magnitudes;
 
     if (packet_queue_.size() < 2)
@@ -131,8 +128,6 @@ void spectrum_processor::on_render_timeout()
     {
         const auto& prev_packet = packet_queue_[0];
         const auto& target_packet = packet_queue_[1];
-
-        LOG_TRACE("频谱插值: 从 {}ms 到 {}ms", prev_packet->ms, target_packet->ms);
 
         if (prev_packet->ms != prev_timestamp_ms_)
         {
@@ -155,8 +150,6 @@ void spectrum_processor::on_render_timeout()
 
         double t = (interval_duration > 0) ? (static_cast<double>(time_in_interval) / static_cast<double>(interval_duration)) : 0.0;
         t = qBound(0.0, t, 1.0);
-
-        LOG_TRACE("插值参数: 区间长度 {} 区间内时间 {} t值 {}", interval_duration, time_in_interval, t);
 
         if (display_magnitudes.size() != target_magnitudes_.size())
         {

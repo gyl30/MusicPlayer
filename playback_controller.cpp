@@ -247,6 +247,7 @@ void playback_controller::on_packet_from_decoder(qint64 session_id, const std::s
     if (packet)
     {
         buffered_bytes_ += static_cast<qint64>(packet->data.size());
+        LOG_TRACE("控制器->播放器 入队数据包 ms {} size {} buffered_bytes {}", packet->ms, packet->data.size(), buffered_bytes_.load());
     }
     else
     {
@@ -284,6 +285,7 @@ void playback_controller::on_buffer_level_low(qint64 session_id)
     {
         return;
     }
+    LOG_INFO("缓冲区事件 触发低水位线 请求解码器继续解码 buffered_bytes {}", buffered_bytes_.load());
     if (decoder_is_waiting_ && is_playing_ && !is_seeking_)
     {
         decoder_is_waiting_ = false;

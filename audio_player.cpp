@@ -344,6 +344,13 @@ void audio_player::update_progress_ui()
 
     qint64 processed_bytes = bytes_processed_by_device_.load();
     qint64 processed_ms = (processed_bytes * 1000) / bytes_per_second;
+    qint64 current_playback_ms = playback_start_offset_ms_ + processed_ms;
 
-    emit progress_update(session_id_, playback_start_offset_ms_ + processed_ms);
+    LOG_DEBUG("播放器时钟 start_offset_ms {} processed_bytes {} processed_ms {} final_ms {}",
+              playback_start_offset_ms_,
+              processed_bytes,
+              processed_ms,
+              current_playback_ms);
+
+    emit progress_update(session_id_, current_playback_ms);
 }
