@@ -2,6 +2,7 @@
 #include <QByteArray>
 #include <QMap>
 #include <QMetaObject>
+#include <algorithm>
 #include "log.h"
 #include "scoped_exit.h"
 
@@ -56,6 +57,8 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
     file_path_ = file;
     seek_requested_ = false;
     seek_position_ms_ = -1;
+    first_frame_processed_ = false;
+    start_time_offset_ms_ = 0;
 
     LOG_INFO("播放流程 5/14 正在打开音频文件 会话ID {}", session_id_);
     if (!open_audio_context(file_path_))
@@ -71,6 +74,10 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
     if (offset > 0)
     {
         seek(session_id_, offset);
+    }
+    else
+    {
+        first_frame_processed_ = false;
     }
 
     LOG_INFO("会话 {} 解码器探测文件成功，正在等待恢复信号", session_id_);
@@ -167,8 +174,11 @@ void audio_decoder::do_seek()
 
     qint64 current_seek_id = seek_session_id_;
     qint64 target_pos_ms = seek_position_ms_;
-    qint64 seek_target_ts = av_rescale_q(target_pos_ms, {1, 1000}, time_base_);
-    LOG_DEBUG("跳转到 目标毫秒: {} 目标时间戳: {}", target_pos_ms, seek_target_ts);
+
+    qint64 absolute_target_ms = target_pos_ms + start_time_offset_ms_;
+    qint64 seek_target_ts = av_rescale_q(absolute_target_ms, {1, 1000}, time_base_);
+
+    LOG_DEBUG("跳转到 目标相对毫秒: {}, 绝对毫秒: {}, 目标时间戳: {}", target_pos_ms, absolute_target_ms, seek_target_ts);
     int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
 
     if (ret < 0)
@@ -188,7 +198,10 @@ void audio_decoder::do_seek()
             qint64 actual_ms = 0;
             if (frame_->pts != AV_NOPTS_VALUE)
             {
-                actual_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame_->pts));
+                auto raw_actual_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame_->pts));
+                start_time_offset_ms_ = raw_actual_ms - target_pos_ms;
+                actual_ms = target_pos_ms;
+                LOG_INFO("跳转后首帧PTS: {}, 重新校准时间偏移为: {}", frame_->pts, start_time_offset_ms_);
             }
             else
             {
@@ -196,11 +209,14 @@ void audio_decoder::do_seek()
             }
 
             accumulated_ms_ = actual_ms;
+
+            first_frame_processed_ = false;
+
             LOG_INFO("会话 {} 跳转成功, 第一帧 pts {} 对应精确时间 {}ms", current_seek_id, frame_->pts, actual_ms);
             LOG_INFO("跳转流程 5/10 跳转成功 通知控制中心 会话ID {}", current_seek_id);
             emit seek_finished(current_seek_id, actual_ms);
 
-            avcodec_receive_frame(codec_ctx_, frame_);
+            process_frame(frame_);
 
             guard.cancel();
             seek_requested_ = false;
@@ -239,6 +255,13 @@ void audio_decoder::do_seek()
 
 void audio_decoder::process_frame(AVFrame* frame)
 {
+    if (frame->pts != AV_NOPTS_VALUE && !first_frame_processed_)
+    {
+        start_time_offset_ms_ = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
+        first_frame_processed_ = true;
+        LOG_INFO("首帧PTS: {}, 动态时间戳偏移校准为: {} ms", frame->pts, start_time_offset_ms_);
+    }
+
     int converted_samples = swr_convert(swr_ctx_, &swr_data_, target_format_.sampleRate(), (const uint8_t**)frame->data, frame->nb_samples);
     if (converted_samples < 0)
     {
@@ -251,15 +274,17 @@ void audio_decoder::process_frame(AVFrame* frame)
     qint64 timestamp_ms = 0;
     if (frame->pts != AV_NOPTS_VALUE)
     {
-        timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
-        accumulated_ms_ = timestamp_ms;
+        auto raw_timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
+        timestamp_ms = raw_timestamp_ms - start_time_offset_ms_;
     }
     else
     {
         qint64 duration_ms = static_cast<qint64>(frame->nb_samples) * 1000 / codec_ctx_->sample_rate;
-        timestamp_ms = accumulated_ms_;
-        accumulated_ms_ += duration_ms;
+        timestamp_ms = accumulated_ms_ + duration_ms;
     }
+
+    accumulated_ms_ = timestamp_ms;
+    timestamp_ms = std::max<qint64>(timestamp_ms, 0);
 
     LOG_TRACE("会话 {} 解码数据包: 长度 {}, pts {}, 时间戳 {}ms", session_id_, buffer_size, frame->pts, timestamp_ms);
     if (buffer_size > 0)
@@ -338,6 +363,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 
     AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
     time_base_ = audio_stream->time_base;
+
     av_dump_format(format_ctx_, audio_stream_index_, nullptr, 0);
 
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
@@ -427,8 +453,8 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     if (format_ctx_->duration != AV_NOPTS_VALUE)
     {
         qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
-        LOG_INFO("播放流程 6/14 解码器准备就绪 发送音频信息至控制中心 会话ID {}", session_id_);
         emit duration_ready(session_id_, duration_ms, target_format_);
+        LOG_INFO("播放流程 6/14 解码器准备就绪 发送音频信息至控制中心 (时长 {}ms) 会话ID {}", duration_ms, session_id_);
     }
 
     guard.cancel();

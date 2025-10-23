@@ -71,6 +71,9 @@ class audio_decoder : public QObject
     QAudioFormat target_format_;
     AVSampleFormat target_ffmpeg_fmt_ = AV_SAMPLE_FMT_NONE;
     qint64 accumulated_ms_ = 0;
+
+    qint64 start_time_offset_ms_ = 0;
+    bool first_frame_processed_ = false;
 };
 
 #endif

@@ -15,7 +15,7 @@ static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_pack
     {
         return {};
     }
-    const int fft_size = 1024;
+    const int fft_size = 512;
     const auto* pcm_data = reinterpret_cast<const qint16*>(packet->data.data());
     auto num_samples = packet->data.size() / sizeof(qint16);
     if (num_samples < fft_size)
