@@ -1,8 +1,6 @@
 #include <cmath>
 #include <QThread>
 #include <QPainter>
-#include <QPainterPath>
-#include <QLinearGradient>
 #include <algorithm>
 #include <QPaintEvent>
 #include <QMetaObject>
@@ -12,8 +10,11 @@
 
 constexpr int kNumBars = 128;
 constexpr double kMinDbRange = 20.0;
-constexpr double kMaxDbDecayRate = 0.3;
-constexpr double kMinDbRiseRate = 0.2;
+constexpr double kMaxDbDecayPerSecond = 5.0;
+constexpr double kMinDbRisePerSecond = 4.0;
+
+constexpr double kBarRiseFactor = 0.6;
+constexpr double kBarFallFactor = 0.25;
 
 spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
 {
@@ -29,6 +30,7 @@ spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
     connect(spectrum_thread_, &QThread::finished, processor_, &QObject::deleteLater);
 
     spectrum_thread_->start();
+    frame_timer_.start();
 }
 
 spectrum_widget::~spectrum_widget()
@@ -47,6 +49,11 @@ void spectrum_widget::reset_and_start(qint64 session_id, qint64 start_offset_ms)
     session_id_ = session_id;
     dynamic_min_db_ = 100.0;
     dynamic_max_db_ = 0.0;
+    frame_timer_.restart();
+    last_paint_time_ms_ = 0;
+
+    smoothed_bar_heights_.clear();
+
     QMetaObject::invokeMethod(processor_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
     emit playback_started(session_id_);
 }
@@ -61,6 +68,14 @@ void spectrum_widget::update_display(const std::vector<double>& magnitudes)
 
 void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
 {
+    qint64 current_time_ms = frame_timer_.elapsed();
+    if (last_paint_time_ms_ == 0)
+    {
+        last_paint_time_ms_ = current_time_ms;
+    }
+    double delta_time_s = static_cast<double>(current_time_ms - last_paint_time_ms_) / 1000.0;
+    last_paint_time_ms_ = current_time_ms;
+
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
@@ -69,8 +84,8 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
         return;
     }
 
-    std::vector<double> current_frame_db_values;
-    current_frame_db_values.reserve(kNumBars);
+    std::vector<double> target_db_values;
+    target_db_values.reserve(kNumBars);
     auto data_points_per_bar = display_magnitudes_.size() / kNumBars;
     if (data_points_per_bar == 0)
     {
@@ -91,36 +106,52 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
             avg_magnitude /= count;
         }
         double db_value = 20 * log10(avg_magnitude + 1e-9);
-        current_frame_db_values.push_back(qMax(0.0, db_value));
+        target_db_values.push_back(qMax(0.0, db_value));
     }
 
     double current_frame_min_db = 1000.0;
     double current_frame_max_db = 0.0;
-    for (double db : current_frame_db_values)
+    for (double db : target_db_values)
     {
         current_frame_min_db = std::min(db, current_frame_min_db);
         current_frame_max_db = std::max(db, current_frame_max_db);
     }
+    const double max_db_decay_this_frame = kMaxDbDecayPerSecond * delta_time_s;
+    const double min_db_rise_this_frame = kMinDbRisePerSecond * delta_time_s;
     dynamic_max_db_ =
-        (current_frame_max_db > dynamic_max_db_) ? current_frame_max_db : std::max(dynamic_max_db_ - kMaxDbDecayRate, current_frame_max_db);
+        (current_frame_max_db > dynamic_max_db_) ? current_frame_max_db : std::max(dynamic_max_db_ - max_db_decay_this_frame, current_frame_max_db);
     dynamic_min_db_ =
-        (current_frame_min_db < dynamic_min_db_) ? current_frame_min_db : std::min(dynamic_min_db_ + kMinDbRiseRate, current_frame_min_db);
+        (current_frame_min_db < dynamic_min_db_) ? current_frame_min_db : std::min(dynamic_min_db_ + min_db_rise_this_frame, current_frame_min_db);
     double range = std::max(dynamic_max_db_ - dynamic_min_db_, kMinDbRange);
+
+    if (smoothed_bar_heights_.size() != kNumBars)
+    {
+        smoothed_bar_heights_.assign(kNumBars, 0.0);
+    }
+
+    for (size_t i = 0; i < kNumBars; ++i)
+    {
+        double target_height_ratio = (target_db_values[i] - dynamic_min_db_) / range;
+        target_height_ratio = qBound(0.0, target_height_ratio, 1.0);
+
+        double current_height_ratio = smoothed_bar_heights_[i];
+
+        double factor = (target_height_ratio > current_height_ratio) ? kBarRiseFactor : kBarFallFactor;
+
+        smoothed_bar_heights_[i] += (target_height_ratio - current_height_ratio) * factor;
+    }
 
     painter.setPen(Qt::NoPen);
     painter.setBrush(QColor(173, 216, 230));
-
     double bar_width = static_cast<double>(width()) / kNumBars;
 
-    for (int i = 0; i < kNumBars; ++i)
+    for (size_t i = 0; i < kNumBars; ++i)
     {
-        double db_value = current_frame_db_values[static_cast<size_t>(i)];
-        double height_ratio = (db_value - dynamic_min_db_) / range;
-        double bar_height = qBound(0.0, height_ratio, 1.0) * height();
+        double bar_height = smoothed_bar_heights_[i] * height();
 
         if (bar_height > 0)
         {
-            double x = i * bar_width;
+            double x = static_cast<double>(i) * bar_width;
             QRectF bar_rect(x, height() - bar_height, bar_width, bar_height);
             painter.drawRect(bar_rect);
         }

@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <QWidget>
+#include <QElapsedTimer>
 #include "audio_packet.h"
 
 class QThread;
@@ -38,6 +39,10 @@ class spectrum_widget : public QWidget
     double dynamic_min_db_ = 100.0;
     double dynamic_max_db_ = 0.0;
     std::vector<double> display_magnitudes_;
+
+    QElapsedTimer frame_timer_;
+    qint64 last_paint_time_ms_ = 0;
+    std::vector<double> smoothed_bar_heights_;
 };
 
 #endif
