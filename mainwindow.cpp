@@ -1,3 +1,4 @@
+#include "mainwindow.h"
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFileDialog>
@@ -20,9 +21,9 @@
 #include <QAction>
 #include <QRandomGenerator>
 #include <QFont>
+#include <QPixmap>
 
 #include "log.h"
-#include "mainwindow.h"
 #include "volumemeter.h"
 #include "spectrum_widget.h"
 #include "playlist_manager.h"
@@ -100,11 +101,27 @@ void mainwindow::setup_ui()
 
     auto* left_panel = new QWidget();
     auto* main_grid_layout = new QGridLayout(left_panel);
-    main_grid_layout->setContentsMargins(0, 10, 10, 5);
+    main_grid_layout->setContentsMargins(10, 10, 10, 5);
     main_grid_layout->setSpacing(5);
     main_grid_layout->setVerticalSpacing(3);
 
+    auto* top_display_container = new QWidget();
+    auto* top_display_layout = new QHBoxLayout(top_display_container);
+    top_display_layout->setContentsMargins(0, 0, 0, 0);
+    top_display_layout->setSpacing(10);
+
+    cover_art_label_ = new QLabel();
+    cover_art_label_->setObjectName("coverArtLabel");
+    cover_art_label_->setFixedSize(80, 80);
+    cover_art_label_->setScaledContents(true);
+    cover_art_label_->setStyleSheet("border: 1px solid #E0E0E0; border-radius: 5px;");
+    cover_art_label_->hide();
+
     spectrum_widget_ = new spectrum_widget(this);
+
+    top_display_layout->addWidget(cover_art_label_);
+    top_display_layout->addWidget(spectrum_widget_);
+
     progress_slider_ = new QSlider(Qt::Horizontal);
 
     stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "");
@@ -164,7 +181,7 @@ void mainwindow::setup_ui()
     button_grid_layout->setColumnStretch(0, 1);
     button_grid_layout->setColumnStretch(2, 1);
 
-    main_grid_layout->addWidget(spectrum_widget_, 0, 0, 1, 3);
+    main_grid_layout->addWidget(top_display_container, 0, 0, 1, 3);
     main_grid_layout->addWidget(progress_slider_, 1, 0, 1, 3);
     main_grid_layout->addWidget(song_title_label_, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
     main_grid_layout->addWidget(all_buttons_container, 2, 1, Qt::AlignCenter);
@@ -186,7 +203,7 @@ void mainwindow::setup_ui()
     bottom_h_layout->addWidget(left_panel, 1);
     bottom_h_layout->addWidget(volume_meter_);
 
-    main_layout->addWidget(bottom_container);    // top
+    main_layout->addWidget(bottom_container);
     main_layout->addWidget(song_tree_widget_, 1);
 }
 
@@ -212,11 +229,64 @@ void mainwindow::setup_connections()
     connect(controller_, &playback_controller::progress_updated, this, &mainwindow::update_progress);
     connect(controller_, &playback_controller::playback_finished, this, &mainwindow::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &mainwindow::handle_playback_error);
+    connect(controller_, &playback_controller::metadata_ready, this, &mainwindow::on_metadata_updated);
+    connect(controller_, &playback_controller::cover_art_ready, this, &mainwindow::on_cover_art_updated);
 
     connect(playlist_manager_, &playlist_manager::playlist_added, this, &mainwindow::on_playlist_added);
     connect(playlist_manager_, &playlist_manager::playlist_removed, this, &mainwindow::on_playlist_removed);
     connect(playlist_manager_, &playlist_manager::playlist_renamed, this, &mainwindow::on_playlist_renamed);
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &mainwindow::on_songs_changed);
+}
+
+void mainwindow::on_stop_clicked()
+{
+    controller_->stop();
+    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
+    is_playing_ = false;
+    is_paused_ = false;
+    song_title_label_->setText("Music Player");
+    time_label_->setText("00:00 / 00:00");
+    progress_slider_->setValue(0);
+    shuffled_indices_.clear();
+    current_shuffle_index_ = -1;
+    clear_playing_indicator();
+    cover_art_label_->hide();
+}
+
+void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
+{
+    is_playing_ = true;
+    is_paused_ = false;
+    play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
+    song_title_label_->setText(file_name);
+    clear_playing_indicator();
+
+    cover_art_label_->hide();
+
+    if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == file_path)
+    {
+        currently_playing_item_ = clicked_song_item_;
+        QFont font = currently_playing_item_->font(0);
+        font.setBold(true);
+        currently_playing_item_->setFont(0, font);
+        currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+        song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
+    }
+}
+
+void mainwindow::on_cover_art_updated(const QByteArray& image_data)
+{
+    QPixmap cover_pixmap;
+    if (cover_pixmap.loadFromData(image_data))
+    {
+        cover_art_label_->setPixmap(cover_pixmap);
+        cover_art_label_->show();
+    }
+    else
+    {
+        LOG_WARN("无法从数据加载封面图片");
+        cover_art_label_->hide();
+    }
 }
 
 void mainwindow::on_shuffle_clicked()
@@ -498,7 +568,8 @@ void mainwindow::on_add_songs_action()
     const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
     LOG_INFO("动作触发 添加歌曲到播放列表 id {}", playlist_id.toStdString());
 
-    const QStringList files = QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", "音频文件 (*.mp3 *.flac *.wav *.m4a *.ogg)");
+    const QStringList files =
+        QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", "音频文件 (*.mp3 *.flac *.wav *.m4a *.ogg *.mp4 *.webm)");
 
     if (!files.isEmpty())
     {
@@ -677,20 +748,6 @@ void mainwindow::on_prev_clicked()
     }
 }
 
-void mainwindow::on_stop_clicked()
-{
-    controller_->stop();
-    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
-    is_playing_ = false;
-    is_paused_ = false;
-    song_title_label_->setText("Music Player");
-    time_label_->setText("00:00 / 00:00");
-    progress_slider_->setValue(0);
-    shuffled_indices_.clear();
-    current_shuffle_index_ = -1;
-    clear_playing_indicator();
-}
-
 void mainwindow::on_volume_changed(int value) { controller_->set_volume(value); }
 
 void mainwindow::update_track_info(qint64 duration_ms)
@@ -700,25 +757,6 @@ void mainwindow::update_track_info(qint64 duration_ms)
     QString format = duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
     QString current_time_str = QTime(0, 0).toString(format);
     time_label_->setText(QString("%1 / %2").arg(current_time_str).arg(total_time.toString(format)));
-}
-
-void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
-{
-    is_playing_ = true;
-    is_paused_ = false;
-    play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
-    song_title_label_->setText(file_name);
-    clear_playing_indicator();
-
-    if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == file_path)
-    {
-        currently_playing_item_ = clicked_song_item_;
-        QFont font = currently_playing_item_->font(0);
-        font.setBold(true);
-        currently_playing_item_->setFont(0, font);
-        currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
-        song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
-    }
 }
 
 void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
@@ -772,4 +810,37 @@ void mainwindow::handle_playback_error(const QString& error_message)
 {
     QMessageBox::warning(this, "播放错误", error_message);
     on_stop_clicked();
+}
+
+void mainwindow::on_metadata_updated(const QMap<QString, QString>& metadata)
+{
+    QString title = metadata.value("title");
+    QString artist = metadata.value("artist");
+    QString display_text;
+
+    if (!artist.isEmpty() && !title.isEmpty())
+    {
+        display_text = QString("%1 - %2").arg(artist, title);
+    }
+    else if (!title.isEmpty())
+    {
+        display_text = title;
+    }
+    else
+    {
+        return;
+    }
+
+    song_title_label_->setText(display_text);
+
+    QString lyrics = metadata.value("lyrics");
+    if (lyrics.isEmpty())
+    {
+        lyrics = metadata.value("comment");
+    }
+
+    if (!lyrics.isEmpty())
+    {
+        LOG_INFO("找到歌词:\n{}", lyrics.toStdString());
+    }
 }

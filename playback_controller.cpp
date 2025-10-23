@@ -1,17 +1,19 @@
-#include <QThread>
+#include "playback_controller.h"
 #include <QMetaObject>
+#include <QThread>
 #include <QFileInfo>
 #include "log.h"
 #include "audio_player.h"
 #include "audio_decoder.h"
 #include "spectrum_widget.h"
-#include "playback_controller.h"
 
 const static auto kBufferHighWatermarkSeconds = 5L;
 
 playback_controller::playback_controller(QObject* parent) : QObject(parent)
 {
     qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
+    qRegisterMetaType<QMap<QString, QString>>("QMap<QString, QString>");
+    qRegisterMetaType<QByteArray>("QByteArray");
 
     decoder_thread_ = new QThread(this);
     decoder_ = new audio_decoder();
@@ -21,12 +23,14 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     connect(decoder_, &audio_decoder::packet_ready, this, &playback_controller::on_packet_from_decoder, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::seek_finished, this, &playback_controller::on_decoder_seek_finished, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::decoding_error, this, &playback_controller::on_decoding_error, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::metadata_ready, this, &playback_controller::on_metadata_ready, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::cover_art_ready, this, &playback_controller::on_cover_art_ready, Qt::QueuedConnection);
+
     connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 
     decoder_thread_->start();
     LOG_INFO("播放控制器已初始化解码器线程已启动");
 }
-
 playback_controller::~playback_controller()
 {
     stop();
@@ -391,6 +395,25 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
     }
 
     is_seeking_ = false;
+}
+void playback_controller::on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata)
+{
+    if (session_id != current_session_id_)
+    {
+        return;
+    }
+    LOG_DEBUG("控制器收到元数据, 转发至UI");
+    emit metadata_ready(metadata);
+}
+
+void playback_controller::on_cover_art_ready(qint64 session_id, const QByteArray& image_data)
+{
+    if (session_id != current_session_id_)
+    {
+        return;
+    }
+    LOG_DEBUG("控制器收到封面数据, 转发至UI");
+    emit cover_art_ready(image_data);
 }
 
 void playback_controller::cleanup_player()

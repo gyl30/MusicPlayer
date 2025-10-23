@@ -5,6 +5,8 @@
 #include <QAudioFormat>
 #include <atomic>
 #include <memory>
+#include <QMap>
+#include <QByteArray>
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -36,6 +38,8 @@ class audio_decoder : public QObject
     void decoding_finished();
     void seek_finished(qint64 session_id, qint64 actual_seek_ms);
     void decoding_error(const QString& error_message);
+    void metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
+    void cover_art_ready(qint64 session_id, const QByteArray& image_data);
 
    private slots:
     void do_seek();

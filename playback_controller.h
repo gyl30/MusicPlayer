@@ -5,6 +5,8 @@
 #include <QAudioFormat>
 #include <atomic>
 #include <memory>
+#include <QMap>
+#include <QByteArray>
 
 class QThread;
 class audio_decoder;
@@ -37,6 +39,8 @@ class playback_controller : public QObject
     void seek_finished(bool success);
     void playback_started(const QString& file_path, const QString& file_name);
     void seek_completed(qint64 actual_ms);
+    void metadata_ready(const QMap<QString, QString>& metadata);
+    void cover_art_ready(const QByteArray& image_data);
 
    private slots:
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
@@ -51,6 +55,8 @@ class playback_controller : public QObject
     void on_playback_finished(qint64 session_id);
     void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
     void on_buffer_level_low(qint64 session_id);
+    void on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
+    void on_cover_art_ready(qint64 session_id, const QByteArray& image_data);
 
    private:
     void cleanup_player();

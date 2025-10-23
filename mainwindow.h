@@ -2,6 +2,8 @@
 #define MAIN_WINDOW_H
 
 #include <QMainWindow>
+#include <QMap>
+#include <QByteArray>
 #include "playlist_data.h"
 
 class volume_meter;
@@ -55,6 +57,9 @@ class mainwindow : public QMainWindow
     void handle_playback_finished();
     void handle_playback_error(const QString& error_message);
 
+    void on_metadata_updated(const QMap<QString, QString>& metadata);
+    void on_cover_art_updated(const QByteArray& image_data);
+
    protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -72,6 +77,8 @@ class mainwindow : public QMainWindow
 
     QTreeWidget* song_tree_widget_ = nullptr;
     spectrum_widget* spectrum_widget_ = nullptr;
+
+    QLabel* cover_art_label_ = nullptr;
 
     QSlider* progress_slider_ = nullptr;
     volume_meter* volume_meter_ = nullptr;

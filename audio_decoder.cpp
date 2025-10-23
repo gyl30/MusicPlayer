@@ -1,7 +1,9 @@
+#include "audio_decoder.h"
+#include <QByteArray>
+#include <QMap>
 #include <QMetaObject>
 #include "log.h"
 #include "scoped_exit.h"
-#include "audio_decoder.h"
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -149,11 +151,13 @@ void audio_decoder::do_seek()
         return;
     }
 
-    auto guard = make_scoped_exit([this]() {
-        seek_requested_ = false;
-        LOG_INFO("跳转流程 5/10 跳转失败 通知控制中心 会话ID {}", seek_session_id_);
-        emit seek_finished(seek_session_id_, -1);
-    });
+    auto guard = make_scoped_exit(
+        [this]()
+        {
+            seek_requested_ = false;
+            LOG_INFO("跳转流程 5/10 跳转失败 通知控制中心 会话ID {}", seek_session_id_);
+            emit seek_finished(seek_session_id_, -1);
+        });
 
     if (format_ctx_ == nullptr)
     {
@@ -285,6 +289,43 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     {
         LOG_ERROR("查找流信息失败: {}", ffmpeg_error_string(ret));
         return false;
+    }
+
+    if (format_ctx_->metadata != nullptr)
+    {
+        QMap<QString, QString> metadata_map;
+        AVDictionaryEntry* tag = nullptr;
+        while ((tag = av_dict_get(format_ctx_->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
+        {
+            QString key = QString::fromUtf8(tag->key);
+            QString value = QString::fromUtf8(tag->value);
+            metadata_map.insert(key, value);
+            LOG_TRACE("元数据: {} = {}", key.toStdString(), value.toStdString());
+        }
+
+        if (!metadata_map.isEmpty())
+        {
+            if (metadata_map.contains("comment") || metadata_map.contains("lyrics"))
+            {
+                LOG_INFO("会话 {} 找到歌词元数据", session_id_);
+            }
+            emit metadata_ready(session_id_, metadata_map);
+        }
+    }
+
+    for (unsigned int i = 0; i < format_ctx_->nb_streams; i++)
+    {
+        AVStream* st = format_ctx_->streams[i];
+        if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) != 0)
+        {
+            if ((st->attached_pic.data != nullptr) && st->attached_pic.size > 0)
+            {
+                QByteArray image_data(reinterpret_cast<const char*>(st->attached_pic.data), st->attached_pic.size);
+                LOG_INFO("会话 {} 找到封面, 大小: {} 字节", session_id_, image_data.size());
+                emit cover_art_ready(session_id_, image_data);
+                break;
+            }
+        }
     }
 
     audio_stream_index_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
