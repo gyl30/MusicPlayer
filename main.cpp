@@ -25,9 +25,8 @@ int main(int argc, char* argv[])
     {
         LOG_WARN("无法加载样式表文件");
     }
-
+    QApplication::setWindowIcon(QIcon(":/icons/app_icon.svg"));
     mainwindow main_window;
-    main_window.setWindowIcon(QIcon(":/icons/app_icon.svg"));
     main_window.show();
     return QApplication::exec();
 }

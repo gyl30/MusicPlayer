@@ -123,6 +123,7 @@ add_executable(MusicPlayer
     quick_editor.cpp
     volumemeter.cpp
     resources.qrc
+    tray_icon.cpp
     music_management_dialog.cpp
 )
 

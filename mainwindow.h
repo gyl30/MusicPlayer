@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QMap>
 #include <QByteArray>
+#include "tray_icon.h"
 #include "playlist_data.h"
 
 class volume_meter;
@@ -105,5 +106,6 @@ class mainwindow : public QMainWindow
     bool is_shuffle_mode_ = false;
     QList<int> shuffled_indices_;
     int current_shuffle_index_ = -1;
+    tray_icon* tray_icon_ = nullptr;
 };
 #endif

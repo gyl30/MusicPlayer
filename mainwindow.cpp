@@ -1,4 +1,3 @@
-#include "mainwindow.h"
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFileDialog>
@@ -24,11 +23,13 @@
 #include <QPixmap>
 
 #include "log.h"
+#include "tray_icon.h"
+#include "mainwindow.h"
 #include "volumemeter.h"
+#include "quick_editor.h"
 #include "spectrum_widget.h"
 #include "playlist_manager.h"
 #include "playback_controller.h"
-#include "quick_editor.h"
 #include "music_management_dialog.h"
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, const QString& id)
@@ -74,6 +75,11 @@ void mainwindow::closeEvent(QCloseEvent* event)
 
 void mainwindow::setup_ui()
 {
+    tray_icon_ = new tray_icon(this);
+    connect(tray_icon_, &tray_icon::show_hide_triggered, this, [this]() { isVisible() ? hide() : show(); });
+    connect(tray_icon_, &tray_icon::quit_triggered, this, &QApplication::quit);
+    tray_icon_->show();
+
     auto* central_widget = new QWidget(this);
     central_widget->setObjectName("centralWidget");
     setCentralWidget(central_widget);
