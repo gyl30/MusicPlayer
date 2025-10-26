@@ -7,6 +7,8 @@
 #include <memory>
 #include <QMap>
 #include <QByteArray>
+#include <QList>
+
 extern "C"
 {
 #include <libavformat/avformat.h>
@@ -40,6 +42,7 @@ class audio_decoder : public QObject
     void decoding_error(const QString& error_message);
     void metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void cover_art_ready(qint64 session_id, const QByteArray& image_data);
+    void lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);
 
    private slots:
     void do_seek();
@@ -49,6 +52,7 @@ class audio_decoder : public QObject
     bool open_audio_context(const QString& file_path);
     void close_audio_context();
     void process_frame(AVFrame* frame);
+    QList<LyricLine> parse_lrc(const QString& lrc_text);
 
    private:
     QString file_path_;

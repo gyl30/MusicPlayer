@@ -47,6 +47,12 @@ QLabel {
     color: #3498DB;
 }
 
+#lyricsLabel {
+    font-size: 10pt;
+    color: #566573;
+    padding-bottom: 5px;
+}
+
 QSlider::groove:horizontal {
     background: #E0E0E0;
     height: 4px;

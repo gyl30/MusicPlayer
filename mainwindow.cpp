@@ -141,6 +141,11 @@ void mainwindow::setup_ui()
     top_display_layout->addWidget(cover_art_label_);
     top_display_layout->addWidget(spectrum_widget_);
 
+    lyrics_label_ = new QLabel(this);
+    lyrics_label_->setObjectName("lyricsLabel");
+    lyrics_label_->setAlignment(Qt::AlignCenter);
+    lyrics_label_->hide();
+
     progress_slider_ = new QSlider(Qt::Horizontal);
 
     stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "");
@@ -201,10 +206,11 @@ void mainwindow::setup_ui()
     button_grid_layout->setColumnStretch(2, 1);
 
     main_grid_layout->addWidget(top_display_container, 0, 0, 1, 3);
-    main_grid_layout->addWidget(progress_slider_, 1, 0, 1, 3);
-    main_grid_layout->addWidget(song_title_label_, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    main_grid_layout->addWidget(all_buttons_container, 2, 1, Qt::AlignCenter);
-    main_grid_layout->addWidget(time_label_, 2, 2, Qt::AlignRight | Qt::AlignVCenter);
+    main_grid_layout->addWidget(lyrics_label_, 1, 0, 1, 3);
+    main_grid_layout->addWidget(progress_slider_, 2, 0, 1, 3);
+    main_grid_layout->addWidget(song_title_label_, 3, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    main_grid_layout->addWidget(all_buttons_container, 3, 1, Qt::AlignCenter);
+    main_grid_layout->addWidget(time_label_, 3, 2, Qt::AlignRight | Qt::AlignVCenter);
 
     main_grid_layout->setColumnStretch(0, 1);
     main_grid_layout->setColumnStretch(1, 0);
@@ -250,6 +256,7 @@ void mainwindow::setup_connections()
     connect(controller_, &playback_controller::playback_error, this, &mainwindow::handle_playback_error);
     connect(controller_, &playback_controller::metadata_ready, this, &mainwindow::on_metadata_updated);
     connect(controller_, &playback_controller::cover_art_ready, this, &mainwindow::on_cover_art_updated);
+    connect(controller_, &playback_controller::lyrics_updated, this, &mainwindow::on_lyrics_updated);
 
     connect(playlist_manager_, &playlist_manager::playlist_added, this, &mainwindow::on_playlist_added);
     connect(playlist_manager_, &playlist_manager::playlist_removed, this, &mainwindow::on_playlist_removed);
@@ -270,10 +277,18 @@ void mainwindow::on_stop_clicked()
     current_shuffle_index_ = -1;
     clear_playing_indicator();
     cover_art_label_->hide();
+    lyrics_label_->hide();
+    lyrics_label_->clear();
+    current_lyrics_.clear();
 }
 
 void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
 {
+    lyrics_label_->hide();
+    lyrics_label_->clear();
+    current_lyrics_.clear();
+    current_lyric_index_ = -1;
+
     is_playing_ = true;
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
@@ -305,6 +320,22 @@ void mainwindow::on_cover_art_updated(const QByteArray& image_data)
     {
         LOG_WARN("无法从数据加载封面图片");
         cover_art_label_->hide();
+    }
+}
+
+void mainwindow::on_lyrics_updated(const QList<LyricLine>& lyrics)
+{
+    current_lyrics_ = lyrics;
+    current_lyric_index_ = -1;
+    lyrics_label_->clear();
+
+    if (current_lyrics_.isEmpty())
+    {
+        lyrics_label_->hide();
+    }
+    else
+    {
+        lyrics_label_->show();
     }
 }
 
@@ -790,6 +821,30 @@ void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
 
     QString time_str = QString("%1 / %2").arg(current_time.toString(format)).arg(total_time.toString(format));
     time_label_->setText(time_str);
+
+    if (current_lyrics_.isEmpty())
+    {
+        return;
+    }
+
+    int new_lyric_index = -1;
+    for (int i = 0; i < current_lyrics_.size(); ++i)
+    {
+        if (current_ms >= current_lyrics_[i].timestamp_ms)
+        {
+            new_lyric_index = i;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (new_lyric_index != -1 && new_lyric_index != current_lyric_index_)
+    {
+        lyrics_label_->setText(current_lyrics_[new_lyric_index].text);
+        current_lyric_index_ = new_lyric_index;
+    }
 }
 
 void mainwindow::handle_playback_finished()
@@ -851,15 +906,4 @@ void mainwindow::on_metadata_updated(const QMap<QString, QString>& metadata)
     }
 
     song_title_label_->setText(display_text);
-
-    QString lyrics = metadata.value("lyrics");
-    if (lyrics.isEmpty())
-    {
-        lyrics = metadata.value("comment");
-    }
-
-    if (!lyrics.isEmpty())
-    {
-        LOG_INFO("找到歌词:\n{}", lyrics.toStdString());
-    }
 }

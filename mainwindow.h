@@ -4,8 +4,10 @@
 #include <QMainWindow>
 #include <QMap>
 #include <QByteArray>
+#include <QList>
 #include "tray_icon.h"
 #include "playlist_data.h"
+#include "audio_packet.h"
 
 class volume_meter;
 class QCloseEvent;
@@ -60,6 +62,7 @@ class mainwindow : public QMainWindow
 
     void on_metadata_updated(const QMap<QString, QString>& metadata);
     void on_cover_art_updated(const QByteArray& image_data);
+    void on_lyrics_updated(const QList<LyricLine>& lyrics);
     void quit_application();
 
    protected:
@@ -81,6 +84,7 @@ class mainwindow : public QMainWindow
     spectrum_widget* spectrum_widget_ = nullptr;
 
     QLabel* cover_art_label_ = nullptr;
+    QLabel* lyrics_label_ = nullptr;
 
     QSlider* progress_slider_ = nullptr;
     volume_meter* volume_meter_ = nullptr;
@@ -108,5 +112,8 @@ class mainwindow : public QMainWindow
     QList<int> shuffled_indices_;
     int current_shuffle_index_ = -1;
     tray_icon* tray_icon_ = nullptr;
+
+    QList<LyricLine> current_lyrics_;
+    int current_lyric_index_ = -1;
 };
 #endif

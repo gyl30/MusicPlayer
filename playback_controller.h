@@ -7,6 +7,8 @@
 #include <memory>
 #include <QMap>
 #include <QByteArray>
+#include <QList>
+#include "audio_packet.h"
 
 class QThread;
 class audio_decoder;
@@ -41,6 +43,7 @@ class playback_controller : public QObject
     void seek_completed(qint64 actual_ms);
     void metadata_ready(const QMap<QString, QString>& metadata);
     void cover_art_ready(const QByteArray& image_data);
+    void lyrics_updated(const QList<LyricLine>& lyrics);
 
    private slots:
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
@@ -57,6 +60,7 @@ class playback_controller : public QObject
     void on_buffer_level_low(qint64 session_id);
     void on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void on_cover_art_ready(qint64 session_id, const QByteArray& image_data);
+    void on_lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);
 
    private:
     void cleanup_player();

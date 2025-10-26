@@ -5,7 +5,7 @@
 #include "log.h"
 #include "audio_player.h"
 
-constexpr int kProgressUpdateIntervalMs = 250;
+constexpr int kProgressUpdateIntervalMs = 50;
 constexpr auto kBufferLowWatermarkSeconds = 2L;
 
 void audio_player::audio_callback(void* userdata, Uint8* stream, int len)
@@ -342,14 +342,17 @@ void audio_player::update_progress_ui()
         return;
     }
 
+    qint64 buffer_latency_ms = (static_cast<qint64>(audio_spec_.size) * 1000) / bytes_per_second;
+
     qint64 processed_bytes = bytes_processed_by_device_.load();
     qint64 processed_ms = (processed_bytes * 1000) / bytes_per_second;
-    qint64 current_playback_ms = playback_start_offset_ms_ + processed_ms;
+    qint64 current_playback_ms = playback_start_offset_ms_ + processed_ms - buffer_latency_ms;
+    current_playback_ms = std::max<qint64>(current_playback_ms, 0);
 
-    LOG_DEBUG("播放器时钟 start_offset_ms {} processed_bytes {} processed_ms {} final_ms {}",
+    LOG_DEBUG("播放器时钟 start_offset_ms {} processed_ms {} latency_ms {} final_ms {}",
               playback_start_offset_ms_,
-              processed_bytes,
               processed_ms,
+              buffer_latency_ms,
               current_playback_ms);
 
     emit progress_update(session_id_, current_playback_ms);

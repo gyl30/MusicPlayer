@@ -2,6 +2,7 @@
 #include <QMap>
 #include <QMetaObject>
 #include <algorithm>
+#include <QRegularExpression>
 #include "log.h"
 #include "scoped_exit.h"
 #include "audio_decoder.h"
@@ -305,6 +306,38 @@ void audio_decoder::process_frame(AVFrame* frame)
     }
 }
 
+QList<LyricLine> audio_decoder::parse_lrc(const QString& lrc_text)
+{
+    QList<LyricLine> lyrics;
+    if (lrc_text.isEmpty())
+    {
+        return lyrics;
+    }
+
+    QRegularExpression regex("\\[(\\d{2}):(\\d{2})[\\.:](\\d{2,3})\\](.*)");
+    const QStringList lines = lrc_text.split('\n');
+
+    for (const QString& line : lines)
+    {
+        QRegularExpressionMatch match = regex.match(line);
+        if (match.hasMatch())
+        {
+            qint64 minutes = match.captured(1).toLongLong();
+            qint64 seconds = match.captured(2).toLongLong();
+            qint64 milliseconds = match.captured(3).toLongLong();
+            if (match.captured(3).length() == 2)
+            {
+                milliseconds *= 10;
+            }
+            QString text = match.captured(4).trimmed();
+
+            qint64 total_ms = (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
+            lyrics.append({total_ms, text});
+        }
+    }
+    return lyrics;
+}
+
 bool audio_decoder::open_audio_context(const QString& file_path)
 {
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
@@ -323,28 +356,6 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     {
         LOG_ERROR("查找流信息失败 {}", ffmpeg_error_string(ret));
         return false;
-    }
-
-    if (format_ctx_->metadata != nullptr)
-    {
-        QMap<QString, QString> metadata_map;
-        AVDictionaryEntry* tag = nullptr;
-        while ((tag = av_dict_get(format_ctx_->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
-        {
-            QString key = QString::fromUtf8(tag->key);
-            QString value = QString::fromUtf8(tag->value);
-            metadata_map.insert(key, value);
-            LOG_TRACE("元数据 {} {}", key.toStdString(), value.toStdString());
-        }
-
-        if (!metadata_map.isEmpty())
-        {
-            if (metadata_map.contains("comment") || metadata_map.contains("lyrics"))
-            {
-                LOG_INFO("会话 {} 找到歌词元数据", session_id_);
-            }
-            emit metadata_ready(session_id_, metadata_map);
-        }
     }
 
     for (unsigned int i = 0; i < format_ctx_->nb_streams; i++)
@@ -380,6 +391,41 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     {
         LOG_ERROR("未找到编解码器 ID {}", (int)audio_stream->codecpar->codec_id);
         return false;
+    }
+    if (format_ctx_->metadata != nullptr)
+    {
+        QMap<QString, QString> metadata_map;
+        AVDictionaryEntry* tag = nullptr;
+        bool lyrics_found = false;
+        while ((tag = av_dict_get(format_ctx_->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
+        {
+            QString key = QString::fromUtf8(tag->key);
+            QString value = QString::fromUtf8(tag->value);
+            metadata_map.insert(key, value);
+
+            if (key.compare("comment", Qt::CaseInsensitive) == 0 || key.compare("lyrics", Qt::CaseInsensitive) == 0)
+            {
+                QList<LyricLine> parsed_lyrics = parse_lrc(value);
+                if (!parsed_lyrics.isEmpty())
+                {
+                    LOG_INFO("会话 {} 找到歌词元数据并解析成功", session_id_);
+                    emit lyrics_ready(session_id_, parsed_lyrics);
+                    lyrics_found = true;
+                }
+            }
+
+            LOG_TRACE("元数据 {} {}", key.toStdString(), value.toStdString());
+        }
+
+        if (!lyrics_found)
+        {
+            emit lyrics_ready(session_id_, {});
+        }
+
+        if (!metadata_map.isEmpty())
+        {
+            emit metadata_ready(session_id_, metadata_map);
+        }
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);

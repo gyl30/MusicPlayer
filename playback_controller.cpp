@@ -14,6 +14,7 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
     qRegisterMetaType<QMap<QString, QString>>("QMap<QString, QString>");
     qRegisterMetaType<QByteArray>("QByteArray");
+    qRegisterMetaType<QList<LyricLine>>("QList<LyricLine>");
 
     decoder_thread_ = new QThread(this);
     decoder_ = new audio_decoder();
@@ -25,6 +26,7 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     connect(decoder_, &audio_decoder::decoding_error, this, &playback_controller::on_decoding_error, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::metadata_ready, this, &playback_controller::on_metadata_ready, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::cover_art_ready, this, &playback_controller::on_cover_art_ready, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::lyrics_ready, this, &playback_controller::on_lyrics_ready, Qt::QueuedConnection);
 
     connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 
@@ -199,6 +201,11 @@ void playback_controller::on_player_ready_for_spectrum(qint64 session_id)
 {
     if (session_id != current_session_id_ || spectrum_widget_ == nullptr)
     {
+        if (session_id == current_session_id_)
+        {
+            LOG_INFO("播放流程十 收到播放器的就绪信号 (无频谱)");
+            on_spectrum_ready_for_decoding(session_id);
+        }
         return;
     }
     LOG_INFO("播放流程十 收到播放器的就绪信号");
@@ -385,6 +392,10 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
         QMetaObject::invokeMethod(
             spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));
     }
+    else
+    {
+        on_spectrum_ready_for_decoding(session_id);
+    }
     emit seek_finished(true);
 
     if (pending_seek_ms_ != -1)
@@ -416,6 +427,16 @@ void playback_controller::on_cover_art_ready(qint64 session_id, const QByteArray
     }
     LOG_DEBUG("控制器收到封面数据, 转发至UI");
     emit cover_art_ready(image_data);
+}
+
+void playback_controller::on_lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics)
+{
+    if (session_id != current_session_id_)
+    {
+        return;
+    }
+    LOG_DEBUG("控制器收到歌词数据, 转发至UI");
+    emit lyrics_updated(lyrics);
 }
 
 void playback_controller::cleanup_player()
