@@ -60,6 +60,7 @@ class mainwindow : public QMainWindow
 
     void on_metadata_updated(const QMap<QString, QString>& metadata);
     void on_cover_art_updated(const QByteArray& image_data);
+    void quit_application();
 
    protected:
     void closeEvent(QCloseEvent* event) override;

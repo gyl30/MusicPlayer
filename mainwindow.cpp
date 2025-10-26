@@ -67,17 +67,30 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 
 mainwindow::~mainwindow() = default;
 
-void mainwindow::closeEvent(QCloseEvent* event)
+void mainwindow::quit_application()
 {
     playlist_manager_->save_playlists();
-    QMainWindow::closeEvent(event);
+    hide();
+    QApplication::quit();
+}
+void mainwindow::closeEvent(QCloseEvent* event)
+{
+    if (tray_icon_->isVisible())
+    {
+        hide();
+        event->ignore();
+    }
+    else
+    {
+        event->accept();
+    }
 }
 
 void mainwindow::setup_ui()
 {
     tray_icon_ = new tray_icon(this);
     connect(tray_icon_, &tray_icon::show_hide_triggered, this, [this]() { isVisible() ? hide() : show(); });
-    connect(tray_icon_, &tray_icon::quit_triggered, this, &QApplication::quit);
+    connect(tray_icon_, &tray_icon::quit_triggered, this, &mainwindow::quit_application);
     tray_icon_->show();
 
     auto* central_widget = new QWidget(this);
