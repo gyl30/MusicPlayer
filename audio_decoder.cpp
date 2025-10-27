@@ -29,7 +29,7 @@ static AVSampleFormat get_av_sample_format(QAudioFormat::SampleFormat format)
     }
 }
 
-audio_decoder::audio_decoder(QObject* parent) : QObject(parent) {}
+audio_decoder::audio_decoder(QObject* parent) : QObject(parent) { decoding_paused_.store(true); }
 
 audio_decoder::~audio_decoder() { close_audio_context(); }
 
@@ -60,6 +60,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
     seek_position_ms_ = -1;
     first_frame_processed_ = false;
     start_time_offset_ms_ = 0;
+    decoding_paused_ = true;
 
     LOG_INFO("播放流程 5/14 正在打开音频文件 会话ID {}", session_id_);
     if (!open_audio_context(file_path_))
@@ -91,64 +92,84 @@ void audio_decoder::resume_decoding()
         LOG_WARN("请求恢复解码 但解码器已停止");
         return;
     }
-    LOG_TRACE("为会话 {} 恢复解码循环", session_id_);
+
+    if (!decoding_paused_.exchange(false))
+    {
+        return;
+    }
+
+    LOG_TRACE("为会话 {} 恢复/启动解码循环", session_id_);
     QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
+}
+
+void audio_decoder::pause_decoding()
+{
+    decoding_paused_ = true;
+    LOG_DEBUG("解码器已收到暂停请求");
 }
 
 void audio_decoder::do_decoding_cycle()
 {
-    if (stop_flag_)
+    if (stop_flag_ || decoding_paused_)
     {
-        LOG_DEBUG("解码已按请求停止");
-        close_audio_context();
-        emit decoding_finished();
+        if (decoding_paused_)
+        {
+            LOG_DEBUG("解码循环已暂停");
+        }
+        if (stop_flag_)
+        {
+            LOG_DEBUG("解码已按请求停止");
+            close_audio_context();
+            emit decoding_finished();
+        }
         return;
     }
 
-    while (!stop_flag_)
+    int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
+
+    if (receive_ret == 0)
     {
-        int receive_ret = avcodec_receive_frame(codec_ctx_, frame_);
-
-        if (receive_ret == 0)
-        {
-            process_frame(frame_);
-            return;
-        }
-
-        if (receive_ret == AVERROR_EOF)
-        {
-            LOG_INFO("结束流程 1/4 文件解码完成 发送文件结束信号 会话ID {}", session_id_);
-            emit packet_ready(session_id_, nullptr);
-            LOG_INFO("会话 {} 已达文件末尾，解码器现在空闲", session_id_);
-            return;
-        }
-
-        if (receive_ret != AVERROR(EAGAIN))
-        {
-            LOG_ERROR("接收帧失败 {}", ffmpeg_error_string(receive_ret));
-            break;
-        }
-
-        int read_ret = av_read_frame(format_ctx_, packet_);
-        if (read_ret < 0)
-        {
-            avcodec_send_packet(codec_ctx_, nullptr);
-            continue;
-        }
-
-        DEFER(av_packet_unref(packet_));
-        if (packet_->stream_index != audio_stream_index_)
-        {
-            continue;
-        }
-
-        int send_ret = avcodec_send_packet(codec_ctx_, packet_);
-        if (send_ret < 0)
-        {
-            LOG_WARN("发送数据包失败 {}", ffmpeg_error_string(send_ret));
-            continue;
-        }
+        process_frame(frame_);
+        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
+        return;
     }
+
+    if (receive_ret == AVERROR_EOF)
+    {
+        LOG_INFO("结束流程 1/4 文件解码完成 发送文件结束信号 会话ID {}", session_id_);
+        emit packet_ready(session_id_, nullptr);
+        LOG_INFO("会话 {} 已达文件末尾 解码器现在空闲", session_id_);
+        return;
+    }
+
+    if (receive_ret != AVERROR(EAGAIN))
+    {
+        LOG_ERROR("接收帧失败 {}", ffmpeg_error_string(receive_ret));
+        return;
+    }
+
+    int read_ret = av_read_frame(format_ctx_, packet_);
+    if (read_ret < 0)
+    {
+        avcodec_send_packet(codec_ctx_, nullptr);
+        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
+        return;
+    }
+
+    DEFER(av_packet_unref(packet_));
+    if (packet_->stream_index != audio_stream_index_)
+    {
+        QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
+        return;
+    }
+
+    int send_ret = avcodec_send_packet(codec_ctx_, packet_);
+    if (send_ret < 0)
+    {
+        LOG_WARN("发送数据包失败 {}", ffmpeg_error_string(send_ret));
+    }
+
+    QMetaObject::invokeMethod(this, "do_decoding_cycle", Qt::QueuedConnection);
 }
 
 void audio_decoder::do_seek()
@@ -306,7 +327,7 @@ void audio_decoder::process_frame(AVFrame* frame)
     }
 }
 
-QList<LyricLine> audio_decoder::parse_lrc(const QString& lrc_text)
+static QList<LyricLine> parse_lrc(const QString& lrc_text)
 {
     QList<LyricLine> lyrics;
     if (lrc_text.isEmpty())
@@ -314,7 +335,7 @@ QList<LyricLine> audio_decoder::parse_lrc(const QString& lrc_text)
         return lyrics;
     }
 
-    QRegularExpression regex("\\[(\\d{2}):(\\d{2})[\\.:](\\d{2,3})\\](.*)");
+    QRegularExpression regex(R"(\[(\d{2}):(\d{2})[\.:](\d{2,3})\](.*))");
     const QStringList lines = lrc_text.split('\n');
 
     for (const QString& line : lines)
@@ -338,6 +359,41 @@ QList<LyricLine> audio_decoder::parse_lrc(const QString& lrc_text)
     return lyrics;
 }
 
+void audio_decoder::process_metadata(AVDictionary* metadata)
+{
+    QMap<QString, QString> metadata_map;
+    AVDictionaryEntry* tag = nullptr;
+    bool lyrics_found = false;
+    while ((tag = av_dict_get(metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
+    {
+        QString key = QString::fromUtf8(tag->key);
+        QString value = QString::fromUtf8(tag->value);
+        metadata_map.insert(key, value);
+
+        if (key.compare("comment", Qt::CaseInsensitive) == 0 || key.compare("lyrics", Qt::CaseInsensitive) == 0)
+        {
+            QList<LyricLine> parsed_lyrics = parse_lrc(value);
+            if (!parsed_lyrics.isEmpty())
+            {
+                LOG_INFO("会话 {} 找到歌词元数据并解析成功", session_id_);
+                emit lyrics_ready(session_id_, parsed_lyrics);
+                lyrics_found = true;
+            }
+        }
+
+        LOG_TRACE("元数据 {} {}", key.toStdString(), value.toStdString());
+    }
+
+    if (!lyrics_found)
+    {
+        emit lyrics_ready(session_id_, {});
+    }
+
+    if (!metadata_map.isEmpty())
+    {
+        emit metadata_ready(session_id_, metadata_map);
+    }
+}
 bool audio_decoder::open_audio_context(const QString& file_path)
 {
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
@@ -392,40 +448,10 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         LOG_ERROR("未找到编解码器 ID {}", (int)audio_stream->codecpar->codec_id);
         return false;
     }
+
     if (format_ctx_->metadata != nullptr)
     {
-        QMap<QString, QString> metadata_map;
-        AVDictionaryEntry* tag = nullptr;
-        bool lyrics_found = false;
-        while ((tag = av_dict_get(format_ctx_->metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
-        {
-            QString key = QString::fromUtf8(tag->key);
-            QString value = QString::fromUtf8(tag->value);
-            metadata_map.insert(key, value);
-
-            if (key.compare("comment", Qt::CaseInsensitive) == 0 || key.compare("lyrics", Qt::CaseInsensitive) == 0)
-            {
-                QList<LyricLine> parsed_lyrics = parse_lrc(value);
-                if (!parsed_lyrics.isEmpty())
-                {
-                    LOG_INFO("会话 {} 找到歌词元数据并解析成功", session_id_);
-                    emit lyrics_ready(session_id_, parsed_lyrics);
-                    lyrics_found = true;
-                }
-            }
-
-            LOG_TRACE("元数据 {} {}", key.toStdString(), value.toStdString());
-        }
-
-        if (!lyrics_found)
-        {
-            emit lyrics_ready(session_id_, {});
-        }
-
-        if (!metadata_map.isEmpty())
-        {
-            emit metadata_ready(session_id_, metadata_map);
-        }
+        process_metadata(format_ctx_->metadata);
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);
@@ -459,7 +485,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     AVChannelLayout target_ch_layout;
     av_channel_layout_default(&target_ch_layout, target_format_.channelCount());
 
-    LOG_INFO("配置重采样器: 源 速率 {}, 格式 {}, 布局 {} -> 目标 速率 {}, 格式 {}, 布局 {}",
+    LOG_INFO("配置重采样器 源 速率 {} 格式 {} 布局 {} -> 目标 速率 {} 格式 {} 布局 {}",
              codec_ctx_->sample_rate,
              av_get_sample_fmt_name(codec_ctx_->sample_fmt),
              codec_ctx_->ch_layout.nb_channels,

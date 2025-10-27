@@ -28,6 +28,7 @@ class audio_player : public QObject
     void packet_played(const std::shared_ptr<audio_packet>& packet);
     void seek_handled(qint64 session_id);
     void buffer_level_low(qint64 session_id);
+    void buffer_level_high(qint64 session_id);
 
    public slots:
     void start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms = 0);
@@ -62,7 +63,9 @@ class audio_player : public QObject
     QTimer* progress_timer_ = nullptr;
 
     qint64 buffer_low_water_mark_ = 0;
+    qint64 buffer_high_water_mark_ = 0;
     bool low_water_mark_triggered_ = false;
+    bool high_water_mark_triggered_ = false;
 
     QAudioFormat last_format_;
 

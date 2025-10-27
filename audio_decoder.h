@@ -31,6 +31,7 @@ class audio_decoder : public QObject
    public slots:
     void start_decoding(qint64 session_id, const QString& file, qint64 offset = -1);
     void resume_decoding();
+    void pause_decoding();
     void shutdown();
     void seek(qint64 session_id, qint64 position_ms);
 
@@ -52,7 +53,7 @@ class audio_decoder : public QObject
     bool open_audio_context(const QString& file_path);
     void close_audio_context();
     void process_frame(AVFrame* frame);
-    QList<LyricLine> parse_lrc(const QString& lrc_text);
+    void process_metadata(AVDictionary* metadata);
 
    private:
     QString file_path_;
@@ -78,6 +79,7 @@ class audio_decoder : public QObject
 
     qint64 start_time_offset_ms_ = 0;
     bool first_frame_processed_ = false;
+    std::atomic<bool> decoding_paused_{true};
 };
 
 #endif

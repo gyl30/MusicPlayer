@@ -58,6 +58,7 @@ class playback_controller : public QObject
     void on_playback_finished(qint64 session_id);
     void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
     void on_buffer_level_low(qint64 session_id);
+    void on_buffer_level_high(qint64 session_id);
     void on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void on_cover_art_ready(qint64 session_id, const QByteArray& image_data);
     void on_lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);
