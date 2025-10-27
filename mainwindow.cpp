@@ -21,6 +21,7 @@
 #include <QRandomGenerator>
 #include <QFont>
 #include <QPixmap>
+#include <QCollator>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -497,6 +498,7 @@ void mainwindow::on_song_tree_context_menu_requested(const QPoint& pos)
     {
         LOG_DEBUG("在播放列表项上创建菜单");
         auto* add_songs_action = context_menu.addAction("添加歌曲");
+        auto* sort_playlist_action = context_menu.addAction("排序列表");
         context_menu.addSeparator();
         auto* rename_action = context_menu.addAction("重命名");
         auto* delete_action = context_menu.addAction("删除播放列表");
@@ -504,6 +506,7 @@ void mainwindow::on_song_tree_context_menu_requested(const QPoint& pos)
         auto* new_playlist_action = context_menu.addAction("新建播放列表");
 
         connect(add_songs_action, &QAction::triggered, this, &mainwindow::on_add_songs_action);
+        connect(sort_playlist_action, &QAction::triggered, this, &mainwindow::on_sort_playlist_action);
         connect(rename_action, &QAction::triggered, this, &mainwindow::on_rename_playlist_action);
         connect(delete_action, &QAction::triggered, this, &mainwindow::on_delete_playlist_action);
         connect(new_playlist_action, &QAction::triggered, this, &mainwindow::on_create_playlist_action);
@@ -670,6 +673,17 @@ void mainwindow::on_remove_songs_action()
     {
         LOG_WARN("没有有效的歌曲项被选中用于移除");
     }
+}
+
+void mainwindow::on_sort_playlist_action()
+{
+    if (context_menu_item_ == nullptr || context_menu_item_->parent() != nullptr)
+    {
+        return;
+    }
+    const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
+    LOG_INFO("动作触发 排序播放列表 id {}", playlist_id.toStdString());
+    playlist_manager_->sort_playlist(playlist_id);
 }
 
 void mainwindow::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)

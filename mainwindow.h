@@ -45,6 +45,7 @@ class mainwindow : public QMainWindow
     void on_delete_playlist_action();
     void on_add_songs_action();
     void on_remove_songs_action();
+    void on_sort_playlist_action();
     void on_editing_finished(bool accepted, const QString& text);
 
     void on_playlist_added(const Playlist& new_playlist);

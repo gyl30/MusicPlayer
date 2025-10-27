@@ -24,6 +24,7 @@ class playlist_manager : public QObject
     void add_songs_to_playlist(const QString& playlist_id, const QStringList& file_paths);
     void remove_songs_from_playlist(const QString& playlist_id, const QList<int>& song_indices);
     void rename_playlist(const QString& id, const QString& new_name);
+    void sort_playlist(const QString& id);
 
    signals:
     void playlist_added(const Playlist& new_playlist);

@@ -5,6 +5,7 @@
 #include <QUuid>
 #include <QFileInfo>
 #include <algorithm>
+#include <QCollator>
 
 #include "log.h"
 #include "playlist_manager.h"
@@ -197,4 +198,24 @@ void playlist_manager::rename_playlist(const QString& id, const QString& new_nam
     LOG_INFO("将播放列表id {} 重命名为 {}", id.toStdString(), new_name.toStdString());
     playlists_[id].name = new_name;
     emit playlist_renamed(id);
+}
+
+void playlist_manager::sort_playlist(const QString& id)
+{
+    if (!playlists_.contains(id))
+    {
+        LOG_WARN("试图对不存在的播放列表进行排序 id {}", id.toStdString());
+        return;
+    }
+    LOG_INFO("排序播放列表 id {}", id.toStdString());
+
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+
+    std::sort(playlists_[id].songs.begin(),
+              playlists_[id].songs.end(),
+              [&collator](const Song& s1, const Song& s2) { return collator.compare(s1.fileName, s2.fileName) < 0; });
+
+    emit songs_changed_in_playlist(id);
 }
