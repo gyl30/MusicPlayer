@@ -172,9 +172,6 @@ void mainwindow::setup_ui()
     shuffle_button_->setToolTip("随机播放");
     manage_button_->setToolTip("管理音乐");
 
-    song_title_label_ = new QLabel("Music Player", this);
-    song_title_label_->setObjectName("songTitleLabel");
-
     time_label_ = new QLabel("00:00 / 00:00", this);
     time_label_->setFixedWidth(120);
     time_label_->setAlignment(Qt::AlignCenter);
@@ -209,13 +206,14 @@ void mainwindow::setup_ui()
     main_grid_layout->addWidget(top_display_container, 0, 0, 1, 3);
     main_grid_layout->addWidget(lyrics_label_, 1, 0, 1, 3);
     main_grid_layout->addWidget(progress_slider_, 2, 0, 1, 3);
-    main_grid_layout->addWidget(song_title_label_, 3, 0, Qt::AlignLeft | Qt::AlignVCenter);
+
     main_grid_layout->addWidget(all_buttons_container, 3, 1, Qt::AlignCenter);
     main_grid_layout->addWidget(time_label_, 3, 2, Qt::AlignRight | Qt::AlignVCenter);
 
     main_grid_layout->setColumnStretch(0, 1);
     main_grid_layout->setColumnStretch(1, 0);
     main_grid_layout->setColumnStretch(2, 1);
+
     main_grid_layout->setRowStretch(0, 1);
 
     volume_meter_ = new volume_meter();
@@ -271,7 +269,7 @@ void mainwindow::on_stop_clicked()
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
     is_playing_ = false;
     is_paused_ = false;
-    song_title_label_->setText("Music Player");
+    setWindowTitle("Music Player");
     time_label_->setText("00:00 / 00:00");
     progress_slider_->setValue(0);
     shuffled_indices_.clear();
@@ -293,7 +291,7 @@ void mainwindow::on_playback_started(const QString& file_path, const QString& fi
     is_playing_ = true;
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
-    song_title_label_->setText(file_name);
+    setWindowTitle(file_name);
     clear_playing_indicator();
 
     cover_art_label_->hide();
@@ -388,7 +386,7 @@ void mainwindow::generate_shuffled_list(QTreeWidgetItem* playlist_item, int star
 
     if (start_song_index != -1)
     {
-        const int current_pos = shuffled_indices_.indexOf(start_song_index);
+        const int current_pos = static_cast<int>(shuffled_indices_.indexOf(start_song_index));
         if (current_pos != -1)
         {
             shuffled_indices_.swapItemsAt(0, current_pos);
@@ -789,7 +787,7 @@ void mainwindow::on_prev_clicked()
         current_shuffle_index_--;
         if (current_shuffle_index_ < 0)
         {
-            current_shuffle_index_ = shuffled_indices_.size() - 1;
+            current_shuffle_index_ = static_cast<int>(shuffled_indices_.size()) - 1;
         }
         const int prev_song_index = shuffled_indices_.at(current_shuffle_index_);
         QTreeWidgetItem* prev_item = playlist_item->child(prev_song_index);
@@ -919,5 +917,5 @@ void mainwindow::on_metadata_updated(const QMap<QString, QString>& metadata)
         return;
     }
 
-    song_title_label_->setText(display_text);
+    setWindowTitle(display_text);
 }

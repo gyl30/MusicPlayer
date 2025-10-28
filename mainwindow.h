@@ -97,7 +97,6 @@ class mainwindow : public QMainWindow
     QPushButton* shuffle_button_ = nullptr;
     QPushButton* manage_button_ = nullptr;
 
-    QLabel* song_title_label_ = nullptr;
     QLabel* time_label_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
