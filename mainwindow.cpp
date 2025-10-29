@@ -58,6 +58,8 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
     setup_ui();
     setup_connections();
 
+    controller_->set_volume(volume_meter_->value());
+
     controller_->set_spectrum_widget(spectrum_widget_);
 
     playlist_manager_->load_playlists();

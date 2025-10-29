@@ -84,6 +84,8 @@ class playback_controller : public QObject
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
+
+    int cached_volume_ = 80;
 };
 
 #endif

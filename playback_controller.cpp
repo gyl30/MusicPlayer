@@ -148,6 +148,7 @@ void playback_controller::seek(qint64 position_ms)
 
 void playback_controller::set_volume(int volume_percent)
 {
+    cached_volume_ = volume_percent;
     if (player_ != nullptr)
     {
         QMetaObject::invokeMethod(player_, "set_volume", Qt::QueuedConnection, Q_ARG(int, volume_percent));
@@ -172,6 +173,8 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
 
     player_thread_ = new QThread(this);
     player_ = new audio_player();
+    player_->set_volume(cached_volume_);
+
     player_->moveToThread(player_thread_);
 
     connect(player_, &audio_player::progress_update, this, &playback_controller::on_progress_update, Qt::QueuedConnection);
