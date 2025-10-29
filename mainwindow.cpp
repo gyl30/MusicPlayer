@@ -99,7 +99,7 @@ void mainwindow::setup_ui()
     setCentralWidget(central_widget);
 
     auto* main_layout = new QVBoxLayout(central_widget);
-    main_layout->setContentsMargins(10, 10, 10, 10);
+    main_layout->setContentsMargins(0, 0, 0, 0);
     main_layout->setSpacing(0);
 
     song_tree_widget_ = new QTreeWidget();
@@ -121,7 +121,7 @@ void mainwindow::setup_ui()
 
     auto* left_panel = new QWidget();
     auto* main_grid_layout = new QGridLayout(left_panel);
-    main_grid_layout->setContentsMargins(10, 10, 10, 5);
+    main_grid_layout->setContentsMargins(10, 10, 10, 0);
     main_grid_layout->setSpacing(5);
     main_grid_layout->setVerticalSpacing(3);
 
@@ -153,9 +153,9 @@ void mainwindow::setup_ui()
     prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "");
     play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
     next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
-    shuffle_button_ = new QPushButton(QIcon(":/icons/shuffle.svg"), "");
+    shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "");
     manage_button_ = new QPushButton(QIcon(":/icons/manage.svg"), "");
-    shuffle_button_->setObjectName("shuffleButton");
+    shuffle_button_->setObjectName("modeButton");
 
     QSize icon_size(24, 24);
     stop_button_->setIconSize(icon_size);
@@ -169,7 +169,7 @@ void mainwindow::setup_ui()
     prev_button_->setToolTip("上一首");
     play_pause_button_->setToolTip("播放/暂停");
     next_button_->setToolTip("下一首");
-    shuffle_button_->setToolTip("随机播放");
+    shuffle_button_->setToolTip("列表循环");
     manage_button_->setToolTip("管理音乐");
 
     time_label_ = new QLabel("00:00 / 00:00", this);
@@ -242,7 +242,7 @@ void mainwindow::setup_connections()
     connect(next_button_, &QPushButton::clicked, this, &mainwindow::on_next_clicked);
     connect(prev_button_, &QPushButton::clicked, this, &mainwindow::on_prev_clicked);
     connect(stop_button_, &QPushButton::clicked, this, &mainwindow::on_stop_clicked);
-    connect(shuffle_button_, &QPushButton::clicked, this, &mainwindow::on_shuffle_clicked);
+    connect(shuffle_button_, &QPushButton::clicked, this, &mainwindow::on_playback_mode_clicked);
     connect(manage_button_, &QPushButton::clicked, this, &mainwindow::on_manage_playlists_action);
 
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &mainwindow::on_tree_item_double_clicked);
@@ -338,24 +338,38 @@ void mainwindow::on_lyrics_updated(const QList<LyricLine>& lyrics)
     }
 }
 
-void mainwindow::on_shuffle_clicked()
+void mainwindow::on_playback_mode_clicked()
 {
-    is_shuffle_mode_ = !is_shuffle_mode_;
-    LOG_INFO("随机播放模式切换为: {}", is_shuffle_mode_);
-    update_shuffle_button_style();
+    switch (current_mode_)
+    {
+        case playback_mode::ListLoop:
+            current_mode_ = playback_mode::SingleLoop;
+            break;
+        case playback_mode::SingleLoop:
+            current_mode_ = playback_mode::Shuffle;
+            break;
+        case playback_mode::Shuffle:
+            current_mode_ = playback_mode::Sequential;
+            break;
+        case playback_mode::Sequential:
+            current_mode_ = playback_mode::ListLoop;
+            break;
+    }
 
-    if (is_shuffle_mode_ && currently_playing_item_ != nullptr)
+    if (current_mode_ == playback_mode::Shuffle && currently_playing_item_ != nullptr)
     {
         QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
         int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
         generate_shuffled_list(playlist_item, current_song_index);
         current_shuffle_index_ = 0;
     }
-    else if (!is_shuffle_mode_)
+    else if (current_mode_ != playback_mode::Shuffle)
     {
         shuffled_indices_.clear();
         current_shuffle_index_ = -1;
     }
+
+    update_playback_mode_button_style();
 }
 
 void mainwindow::generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index)
@@ -396,9 +410,28 @@ void mainwindow::generate_shuffled_list(QTreeWidgetItem* playlist_item, int star
     LOG_INFO("已为播放列表 '{}' 生成随机队列，起始歌曲索引: {} {}", playlist_item->text(0).toStdString(), start_song_index, list_str.toStdString());
 }
 
-void mainwindow::update_shuffle_button_style()
+void mainwindow::update_playback_mode_button_style()
 {
-    shuffle_button_->setProperty("shuffled", is_shuffle_mode_);
+    switch (current_mode_)
+    {
+        case playback_mode::ListLoop:
+            shuffle_button_->setIcon(QIcon(":/icons/repeat.svg"));
+            shuffle_button_->setToolTip("列表循环");
+            break;
+        case playback_mode::SingleLoop:
+            shuffle_button_->setIcon(QIcon(":/icons/repeat-one.svg"));
+            shuffle_button_->setToolTip("单曲循环");
+            break;
+        case playback_mode::Shuffle:
+            shuffle_button_->setIcon(QIcon(":/icons/shuffle.svg"));
+            shuffle_button_->setToolTip("随机播放");
+            break;
+        case playback_mode::Sequential:
+            shuffle_button_->setIcon(QIcon(":/icons/sequential.svg"));
+            shuffle_button_->setToolTip("顺序播放");
+            break;
+    }
+    shuffle_button_->setProperty("active", current_mode_ != playback_mode::ListLoop);
     style()->unpolish(shuffle_button_);
     style()->polish(shuffle_button_);
 }
@@ -693,7 +726,7 @@ void mainwindow::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
     current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
     clicked_song_item_ = item;
 
-    if (is_shuffle_mode_)
+    if (current_mode_ == playback_mode::Shuffle)
     {
         QTreeWidgetItem* playlist_item = item->parent();
         const int clicked_song_index = playlist_item->indexOfChild(item);
@@ -732,7 +765,7 @@ void mainwindow::on_next_clicked()
         return;
     }
 
-    if (is_shuffle_mode_)
+    if (current_mode_ == playback_mode::Shuffle)
     {
         QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
         if (playlist_item == nullptr || shuffled_indices_.isEmpty())
@@ -746,15 +779,21 @@ void mainwindow::on_next_clicked()
             generate_shuffled_list(playlist_item);
             current_shuffle_index_ = 0;
         }
+        if (shuffled_indices_.isEmpty())
+        {
+            return;
+        }
         const int next_song_index = shuffled_indices_.at(current_shuffle_index_);
         QTreeWidgetItem* next_item = playlist_item->child(next_song_index);
         on_tree_item_double_clicked(next_item, 0);
         return;
     }
+
     QTreeWidgetItem* next_item = song_tree_widget_->itemBelow(currently_playing_item_);
-    if (next_item == nullptr)
+
+    if (next_item == nullptr || next_item->parent() == nullptr)
     {
-        if (song_tree_widget_->topLevelItemCount() > 0)
+        if (current_mode_ == playback_mode::ListLoop)
         {
             auto* first_playlist = song_tree_widget_->topLevelItem(0);
             if (first_playlist != nullptr && first_playlist->childCount() > 0)
@@ -762,7 +801,12 @@ void mainwindow::on_next_clicked()
                 next_item = first_playlist->child(0);
             }
         }
+        else
+        {
+            return;
+        }
     }
+
     if (next_item != nullptr && next_item->parent() != nullptr)
     {
         song_tree_widget_->setCurrentItem(next_item);
@@ -777,7 +821,7 @@ void mainwindow::on_prev_clicked()
         return;
     }
 
-    if (is_shuffle_mode_)
+    if (current_mode_ == playback_mode::Shuffle)
     {
         QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
         if (playlist_item == nullptr || shuffled_indices_.isEmpty())
@@ -789,20 +833,34 @@ void mainwindow::on_prev_clicked()
         {
             current_shuffle_index_ = static_cast<int>(shuffled_indices_.size()) - 1;
         }
+        if (shuffled_indices_.isEmpty())
+        {
+            return;
+        }
         const int prev_song_index = shuffled_indices_.at(current_shuffle_index_);
         QTreeWidgetItem* prev_item = playlist_item->child(prev_song_index);
         on_tree_item_double_clicked(prev_item, 0);
         return;
     }
+
     QTreeWidgetItem* prev_item = song_tree_widget_->itemAbove(currently_playing_item_);
+
     if (prev_item == nullptr || prev_item->parent() == nullptr)
     {
-        auto* last_playlist = song_tree_widget_->topLevelItem(song_tree_widget_->topLevelItemCount() - 1);
-        if (last_playlist != nullptr && last_playlist->childCount() > 0)
+        if (current_mode_ == playback_mode::ListLoop)
         {
-            prev_item = last_playlist->child(last_playlist->childCount() - 1);
+            auto* last_playlist = song_tree_widget_->topLevelItem(song_tree_widget_->topLevelItemCount() - 1);
+            if (last_playlist != nullptr && last_playlist->childCount() > 0)
+            {
+                prev_item = last_playlist->child(last_playlist->childCount() - 1);
+            }
+        }
+        else
+        {
+            return;
         }
     }
+
     if (prev_item != nullptr && prev_item->parent() != nullptr)
     {
         song_tree_widget_->setCurrentItem(prev_item);
@@ -864,7 +922,50 @@ void mainwindow::handle_playback_finished()
     is_playing_ = false;
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
-    on_next_clicked();
+
+    switch (current_mode_)
+    {
+        case playback_mode::ListLoop:
+        case playback_mode::Shuffle:
+            on_next_clicked();
+            break;
+
+        case playback_mode::SingleLoop:
+            if (currently_playing_item_ != nullptr)
+            {
+                const QString file_path = currently_playing_item_->data(0, Qt::UserRole).toString();
+                controller_->play_file(file_path);
+            }
+            break;
+
+        case playback_mode::Sequential:
+            if (currently_playing_item_ == nullptr)
+            {
+                on_stop_clicked();
+                return;
+            }
+
+            QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
+            if (playlist_item != nullptr)
+            {
+                int current_index = playlist_item->indexOfChild(currently_playing_item_);
+                int song_count = playlist_item->childCount();
+
+                if (current_index == song_count - 1)
+                {
+                    on_stop_clicked();
+                }
+                else
+                {
+                    on_next_clicked();
+                }
+            }
+            else
+            {
+                on_stop_clicked();
+            }
+            break;
+    }
 }
 
 void mainwindow::clear_playing_indicator()

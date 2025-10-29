@@ -9,6 +9,14 @@
 #include "playlist_data.h"
 #include "audio_packet.h"
 
+enum class playback_mode : uint8_t
+{
+    ListLoop,
+    SingleLoop,
+    Shuffle,
+    Sequential
+};
+
 class volume_meter;
 class QCloseEvent;
 class QSlider;
@@ -53,7 +61,7 @@ class mainwindow : public QMainWindow
     void on_playlist_renamed(const QString& playlist_id);
     void on_songs_changed(const QString& playlist_id);
 
-    void on_shuffle_clicked();
+    void on_playback_mode_clicked();
 
     void update_track_info(qint64 duration_ms);
     void on_playback_started(const QString& file_path, const QString& file_name);
@@ -75,7 +83,7 @@ class mainwindow : public QMainWindow
     void clear_playing_indicator();
     void populate_playlists_on_startup();
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
-    void update_shuffle_button_style();
+    void update_playback_mode_button_style();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -108,7 +116,7 @@ class mainwindow : public QMainWindow
     bool is_slider_pressed_ = false;
     bool is_creating_playlist_ = false;
 
-    bool is_shuffle_mode_ = false;
+    playback_mode current_mode_ = playback_mode::ListLoop;
     QList<int> shuffled_indices_;
     int current_shuffle_index_ = -1;
     tray_icon* tray_icon_ = nullptr;

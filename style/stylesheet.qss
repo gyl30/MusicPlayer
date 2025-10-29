@@ -1,19 +1,3 @@
-QWidget {
-    background-color: #F0F2F5;
-    color: #2C3E50;
-    font-family: "Segoe UI", "Cantarell", "Helvetica", sans-serif;
-    font-size: 10pt;
-}
-
-#centralWidget {
-    background-color: #F0F2F5;
-}
-
-#bottomContainer {
-    background-color: #FFFFFF;
-    border-top: 1px solid #E0E0E0;
-}
-
 QPushButton {
     background-color: transparent;
     border: none;
@@ -41,12 +25,6 @@ QLabel {
     background-color: transparent;
 }
 
-#songTitleLabel {
-    font-size: 11pt;
-    font-weight: bold;
-    color: #3498DB;
-}
-
 #lyricsLabel {
     font-size: 10pt;
     color: #566573;
@@ -72,30 +50,6 @@ QSlider::sub-page:horizontal {
     background: #3498DB;
     height: 4px;
     border-radius: 2px;
-}
-QTreeWidget {
-    background-color: #FFFFFF;
-    border: none;
-    alternate-background-color: #F8F9FA;
-}
-
-QTreeWidget::item {
-    padding: 10px 5px;
-    border-bottom: 1px solid #F0F2F5;
-}
-
-QTreeWidget::item:hover {
-    background-color: #E8F0FE;
-}
-
-QTreeWidget::item:selected {
-    background-color: #D2E3FC;
-    color: #1A5FAD;
-}
-
-QHeaderView::section {
-    background-color: #FFFFFF;
-    border: none;
 }
 
 volume_meter {
