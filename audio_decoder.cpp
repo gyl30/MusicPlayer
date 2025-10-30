@@ -1,11 +1,12 @@
-#include <QByteArray>
 #include <QMap>
+#include <QByteArray>
 #include <QMetaObject>
-#include <algorithm>
 #include <QRegularExpression>
+#include <algorithm>
 #include "log.h"
 #include "scoped_exit.h"
 #include "audio_decoder.h"
+#include "lyrics_parser.h"
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -327,38 +328,6 @@ void audio_decoder::process_frame(AVFrame* frame)
     }
 }
 
-static QList<LyricLine> parse_lrc(const QString& lrc_text)
-{
-    QList<LyricLine> lyrics;
-    if (lrc_text.isEmpty())
-    {
-        return lyrics;
-    }
-
-    QRegularExpression regex(R"(\[(\d{2}):(\d{2})[\.:](\d{2,3})\](.*))");
-    const QStringList lines = lrc_text.split('\n');
-
-    for (const QString& line : lines)
-    {
-        QRegularExpressionMatch match = regex.match(line);
-        if (match.hasMatch())
-        {
-            qint64 minutes = match.captured(1).toLongLong();
-            qint64 seconds = match.captured(2).toLongLong();
-            qint64 milliseconds = match.captured(3).toLongLong();
-            if (match.captured(3).length() == 2)
-            {
-                milliseconds *= 10;
-            }
-            QString text = match.captured(4).trimmed();
-
-            qint64 total_ms = (minutes * 60 * 1000) + (seconds * 1000) + milliseconds;
-            lyrics.append({total_ms, text});
-        }
-    }
-    return lyrics;
-}
-
 void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata, AVDictionary* stream_metadata)
 {
     QMap<QString, QString> metadata_map;
@@ -382,25 +351,28 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
     populate_map(stream_metadata);
 
     QString lrc_text;
-    for (auto it = metadata_map.constKeyValueBegin(); it != metadata_map.constKeyValueEnd(); ++it)
+    bool lyrics_found = false;
+    const QStringList lyrics_keys = {"lyrics", "USLT", "comment"};
+    for (const QString& key_prefix : lyrics_keys)
     {
-        const QString& key = it->first;
-        if (key.compare("lyrics", Qt::CaseInsensitive) == 0 || key.compare("USLT", Qt::CaseInsensitive) == 0 ||
-            key.compare("comment", Qt::CaseInsensitive) == 0 || key.startsWith("lyrics-", Qt::CaseInsensitive))
+        for (auto it = metadata_map.constKeyValueBegin(); it != metadata_map.constKeyValueEnd(); ++it)
         {
-            lrc_text = it->second;
-            LOG_INFO("会话 {} 找到歌词元数据 标签: {}", session_id_, key.toStdString());
+            const QString& key = it->first;
+            if (key.compare(key_prefix, Qt::CaseInsensitive) == 0 || (key_prefix == "lyrics" && key.startsWith("lyrics-", Qt::CaseInsensitive)))
+            {
+                lrc_text = it->second;
+                lyrics_found = true;
+                LOG_INFO("会话 {} 找到歌词元数据 标签: {}", session_id_, key.toStdString());
+                break;
+            }
+        }
+        if (lyrics_found)
+        {
             break;
         }
     }
 
-    QList<LyricLine> parsed_lyrics = parse_lrc(lrc_text);
-    if (parsed_lyrics.isEmpty() && !lrc_text.isEmpty())
-    {
-        LOG_INFO("会话 {} LRC解析失败或为纯文本歌词，作为单行歌词处理", session_id_);
-        parsed_lyrics.append({0, lrc_text.trimmed()});
-    }
-
+    QList<LyricLine> parsed_lyrics = lyrics_parser::parse(lrc_text);
     emit lyrics_ready(session_id_, parsed_lyrics);
 
     if (!metadata_map.isEmpty())

@@ -119,6 +119,7 @@ add_executable(MusicPlayer
     playlist_manager.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
+    lyrics_parser.cpp
     audio_player.cpp
     quick_editor.cpp
     volumemeter.cpp
