@@ -359,41 +359,56 @@ static QList<LyricLine> parse_lrc(const QString& lrc_text)
     return lyrics;
 }
 
-void audio_decoder::process_metadata(AVDictionary* metadata)
+void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata, AVDictionary* stream_metadata)
 {
     QMap<QString, QString> metadata_map;
     AVDictionaryEntry* tag = nullptr;
-    bool lyrics_found = false;
-    while ((tag = av_dict_get(metadata, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
-    {
-        QString key = QString::fromUtf8(tag->key);
-        QString value = QString::fromUtf8(tag->value);
-        metadata_map.insert(key, value);
 
-        if (key.compare("comment", Qt::CaseInsensitive) == 0 || key.compare("lyrics", Qt::CaseInsensitive) == 0)
+    auto populate_map = [&](AVDictionary* dict)
+    {
+        tag = nullptr;
+        while ((tag = av_dict_get(dict, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
         {
-            QList<LyricLine> parsed_lyrics = parse_lrc(value);
-            if (!parsed_lyrics.isEmpty())
-            {
-                LOG_INFO("会话 {} 找到歌词元数据并解析成功", session_id_);
-                emit lyrics_ready(session_id_, parsed_lyrics);
-                lyrics_found = true;
-            }
+            QString key = QString::fromUtf8(tag->key);
+            QString value = QString::fromUtf8(tag->value);
+            metadata_map.insert(key, value);
+            LOG_TRACE("读取元数据: [{}]: [{}]", key.toStdString(), value.toStdString());
         }
+    };
 
-        LOG_TRACE("元数据 {} {}", key.toStdString(), value.toStdString());
-    }
+    LOG_DEBUG("处理容器级元数据...");
+    populate_map(container_metadata);
+    LOG_DEBUG("处理流级元数据 (将覆盖同名容器级元数据)...");
+    populate_map(stream_metadata);
 
-    if (!lyrics_found)
+    QString lrc_text;
+    for (auto it = metadata_map.constKeyValueBegin(); it != metadata_map.constKeyValueEnd(); ++it)
     {
-        emit lyrics_ready(session_id_, {});
+        const QString& key = it->first;
+        if (key.compare("lyrics", Qt::CaseInsensitive) == 0 || key.compare("USLT", Qt::CaseInsensitive) == 0 ||
+            key.compare("comment", Qt::CaseInsensitive) == 0 || key.startsWith("lyrics-", Qt::CaseInsensitive))
+        {
+            lrc_text = it->second;
+            LOG_INFO("会话 {} 找到歌词元数据 标签: {}", session_id_, key.toStdString());
+            break;
+        }
     }
+
+    QList<LyricLine> parsed_lyrics = parse_lrc(lrc_text);
+    if (parsed_lyrics.isEmpty() && !lrc_text.isEmpty())
+    {
+        LOG_INFO("会话 {} LRC解析失败或为纯文本歌词，作为单行歌词处理", session_id_);
+        parsed_lyrics.append({0, lrc_text.trimmed()});
+    }
+
+    emit lyrics_ready(session_id_, parsed_lyrics);
 
     if (!metadata_map.isEmpty())
     {
         emit metadata_ready(session_id_, metadata_map);
     }
 }
+
 bool audio_decoder::open_audio_context(const QString& file_path)
 {
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
@@ -442,16 +457,13 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 
     av_dump_format(format_ctx_, audio_stream_index_, nullptr, 0);
 
+    process_metadata_and_lyrics(format_ctx_->metadata, audio_stream->metadata);
+
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
     if (codec == nullptr)
     {
         LOG_ERROR("未找到编解码器 ID {}", (int)audio_stream->codecpar->codec_id);
         return false;
-    }
-
-    if (format_ctx_->metadata != nullptr)
-    {
-        process_metadata(format_ctx_->metadata);
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);

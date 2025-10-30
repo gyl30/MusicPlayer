@@ -53,7 +53,7 @@ class audio_decoder : public QObject
     bool open_audio_context(const QString& file_path);
     void close_audio_context();
     void process_frame(AVFrame* frame);
-    void process_metadata(AVDictionary* metadata);
+    void process_metadata_and_lyrics(AVDictionary* container_metadata, AVDictionary* stream_metadata);
 
    private:
     QString file_path_;
