@@ -16,7 +16,7 @@ constexpr double kMinDbRisePerSecond = 4.0;
 constexpr double kBarRiseFactor = 0.6;
 constexpr double kBarFallFactor = 0.25;
 
-spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent)
+spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent), bar_color_(Qt::blue)
 {
     qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
     qRegisterMetaType<std::vector<double>>("std::vector<double>");
@@ -142,7 +142,9 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
     }
 
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(173, 216, 230));
+    QColor current_bar_color = bar_color_;
+    current_bar_color.setAlphaF(0.7F);
+    painter.setBrush(current_bar_color);
     double bar_width = static_cast<double>(width()) / kNumBars;
 
     for (size_t i = 0; i < kNumBars; ++i)

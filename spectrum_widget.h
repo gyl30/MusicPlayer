@@ -5,6 +5,7 @@
 #include <memory>
 #include <QWidget>
 #include <QElapsedTimer>
+#include <QColor>
 #include "audio_packet.h"
 
 class QThread;
@@ -13,10 +14,14 @@ class spectrum_processor;
 class spectrum_widget : public QWidget
 {
     Q_OBJECT
+    Q_PROPERTY(QColor barColor READ getBarColor WRITE setBarColor)
 
    public:
     explicit spectrum_widget(QWidget* parent = nullptr);
     ~spectrum_widget() override;
+
+    QColor getBarColor() const { return bar_color_; }
+    void setBarColor(const QColor& color) { bar_color_ = color; }
 
    public slots:
     void enqueue_packet(const std::shared_ptr<audio_packet>& packet);
@@ -43,6 +48,8 @@ class spectrum_widget : public QWidget
     QElapsedTimer frame_timer_;
     qint64 last_paint_time_ms_ = 0;
     std::vector<double> smoothed_bar_heights_;
+
+    QColor bar_color_;
 };
 
 #endif

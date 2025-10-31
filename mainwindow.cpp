@@ -145,6 +145,7 @@ void mainwindow::setup_ui()
     cover_art_label_->hide();
 
     spectrum_widget_ = new spectrum_widget(this);
+    spectrum_widget_->setObjectName("spectrumWidget");
 
     top_display_layout->addWidget(cover_art_label_);
     top_display_layout->addWidget(spectrum_widget_);

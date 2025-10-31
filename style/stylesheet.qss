@@ -8,16 +8,16 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #E8EAF6;
+    background-color: #EAF2F8;
     border-radius: 20px;
 }
 
 QPushButton:pressed {
-    background-color: #D1D9F0;
+    background-color: #D4E6F1;
 }
 
-QPushButton#shuffleButton[shuffled="true"] {
-    background-color: #C5CAE9;
+QPushButton#modeButton[active="true"] {
+    background-color: #D4E6F1;
     border-radius: 20px;
 }
 
@@ -26,7 +26,7 @@ QLabel {
 }
 
 QSlider::groove:horizontal {
-    background: #E0E0E0;
+    background: #EAECEE;
     height: 4px;
     border-radius: 2px;
 }
@@ -49,39 +49,18 @@ QSlider::sub-page:horizontal {
 volume_meter {
     background: transparent;
     border: none;
+    qproperty-barColor: #3498DB;
 }
 
-volume_meter::groove {
-    background: transparent;
+spectrum_widget {
+    qproperty-barColor: #3498DB;
+}
+
+#songTreeWidget {
     border: none;
+    background-color: transparent;
 }
 
-QScrollBar:vertical {
-    border: none;
-    background-color: #EAECEE;
-    width: 8px;
-    margin: 0px 0px 0px 0px;
-}
-
-QScrollBar::handle:vertical {
-    background-color: #ADD8E6;
-    min-height: 25px;
-    border-radius: 4px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background-color: #9AC9E1;
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    border: none;
-    background: none;
-    height: 0px;
-}
-
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
-}
 #lyricsListWidget {
     background-color: transparent;
     border: none;
@@ -98,4 +77,29 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background-color: transparent;
     font-size: 14pt;
     font-weight: bold;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background-color: #F4F6F6;
+    width: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #BDC3C7;
+    min-height: 25px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #AAB1B5;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
 }

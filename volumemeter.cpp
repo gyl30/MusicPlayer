@@ -5,7 +5,7 @@
 
 #include "volumemeter.h"
 
-volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent)
+volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent), bar_color_(Qt::blue)
 {
     setMouseTracking(true);
     setAutoFillBackground(false);
@@ -35,7 +35,7 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     {
         double y = height() - ((i + 1) * blockHeight);
         QRectF blockRect(0, y, width(), blockHeight);
-        painter.fillRect(blockRect.adjusted(1, 1, -1, -1), QColor(173, 216, 230));
+        painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
     }
 }
 
