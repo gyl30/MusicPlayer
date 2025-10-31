@@ -341,7 +341,7 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
             QString key = QString::fromUtf8(tag->key);
             QString value = QString::fromUtf8(tag->value);
             metadata_map.insert(key, value);
-            LOG_TRACE("读取元数据: [{}]: [{}]", key.toStdString(), value.toStdString());
+            LOG_TRACE("读取元数据{}:{}", key.toStdString(), value.toStdString());
         }
     };
 
@@ -362,7 +362,7 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
             {
                 lrc_text = it->second;
                 lyrics_found = true;
-                LOG_INFO("会话 {} 找到歌词元数据 标签: {}", session_id_, key.toStdString());
+                LOG_INFO("会话 {} 找到歌词元数据 标签 {}", session_id_, key.toStdString());
                 break;
             }
         }

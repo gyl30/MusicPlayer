@@ -23,7 +23,7 @@ QList<LyricLine> lyrics_parser::parse(const QString& raw_lyrics)
             qint64 seconds = match.captured(2).toLongLong();
             qint64 milliseconds = 0;
 
-            if (match.hasCaptured(3))
+            if (!match.captured(3).isEmpty())
             {
                 milliseconds = match.captured(3).toLongLong();
                 if (match.captured(3).length() == 2)
@@ -40,7 +40,7 @@ QList<LyricLine> lyrics_parser::parse(const QString& raw_lyrics)
 
     if (parsed_lyrics.isEmpty() && !raw_lyrics.trimmed().isEmpty())
     {
-        LOG_INFO("LRC parsing yielded no timed lines. Treating content as plain text lyrics.");
+        LOG_INFO("lrc parsing yielded no timed lines treating content as plain text lyrics");
         parsed_lyrics.append({0, raw_lyrics.trimmed()});
     }
 
