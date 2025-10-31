@@ -299,7 +299,7 @@ void audio_decoder::process_frame(AVFrame* frame)
         auto raw_timestamp_ms = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(frame->pts));
         timestamp_ms = raw_timestamp_ms - start_time_offset_ms_;
 
-        LOG_DEBUG("解码帧 PTS {} time_base {}/{} raw_ms {} offset_ms {} final_ms {}",
+        LOG_TRACE("解码帧 PTS {} time_base {}/{} raw_ms {} offset_ms {} final_ms {}",
                   frame->pts,
                   time_base_.num,
                   time_base_.den,
@@ -341,7 +341,7 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
             QString key = QString::fromUtf8(tag->key);
             QString value = QString::fromUtf8(tag->value);
             metadata_map.insert(key, value);
-            LOG_TRACE("读取元数据{}:{}", key.toStdString(), value.toStdString());
+            LOG_DEBUG("读取元数据 {}:{}", key.toStdString(), value.toStdString());
         }
     };
 
