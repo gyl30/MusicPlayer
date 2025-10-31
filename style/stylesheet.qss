@@ -25,12 +25,6 @@ QLabel {
     background-color: transparent;
 }
 
-#lyricsLabel {
-    font-size: 10pt;
-    color: #566573;
-    padding-bottom: 5px;
-}
-
 QSlider::groove:horizontal {
     background: #E0E0E0;
     height: 4px;
@@ -87,4 +81,21 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
+}
+#lyricsListWidget {
+    background-color: transparent;
+    border: none;
+}
+
+#lyricsListWidget::item {
+    color: #808080;
+    font-size: 11pt;
+    padding: 2px;
+}
+
+#lyricsListWidget::item:selected {
+    color: #3498DB;
+    background-color: transparent;
+    font-size: 14pt;
+    font-weight: bold;
 }

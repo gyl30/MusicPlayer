@@ -13,18 +13,18 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
 
-    // QFile style_file(":/style/stylesheet.qss");
-    // if (style_file.open(QFile::ReadOnly))
-    // {
-    //     QString style_sheet = QLatin1String(style_file.readAll());
-    //     app.setStyleSheet(style_sheet);
-    //     style_file.close();
-    //     LOG_INFO("样式表加载成功");
-    // }
-    // else
-    // {
-    //     LOG_WARN("无法加载样式表文件");
-    // }
+    QFile style_file(":/style/stylesheet.qss");
+    if (style_file.open(QFile::ReadOnly))
+    {
+        QString style_sheet = QLatin1String(style_file.readAll());
+        app.setStyleSheet(style_sheet);
+        style_file.close();
+        LOG_INFO("样式表加载成功");
+    }
+    else
+    {
+        LOG_WARN("无法加载样式表文件");
+    }
     QApplication::setWindowIcon(QIcon(":/icons/app_icon.svg"));
     mainwindow main_window;
     main_window.show();

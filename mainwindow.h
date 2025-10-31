@@ -5,9 +5,13 @@
 #include <QMap>
 #include <QByteArray>
 #include <QList>
+#include <QPropertyAnimation>
 #include "tray_icon.h"
 #include "playlist_data.h"
 #include "audio_packet.h"
+
+class QListWidget;
+class QListWidgetItem;
 
 enum class playback_mode : uint8_t
 {
@@ -93,7 +97,7 @@ class mainwindow : public QMainWindow
     spectrum_widget* spectrum_widget_ = nullptr;
 
     QLabel* cover_art_label_ = nullptr;
-    QLabel* lyrics_label_ = nullptr;
+    QListWidget* lyrics_list_widget_ = nullptr;
 
     QSlider* progress_slider_ = nullptr;
     volume_meter* volume_meter_ = nullptr;
@@ -123,5 +127,7 @@ class mainwindow : public QMainWindow
 
     QList<LyricLine> current_lyrics_;
     int current_lyric_index_ = -1;
+
+    QPropertyAnimation* lyrics_scroll_animation_ = nullptr;
 };
 #endif

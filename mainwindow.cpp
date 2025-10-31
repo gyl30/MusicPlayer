@@ -22,6 +22,9 @@
 #include <QFont>
 #include <QPixmap>
 #include <QCollator>
+#include <QListWidget>
+#include <QScrollBar>
+#include <QEasingCurve>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -32,6 +35,8 @@
 #include "playlist_manager.h"
 #include "playback_controller.h"
 #include "music_management_dialog.h"
+
+constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, const QString& id)
 {
@@ -115,7 +120,7 @@ void mainwindow::setup_ui()
 
     auto* bottom_container = new QWidget();
     bottom_container->setObjectName("bottomContainer");
-    bottom_container->setFixedHeight(150);
+    bottom_container->setFixedHeight(220);
 
     auto* bottom_h_layout = new QHBoxLayout(bottom_container);
     bottom_h_layout->setContentsMargins(0, 0, 0, 0);
@@ -144,10 +149,16 @@ void mainwindow::setup_ui()
     top_display_layout->addWidget(cover_art_label_);
     top_display_layout->addWidget(spectrum_widget_);
 
-    lyrics_label_ = new QLabel(this);
-    lyrics_label_->setObjectName("lyricsLabel");
-    lyrics_label_->setAlignment(Qt::AlignCenter);
-    lyrics_label_->hide();
+    lyrics_list_widget_ = new QListWidget(this);
+    lyrics_list_widget_->setObjectName("lyricsListWidget");
+    lyrics_list_widget_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lyrics_list_widget_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    lyrics_list_widget_->setSelectionMode(QAbstractItemView::SingleSelection);
+    lyrics_list_widget_->setFocusPolicy(Qt::NoFocus);
+    lyrics_list_widget_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lyrics_list_widget_->hide();
+
+    lyrics_scroll_animation_ = new QPropertyAnimation(this);
 
     progress_slider_ = new QSlider(Qt::Horizontal);
 
@@ -206,7 +217,7 @@ void mainwindow::setup_ui()
     button_grid_layout->setColumnStretch(2, 1);
 
     main_grid_layout->addWidget(top_display_container, 0, 0, 1, 3);
-    main_grid_layout->addWidget(lyrics_label_, 1, 0, 1, 3);
+    main_grid_layout->addWidget(lyrics_list_widget_, 1, 0, 1, 3);
     main_grid_layout->addWidget(progress_slider_, 2, 0, 1, 3);
 
     main_grid_layout->addWidget(all_buttons_container, 3, 1, Qt::AlignCenter);
@@ -278,15 +289,15 @@ void mainwindow::on_stop_clicked()
     current_shuffle_index_ = -1;
     clear_playing_indicator();
     cover_art_label_->hide();
-    lyrics_label_->hide();
-    lyrics_label_->clear();
+    lyrics_list_widget_->hide();
+    lyrics_list_widget_->clear();
     current_lyrics_.clear();
 }
 
 void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
 {
-    lyrics_label_->hide();
-    lyrics_label_->clear();
+    lyrics_list_widget_->hide();
+    lyrics_list_widget_->clear();
     current_lyrics_.clear();
     current_lyric_index_ = -1;
 
@@ -328,15 +339,20 @@ void mainwindow::on_lyrics_updated(const QList<LyricLine>& lyrics)
 {
     current_lyrics_ = lyrics;
     current_lyric_index_ = -1;
-    lyrics_label_->clear();
+    lyrics_list_widget_->clear();
 
     if (current_lyrics_.isEmpty())
     {
-        lyrics_label_->hide();
+        lyrics_list_widget_->hide();
     }
     else
     {
-        lyrics_label_->show();
+        for (const auto& line : current_lyrics_)
+        {
+            auto* item = new QListWidgetItem(line.text, lyrics_list_widget_);
+            item->setTextAlignment(Qt::AlignCenter);
+        }
+        lyrics_list_widget_->show();
     }
 }
 
@@ -899,10 +915,12 @@ void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
         return;
     }
 
+    const qint64 predicted_ms = current_ms + LYRIC_PREDICTION_OFFSET_MS;
+
     int new_lyric_index = -1;
     for (int i = 0; i < current_lyrics_.size(); ++i)
     {
-        if (current_ms >= current_lyrics_[i].timestamp_ms)
+        if (predicted_ms >= current_lyrics_[i].timestamp_ms)
         {
             new_lyric_index = i;
         }
@@ -914,7 +932,37 @@ void mainwindow::update_progress(qint64 current_ms, qint64 total_ms)
 
     if (new_lyric_index != -1 && new_lyric_index != current_lyric_index_)
     {
-        lyrics_label_->setText(current_lyrics_[new_lyric_index].text);
+        if (lyrics_scroll_animation_->state() == QAbstractAnimation::Running)
+        {
+            lyrics_scroll_animation_->stop();
+        }
+
+        if (current_lyric_index_ >= 0 && current_lyric_index_ < lyrics_list_widget_->count())
+        {
+            auto* old_item = lyrics_list_widget_->item(current_lyric_index_);
+            if (old_item)
+                old_item->setSelected(false);
+        }
+
+        auto* new_item = lyrics_list_widget_->item(new_lyric_index);
+        if (new_item)
+        {
+            new_item->setSelected(true);
+
+            int start_value = lyrics_list_widget_->verticalScrollBar()->value();
+            lyrics_list_widget_->scrollToItem(new_item, QAbstractItemView::PositionAtCenter);
+            int end_value = lyrics_list_widget_->verticalScrollBar()->value();
+            lyrics_list_widget_->verticalScrollBar()->setValue(start_value);
+
+            lyrics_scroll_animation_->setTargetObject(lyrics_list_widget_->verticalScrollBar());
+            lyrics_scroll_animation_->setPropertyName("value");
+            lyrics_scroll_animation_->setDuration(300);
+            lyrics_scroll_animation_->setStartValue(start_value);
+            lyrics_scroll_animation_->setEndValue(end_value);
+            lyrics_scroll_animation_->setEasingCurve(QEasingCurve::InOutQuad);
+            lyrics_scroll_animation_->start();
+        }
+
         current_lyric_index_ = new_lyric_index;
     }
 }
