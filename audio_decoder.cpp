@@ -311,8 +311,7 @@ void audio_decoder::process_frame(AVFrame* frame)
     {
         qint64 duration_ms = static_cast<qint64>(frame->nb_samples) * 1000 / codec_ctx_->sample_rate;
         timestamp_ms = accumulated_ms_ + duration_ms;
-
-        LOG_WARN("解码帧 无PTS估算下一时间戳 accumulated_ms {} duration_ms {} final_ms {}", accumulated_ms_, duration_ms, timestamp_ms);
+        LOG_TRACE("解码帧 无PTS估算下一时间戳 accumulated_ms {} duration_ms {} final_ms {}", accumulated_ms_, duration_ms, timestamp_ms);
     }
 
     accumulated_ms_ = timestamp_ms;
@@ -383,6 +382,8 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
 
 bool audio_decoder::open_audio_context(const QString& file_path)
 {
+    close_audio_context();
+
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
 
     format_ctx_ = avformat_alloc_context();
