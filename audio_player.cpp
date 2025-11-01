@@ -2,6 +2,7 @@
 #include <QMetaObject>
 #include <numeric>
 #include <algorithm>
+#include <memory>
 #include "log.h"
 #include "audio_player.h"
 
@@ -295,36 +296,40 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
         }
 
         int bytes_to_fill = len;
-        auto* stream_ptr = reinterpret_cast<int16_t*>(stream);
+        auto* stream_ptr = stream;
 
         while (bytes_to_fill > 0 && !data_queue_.empty())
         {
             auto& packet = data_queue_.front();
 
-            const auto* packet_data = reinterpret_cast<const int16_t*>(packet->data.data());
-            const size_t packet_samples = packet->data.size() / sizeof(int16_t);
-            const size_t samples_to_fill = static_cast<size_t>(bytes_to_fill) / sizeof(int16_t);
-            const size_t samples_to_copy = std::min(packet_samples, samples_to_fill);
+            const size_t bytes_remaining_in_packet = packet->data.size() - packet->bytes_played;
+            const size_t bytes_to_copy = std::min(static_cast<size_t>(bytes_to_fill), bytes_remaining_in_packet);
 
-            float current_volume = volume_.load();
-            for (size_t i = 0; i < samples_to_copy; ++i)
+            if (bytes_to_copy > 0)
             {
-                stream_ptr[i] = static_cast<int16_t>(static_cast<float>(packet_data[i]) * current_volume);
+                if (packet->bytes_played == 0)
+                {
+                    emit packet_played(packet);
+                }
+
+                float current_volume = volume_.load();
+                const auto* source_data = reinterpret_cast<const int16_t*>(packet->data.data() + packet->bytes_played);
+                auto* dest_data = reinterpret_cast<int16_t*>(stream_ptr);
+                size_t samples_to_copy = bytes_to_copy / sizeof(int16_t);
+
+                for (size_t i = 0; i < samples_to_copy; ++i)
+                {
+                    dest_data[i] = static_cast<int16_t>(static_cast<float>(source_data[i]) * current_volume);
+                }
+
+                packet->bytes_played += bytes_to_copy;
+                stream_ptr += bytes_to_copy;
+                bytes_to_fill -= static_cast<int>(bytes_to_copy);
             }
 
-            emit packet_played(packet);
-            stream_ptr += samples_to_copy;
-
-            size_t bytes_copied = samples_to_copy * sizeof(int16_t);
-            bytes_to_fill -= static_cast<int>(bytes_copied);
-
-            if (bytes_copied == packet->data.size())
+            if (packet->bytes_played >= packet->data.size())
             {
                 data_queue_.pop_front();
-            }
-            else
-            {
-                packet->data.erase(packet->data.begin(), packet->data.begin() + static_cast<int>(bytes_copied));
             }
         }
         bytes_filled_this_cycle = len - bytes_to_fill;
@@ -339,7 +344,8 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
             remaining_bytes = std::accumulate(data_queue_.begin(),
                                               data_queue_.end(),
                                               0LL,
-                                              [](qint64 sum, const auto& pkt) { return sum + (pkt ? static_cast<qint64>(pkt->data.size()) : 0); });
+                                              [](qint64 sum, const auto& pkt)
+                                              { return sum + (pkt ? (static_cast<qint64>(pkt->data.size()) - pkt->bytes_played) : 0); });
         }
 
         if (remaining_bytes < buffer_low_water_mark_)

@@ -11,6 +11,7 @@ struct audio_packet
 {
     int64_t ms;
     std::vector<uint8_t> data;
+    size_t bytes_played = 0;
 };
 
 struct LyricLine

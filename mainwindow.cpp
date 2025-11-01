@@ -120,17 +120,15 @@ void mainwindow::setup_ui()
 
     auto* bottom_container = new QWidget();
     bottom_container->setObjectName("bottomContainer");
-    bottom_container->setFixedHeight(220);
 
     auto* bottom_h_layout = new QHBoxLayout(bottom_container);
     bottom_h_layout->setContentsMargins(0, 0, 0, 0);
     bottom_h_layout->setSpacing(0);
 
     auto* left_panel = new QWidget();
-    auto* main_grid_layout = new QGridLayout(left_panel);
-    main_grid_layout->setContentsMargins(10, 10, 10, 0);
-    main_grid_layout->setSpacing(5);
-    main_grid_layout->setVerticalSpacing(3);
+    auto* left_panel_layout = new QVBoxLayout(left_panel);
+    left_panel_layout->setContentsMargins(10, 10, 10, 0);
+    left_panel_layout->setSpacing(5);
 
     auto* top_display_container = new QWidget();
     auto* top_display_layout = new QHBoxLayout(top_display_container);
@@ -146,6 +144,7 @@ void mainwindow::setup_ui()
 
     spectrum_widget_ = new spectrum_widget(this);
     spectrum_widget_->setObjectName("spectrumWidget");
+    spectrum_widget_->setMinimumHeight(40);
 
     top_display_layout->addWidget(cover_art_label_);
     top_display_layout->addWidget(spectrum_widget_);
@@ -190,6 +189,10 @@ void mainwindow::setup_ui()
     time_label_->setFixedWidth(120);
     time_label_->setAlignment(Qt::AlignCenter);
 
+    auto* controls_container = new QWidget();
+    auto* controls_layout = new QHBoxLayout(controls_container);
+    controls_layout->setContentsMargins(0, 0, 0, 0);
+
     auto* all_buttons_container = new QWidget();
     auto* button_grid_layout = new QGridLayout(all_buttons_container);
     button_grid_layout->setContentsMargins(0, 0, 0, 0);
@@ -213,22 +216,21 @@ void mainwindow::setup_ui()
     button_grid_layout->addWidget(left_buttons_group, 0, 0, Qt::AlignRight);
     button_grid_layout->addWidget(play_pause_button_, 0, 1, Qt::AlignCenter);
     button_grid_layout->addWidget(right_buttons_group, 0, 2, Qt::AlignLeft);
-
     button_grid_layout->setColumnStretch(0, 1);
     button_grid_layout->setColumnStretch(2, 1);
 
-    main_grid_layout->addWidget(top_display_container, 0, 0, 1, 3);
-    main_grid_layout->addWidget(lyrics_list_widget_, 1, 0, 1, 3);
-    main_grid_layout->addWidget(progress_slider_, 2, 0, 1, 3);
+    controls_layout->addStretch(1);
+    controls_layout->addWidget(all_buttons_container);
+    controls_layout->addWidget(time_label_);
+    controls_layout->addStretch(1);
 
-    main_grid_layout->addWidget(all_buttons_container, 3, 1, Qt::AlignCenter);
-    main_grid_layout->addWidget(time_label_, 3, 2, Qt::AlignRight | Qt::AlignVCenter);
+    left_panel_layout->addWidget(top_display_container);
+    left_panel_layout->addWidget(lyrics_list_widget_);
+    left_panel_layout->addWidget(progress_slider_);
+    left_panel_layout->addWidget(controls_container);
 
-    main_grid_layout->setColumnStretch(0, 1);
-    main_grid_layout->setColumnStretch(1, 0);
-    main_grid_layout->setColumnStretch(2, 1);
-
-    main_grid_layout->setRowStretch(0, 1);
+    left_panel_layout->setStretch(0, 1);
+    left_panel_layout->setStretch(1, 1);
 
     volume_meter_ = new volume_meter();
     volume_meter_->setFixedWidth(8);
