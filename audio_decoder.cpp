@@ -145,7 +145,10 @@ void audio_decoder::do_decoding_cycle()
 
     if (receive_ret != AVERROR(EAGAIN))
     {
-        LOG_ERROR("接收帧失败 {}", ffmpeg_error_string(receive_ret));
+        std::string error_str = ffmpeg_error_string(receive_ret);
+        LOG_ERROR("接收帧失败 {}", error_str);
+        emit decoding_error(QString::fromStdString("解码错误 " + error_str));
+        emit packet_ready(session_id_, nullptr);
         return;
     }
 

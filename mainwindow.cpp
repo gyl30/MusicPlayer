@@ -1055,7 +1055,7 @@ void mainwindow::on_seek_requested()
 void mainwindow::handle_playback_error(const QString& error_message)
 {
     QMessageBox::warning(this, "播放错误", error_message);
-    on_stop_clicked();
+    // on_stop_clicked();
 }
 
 void mainwindow::on_metadata_updated(const QMap<QString, QString>& metadata)
