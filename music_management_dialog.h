@@ -35,7 +35,7 @@ class music_management_dialog : public QDialog
     void load_initial_data();
 
     playlist_manager* playlist_manager_ = nullptr;
-    QMap<QString, Playlist> temp_playlists_;
+    QMap<qint64, Playlist> temp_playlists_;
 
     QListWidget* source_playlists_list_ = nullptr;
     QListWidget* source_songs_list_ = nullptr;

@@ -38,16 +38,16 @@
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
-static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, const QString& id)
+static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 {
-    if (tree == nullptr || id.isEmpty())
+    if (tree == nullptr || id == -1)
     {
         return nullptr;
     }
     for (int i = 0; i < tree->topLevelItemCount(); ++i)
     {
         QTreeWidgetItem* item = tree->topLevelItem(i);
-        if (item->data(0, Qt::UserRole).toString() == id)
+        if (item->data(0, Qt::UserRole).toLongLong() == id)
         {
             return item;
         }
@@ -67,7 +67,7 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
 
     controller_->set_spectrum_widget(spectrum_widget_);
 
-    playlist_manager_->load_playlists();
+    playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
     setWindowTitle("Music Player");
     resize(800, 600);
@@ -77,7 +77,6 @@ mainwindow::~mainwindow() = default;
 
 void mainwindow::quit_application()
 {
-    playlist_manager_->save_playlists();
     hide();
     QApplication::quit();
 }
@@ -470,20 +469,22 @@ void mainwindow::populate_playlists_on_startup()
     LOG_DEBUG("首次从数据填充播放列表ui");
     song_tree_widget_->blockSignals(true);
     song_tree_widget_->clear();
-    for (const auto& playlist : playlist_manager_->get_all_playlists())
+    QList<Playlist> playlists = playlist_manager_->get_all_playlists();
+    for (const auto& playlist : playlists)
     {
+        Playlist full_playlist = playlist_manager_->get_playlist_by_id(playlist.id);
         auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
-        playlist_item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+        playlist_item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(full_playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
         playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
         playlist_item->setExpanded(false);
 
-        for (const auto& song : playlist.songs)
+        for (const auto& song : full_playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(playlist_item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
-            song_item->setText(0, song.fileName);
-            song_item->setData(0, Qt::UserRole, song.filePath);
+            song_item->setText(0, song.file_name);
+            song_item->setData(0, Qt::UserRole, song.file_path);
         }
     }
     song_tree_widget_->blockSignals(false);
@@ -491,7 +492,7 @@ void mainwindow::populate_playlists_on_startup()
 
 void mainwindow::on_playlist_added(const Playlist& new_playlist)
 {
-    LOG_DEBUG("ui添加新播放列表 id {}", new_playlist.id.toStdString());
+    LOG_DEBUG("ui添加新播放列表 id {}", new_playlist.id);
     song_tree_widget_->blockSignals(true);
     auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
     playlist_item->setText(0, QString("%1 [0]").arg(new_playlist.name));
@@ -501,22 +502,25 @@ void mainwindow::on_playlist_added(const Playlist& new_playlist)
     song_tree_widget_->blockSignals(false);
 }
 
-void mainwindow::on_playlist_removed(const QString& playlist_id)
+void mainwindow::on_playlist_removed(qint64 playlist_id)
 {
-    LOG_DEBUG("ui移除播放列表 id {}", playlist_id.toStdString());
+    LOG_DEBUG("ui移除播放列表 id {}", playlist_id);
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
-    delete item;
+    if (item)
+    {
+        delete item;
+    }
 }
 
-void mainwindow::on_playlist_renamed(const QString& playlist_id)
+void mainwindow::on_playlist_renamed(qint64 playlist_id)
 {
-    LOG_DEBUG("ui重命名播放列表 id {}", playlist_id.toStdString());
+    LOG_DEBUG("ui重命名播放列表 id {}", playlist_id);
     on_songs_changed(playlist_id);
 }
 
-void mainwindow::on_songs_changed(const QString& playlist_id)
+void mainwindow::on_songs_changed(qint64 playlist_id)
 {
-    LOG_DEBUG("ui更新播放列表歌曲 id {}", playlist_id.toStdString());
+    LOG_DEBUG("ui更新播放列表歌曲 id {}", playlist_id);
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
     if (item != nullptr)
     {
@@ -526,8 +530,8 @@ void mainwindow::on_songs_changed(const QString& playlist_id)
         {
             auto* song_item = new QTreeWidgetItem(item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
-            song_item->setText(0, song.fileName);
-            song_item->setData(0, Qt::UserRole, song.filePath);
+            song_item->setText(0, song.file_name);
+            song_item->setData(0, Qt::UserRole, song.file_path);
         }
         item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
     }
@@ -594,9 +598,9 @@ void mainwindow::on_rename_playlist_action()
     }
     is_creating_playlist_ = false;
 
-    const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
+    const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
     const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
-    LOG_INFO("动作触发 重命名播放列表 id {}", playlist_id.toStdString());
+    LOG_INFO("动作触发 重命名播放列表 id {}", playlist_id);
 
     auto* editor = new quick_editor(playlist.name, this);
     connect(editor, &quick_editor::editing_finished, this, &mainwindow::on_editing_finished);
@@ -632,8 +636,8 @@ void mainwindow::on_editing_finished(bool accepted, const QString& text)
     {
         if (context_menu_item_ != nullptr)
         {
-            const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
-            LOG_INFO("用户确认重命名播放列表 id {} 为 {}", playlist_id.toStdString(), new_name.toStdString());
+            const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
+            LOG_INFO("用户确认重命名播放列表 id {} 为 {}", playlist_id, new_name.toStdString());
             playlist_manager_->rename_playlist(playlist_id, new_name);
         }
     }
@@ -645,9 +649,9 @@ void mainwindow::on_delete_playlist_action()
     {
         return;
     }
-    const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
+    const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
     const QString playlist_name = playlist_manager_->get_playlist_by_id(playlist_id).name;
-    LOG_INFO("动作触发 删除播放列表 id {}", playlist_id.toStdString());
+    LOG_INFO("动作触发 删除播放列表 id {}", playlist_id);
 
     QMessageBox::StandardButton reply;
     reply = QMessageBox::question(
@@ -655,12 +659,12 @@ void mainwindow::on_delete_playlist_action()
 
     if (reply == QMessageBox::Yes)
     {
-        LOG_INFO("用户确认删除播放列表 id {}", playlist_id.toStdString());
+        LOG_INFO("用户确认删除播放列表 id {}", playlist_id);
         playlist_manager_->delete_playlist(playlist_id);
     }
     else
     {
-        LOG_INFO("用户取消删除播放列表 id {}", playlist_id.toStdString());
+        LOG_INFO("用户取消删除播放列表 id {}", playlist_id);
     }
 }
 
@@ -670,8 +674,8 @@ void mainwindow::on_add_songs_action()
     {
         return;
     }
-    const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
-    LOG_INFO("动作触发 添加歌曲到播放列表 id {}", playlist_id.toStdString());
+    const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
+    LOG_INFO("动作触发 添加歌曲到播放列表 id {}", playlist_id);
 
     const QStringList files =
         QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", "音频文件 (*.mp3 *.flac *.wav *.m4a *.ogg *.mp4 *.webm)");
@@ -717,8 +721,8 @@ void mainwindow::on_remove_songs_action()
 
     if (parent_playlist_item != nullptr && !indices_to_remove.isEmpty())
     {
-        const QString playlist_id = parent_playlist_item->data(0, Qt::UserRole).toString();
-        LOG_INFO("准备从播放列表 id {} 中移除 {} 首歌曲", playlist_id.toStdString(), indices_to_remove.count());
+        const qint64 playlist_id = parent_playlist_item->data(0, Qt::UserRole).toLongLong();
+        LOG_INFO("准备从播放列表 id {} 中移除 {} 首歌曲", playlist_id, indices_to_remove.count());
         playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove);
     }
     else
@@ -733,8 +737,8 @@ void mainwindow::on_sort_playlist_action()
     {
         return;
     }
-    const QString playlist_id = context_menu_item_->data(0, Qt::UserRole).toString();
-    LOG_INFO("动作触发 排序播放列表 id {}", playlist_id.toStdString());
+    const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
+    LOG_INFO("动作触发 排序播放列表 id {}", playlist_id);
     playlist_manager_->sort_playlist(playlist_id);
 }
 
@@ -746,6 +750,8 @@ void mainwindow::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
     }
     current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
     clicked_song_item_ = item;
+
+    playlist_manager_->increment_play_count(current_playing_file_path_);
 
     if (current_mode_ == playback_mode::Shuffle)
     {

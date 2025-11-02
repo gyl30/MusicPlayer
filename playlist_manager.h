@@ -5,36 +5,40 @@
 #include <QMap>
 #include "playlist_data.h"
 
+class database_manager;
+
 class playlist_manager : public QObject
 {
     Q_OBJECT
 
    public:
     explicit playlist_manager(QObject* parent = nullptr);
+    ~playlist_manager() override;
 
-    void load_playlists();
-    void save_playlists();
+    void initialize_and_load();
 
     [[nodiscard]] QList<Playlist> get_all_playlists() const;
-    [[nodiscard]] Playlist get_playlist_by_id(const QString& id) const;
+    [[nodiscard]] Playlist get_playlist_by_id(qint64 id) const;
+    void increment_play_count(const QString& file_path);
 
    public slots:
     void create_new_playlist(const QString& name);
-    void delete_playlist(const QString& id);
-    void add_songs_to_playlist(const QString& playlist_id, const QStringList& file_paths);
-    void remove_songs_from_playlist(const QString& playlist_id, const QList<int>& song_indices);
-    void rename_playlist(const QString& id, const QString& new_name);
-    void sort_playlist(const QString& id);
+    void delete_playlist(qint64 id);
+    void add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
+    void remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices);
+    void rename_playlist(qint64 id, const QString& new_name);
+    void sort_playlist(qint64 id);
+    void apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists);
 
    signals:
     void playlist_added(const Playlist& new_playlist);
-    void playlist_removed(const QString& playlist_id);
-    void playlist_renamed(const QString& playlist_id);
-    void songs_changed_in_playlist(const QString& playlist_id);
+    void playlist_removed(qint64 playlist_id);
+    void playlist_renamed(qint64 playlist_id);
+    void songs_changed_in_playlist(qint64 playlist_id);
 
    private:
-    QMap<QString, Playlist> playlists_;
-    QString playlist_storage_path_;
+    void perform_migration();
+    database_manager* db_manager_ = nullptr;
 };
 
 #endif

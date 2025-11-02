@@ -105,7 +105,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg Sql)
 find_package(SDL2 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
@@ -117,6 +117,7 @@ add_executable(MusicPlayer
     playback_controller.cpp
     spectrum_processor.cpp
     playlist_manager.cpp
+    database_manager.cpp
     spectrum_widget.cpp
     audio_decoder.cpp
     lyrics_parser.cpp
@@ -154,6 +155,7 @@ target_link_libraries(MusicPlayer PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::Svg
+    Qt6::Sql
     SDL2::SDL2
     ${FFMPEG_LIBRARIES}
 )

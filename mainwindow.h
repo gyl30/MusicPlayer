@@ -61,9 +61,9 @@ class mainwindow : public QMainWindow
     void on_editing_finished(bool accepted, const QString& text);
 
     void on_playlist_added(const Playlist& new_playlist);
-    void on_playlist_removed(const QString& playlist_id);
-    void on_playlist_renamed(const QString& playlist_id);
-    void on_songs_changed(const QString& playlist_id);
+    void on_playlist_removed(qint64 playlist_id);
+    void on_playlist_renamed(qint64 playlist_id);
+    void on_songs_changed(qint64 playlist_id);
 
     void on_playback_mode_clicked();
 

@@ -9,7 +9,6 @@
 #include <algorithm>
 #include "music_management_dialog.h"
 #include "playlist_manager.h"
-#include "log.h"
 
 music_management_dialog::music_management_dialog(playlist_manager* manager, QWidget* parent) : QDialog(parent), playlist_manager_(manager)
 {
@@ -25,9 +24,9 @@ void music_management_dialog::load_initial_data()
 {
     temp_playlists_.clear();
     const auto all_playlists = playlist_manager_->get_all_playlists();
-    for (const auto& playlist : all_playlists)
+    for (const auto& p : all_playlists)
     {
-        temp_playlists_.insert(playlist.id, playlist);
+        temp_playlists_.insert(p.id, playlist_manager_->get_playlist_by_id(p.id));
     }
 }
 
@@ -93,16 +92,16 @@ void music_management_dialog::setup_connections()
 
 void music_management_dialog::populate_playlist_widgets()
 {
-    QString current_source_id;
+    qint64 current_source_id = -1;
     if (source_playlists_list_->currentItem() != nullptr)
     {
-        current_source_id = source_playlists_list_->currentItem()->data(Qt::UserRole).toString();
+        current_source_id = source_playlists_list_->currentItem()->data(Qt::UserRole).toLongLong();
     }
 
-    QString current_dest_id;
+    qint64 current_dest_id = -1;
     if (dest_playlists_list_->currentItem() != nullptr)
     {
-        current_dest_id = dest_playlists_list_->currentItem()->data(Qt::UserRole).toString();
+        current_dest_id = dest_playlists_list_->currentItem()->data(Qt::UserRole).toLongLong();
     }
 
     source_playlists_list_->clear();
@@ -123,11 +122,11 @@ void music_management_dialog::populate_playlist_widgets()
         dest_item->setData(Qt::UserRole, playlist.id);
         dest_playlists_list_->addItem(dest_item);
 
-        if (!current_source_id.isEmpty() && playlist.id == current_source_id)
+        if (current_source_id != -1 && playlist.id == current_source_id)
         {
             source_row_to_select = i;
         }
-        if (!current_dest_id.isEmpty() && playlist.id == current_dest_id)
+        if (current_dest_id != -1 && playlist.id == current_dest_id)
         {
             dest_row_to_select = i;
         }
@@ -152,13 +151,13 @@ void music_management_dialog::update_songs_list(QListWidget* songs_list_widget, 
         return;
     }
 
-    const QString playlist_id = current_playlist_item->data(Qt::UserRole).toString();
+    const qint64 playlist_id = current_playlist_item->data(Qt::UserRole).toLongLong();
     const Playlist& playlist = temp_playlists_.value(playlist_id);
 
     for (const auto& song : playlist.songs)
     {
-        auto* song_item = new QListWidgetItem(song.fileName);
-        song_item->setData(Qt::UserRole, song.filePath);
+        auto* song_item = new QListWidgetItem(song.file_name);
+        song_item->setData(Qt::UserRole, song.file_path);
         if (is_source_list)
         {
             song_item->setFlags(song_item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
@@ -177,6 +176,7 @@ void music_management_dialog::on_dest_playlist_selected() { update_songs_list(de
 
 void music_management_dialog::on_source_song_item_clicked(QListWidgetItem* item)
 {
+    (void)this;
     if (item == nullptr)
     {
         return;
@@ -201,8 +201,8 @@ void music_management_dialog::on_copy_button_clicked()
         return;
     }
 
-    const QString source_playlist_id = source_playlist_item->data(Qt::UserRole).toString();
-    const QString dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toString();
+    const qint64 source_playlist_id = source_playlist_item->data(Qt::UserRole).toLongLong();
+    const qint64 dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toLongLong();
     if (source_playlist_id == dest_playlist_id)
     {
         return;
@@ -212,7 +212,7 @@ void music_management_dialog::on_copy_button_clicked()
     QSet<QString> dest_song_paths;
     for (const auto& song : dest_playlist_ref.songs)
     {
-        dest_song_paths.insert(song.filePath);
+        dest_song_paths.insert(song.file_path);
     }
 
     QList<Song> songs_to_add;
@@ -249,8 +249,8 @@ void music_management_dialog::on_move_button_clicked()
         return;
     }
 
-    const QString source_playlist_id = source_playlist_item->data(Qt::UserRole).toString();
-    const QString dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toString();
+    const qint64 source_playlist_id = source_playlist_item->data(Qt::UserRole).toLongLong();
+    const qint64 dest_playlist_id = dest_playlist_item->data(Qt::UserRole).toLongLong();
     if (source_playlist_id == dest_playlist_id)
     {
         QMessageBox::information(this, "操作无效", "源播放列表和目标播放列表不能相同。");
@@ -261,7 +261,7 @@ void music_management_dialog::on_move_button_clicked()
     QSet<QString> dest_song_paths;
     for (const auto& song : dest_playlist_ref.songs)
     {
-        dest_song_paths.insert(song.filePath);
+        dest_song_paths.insert(song.file_path);
     }
 
     QList<Song> songs_to_add;
@@ -309,7 +309,7 @@ void music_management_dialog::on_delete_button_clicked()
         return;
     }
 
-    const QString playlist_id = source_playlist_item->data(Qt::UserRole).toString();
+    const qint64 playlist_id = source_playlist_item->data(Qt::UserRole).toLongLong();
     Playlist& source_playlist_ref = temp_playlists_[playlist_id];
 
     QList<int> indices_to_remove;
@@ -337,46 +337,8 @@ void music_management_dialog::on_delete_button_clicked()
     populate_playlist_widgets();
 }
 
-static bool exist_songs(const Playlist& original_playlist, QList<Song> songs)
-{
-    for (int index = 0; index < songs.count(); index++)
-    {
-        if (original_playlist.songs[index].filePath != songs[index].filePath)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 void music_management_dialog::on_done_button_clicked()
 {
-    for (const auto& temp_playlist : std::as_const(temp_playlists_))
-    {
-        Playlist original_playlist = playlist_manager_->get_playlist_by_id(temp_playlist.id);
-
-        if (original_playlist.songs.count() != temp_playlist.songs.count() || exist_songs(original_playlist, temp_playlist.songs))
-        {
-            QList<int> all_indices_to_remove;
-            for (int i = 0; i < original_playlist.songs.count(); ++i)
-            {
-                all_indices_to_remove.append(i);
-            }
-            if (!all_indices_to_remove.isEmpty())
-            {
-                playlist_manager_->remove_songs_from_playlist(temp_playlist.id, all_indices_to_remove);
-            }
-
-            QStringList new_song_paths;
-            for (const auto& song : temp_playlist.songs)
-            {
-                new_song_paths.append(song.filePath);
-            }
-            if (!new_song_paths.isEmpty())
-            {
-                playlist_manager_->add_songs_to_playlist(temp_playlist.id, new_song_paths);
-            }
-        }
-    }
-
+    playlist_manager_->apply_changes_from_dialog(temp_playlists_);
     accept();
 }
