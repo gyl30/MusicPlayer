@@ -41,7 +41,7 @@ QList<LyricLine> lyrics_parser::parse(const QString& raw_lyrics)
     if (parsed_lyrics.isEmpty() && !raw_lyrics.trimmed().isEmpty())
     {
         LOG_INFO("lrc parsing yielded no timed lines treating content as plain text lyrics");
-        parsed_lyrics.append({0, raw_lyrics.trimmed()});
+        // parsed_lyrics.append({0, raw_lyrics.trimmed()});
     }
 
     return parsed_lyrics;
