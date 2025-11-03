@@ -242,7 +242,7 @@ void mainwindow::setup_ui()
     bottom_h_layout->addWidget(left_panel, 1);
     bottom_h_layout->addWidget(volume_meter_);
 
-    main_layout->addWidget(bottom_container);
+    main_layout->addWidget(bottom_container, 1);
     main_layout->addWidget(song_tree_widget_, 1);
 }
 
