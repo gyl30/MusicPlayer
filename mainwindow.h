@@ -12,6 +12,7 @@
 
 class QListWidget;
 class QListWidgetItem;
+class QVBoxLayout;
 
 enum class playback_mode : uint8_t
 {
@@ -88,6 +89,7 @@ class mainwindow : public QMainWindow
     void populate_playlists_on_startup();
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
     void update_playback_mode_button_style();
+    void update_media_display_layout();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -98,6 +100,8 @@ class mainwindow : public QMainWindow
 
     QLabel* cover_art_label_ = nullptr;
     QListWidget* lyrics_list_widget_ = nullptr;
+    QWidget* lyrics_and_cover_container_ = nullptr;
+    QVBoxLayout* left_panel_layout_ = nullptr;
 
     QSlider* progress_slider_ = nullptr;
     volume_meter* volume_meter_ = nullptr;
@@ -119,6 +123,8 @@ class mainwindow : public QMainWindow
     bool is_paused_ = false;
     bool is_slider_pressed_ = false;
     bool is_creating_playlist_ = false;
+    bool has_cover_art_ = false;
+    bool has_lyrics_ = false;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<int> shuffled_indices_;

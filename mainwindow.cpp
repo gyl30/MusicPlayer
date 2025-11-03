@@ -125,28 +125,24 @@ void mainwindow::setup_ui()
     bottom_h_layout->setSpacing(0);
 
     auto* left_panel = new QWidget();
-    auto* left_panel_layout = new QVBoxLayout(left_panel);
-    left_panel_layout->setContentsMargins(10, 10, 10, 0);
-    left_panel_layout->setSpacing(5);
+    left_panel_layout_ = new QVBoxLayout(left_panel);
+    left_panel_layout_->setContentsMargins(10, 10, 10, 0);
+    left_panel_layout_->setSpacing(5);
 
-    auto* top_display_container = new QWidget();
-    auto* top_display_layout = new QHBoxLayout(top_display_container);
-    top_display_layout->setContentsMargins(0, 0, 0, 0);
-    top_display_layout->setSpacing(10);
+    spectrum_widget_ = new spectrum_widget(this);
+    spectrum_widget_->setObjectName("spectrumWidget");
+    spectrum_widget_->setMinimumHeight(40);
+
+    lyrics_and_cover_container_ = new QWidget();
+    auto* lyrics_and_cover_layout = new QHBoxLayout(lyrics_and_cover_container_);
+    lyrics_and_cover_layout->setContentsMargins(0, 0, 0, 0);
+    lyrics_and_cover_layout->setSpacing(10);
 
     cover_art_label_ = new QLabel();
     cover_art_label_->setObjectName("coverArtLabel");
     cover_art_label_->setFixedSize(80, 80);
     cover_art_label_->setScaledContents(true);
     cover_art_label_->setStyleSheet("border: 1px solid #E0E0E0; border-radius: 5px;");
-    cover_art_label_->hide();
-
-    spectrum_widget_ = new spectrum_widget(this);
-    spectrum_widget_->setObjectName("spectrumWidget");
-    spectrum_widget_->setMinimumHeight(40);
-
-    top_display_layout->addWidget(cover_art_label_);
-    top_display_layout->addWidget(spectrum_widget_);
 
     lyrics_list_widget_ = new QListWidget(this);
     lyrics_list_widget_->setObjectName("lyricsListWidget");
@@ -155,7 +151,9 @@ void mainwindow::setup_ui()
     lyrics_list_widget_->setSelectionMode(QAbstractItemView::SingleSelection);
     lyrics_list_widget_->setFocusPolicy(Qt::NoFocus);
     lyrics_list_widget_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    lyrics_list_widget_->hide();
+
+    lyrics_and_cover_layout->addWidget(cover_art_label_);
+    lyrics_and_cover_layout->addWidget(lyrics_list_widget_, 1);
 
     lyrics_scroll_animation_ = new QPropertyAnimation(this);
 
@@ -223,13 +221,13 @@ void mainwindow::setup_ui()
     controls_layout->addWidget(time_label_);
     controls_layout->addStretch(1);
 
-    left_panel_layout->addWidget(top_display_container);
-    left_panel_layout->addWidget(lyrics_list_widget_);
-    left_panel_layout->addWidget(progress_slider_);
-    left_panel_layout->addWidget(controls_container);
+    left_panel_layout_->addWidget(spectrum_widget_);
+    left_panel_layout_->addWidget(lyrics_and_cover_container_);
+    left_panel_layout_->addWidget(progress_slider_);
+    left_panel_layout_->addWidget(controls_container);
 
-    left_panel_layout->setStretch(0, 1);
-    left_panel_layout->setStretch(1, 1);
+    left_panel_layout_->setStretch(0, 1);
+    left_panel_layout_->setStretch(1, 1);
 
     volume_meter_ = new volume_meter();
     volume_meter_->setFixedWidth(8);
@@ -244,6 +242,8 @@ void mainwindow::setup_ui()
 
     main_layout->addWidget(bottom_container, 1);
     main_layout->addWidget(song_tree_widget_, 1);
+
+    update_media_display_layout();
 }
 
 void mainwindow::setup_connections()
@@ -278,6 +278,31 @@ void mainwindow::setup_connections()
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &mainwindow::on_songs_changed);
 }
 
+void mainwindow::update_media_display_layout()
+{
+    if (has_lyrics_)
+    {
+        lyrics_and_cover_container_->show();
+        if (has_cover_art_)
+        {
+            cover_art_label_->show();
+        }
+        else
+        {
+            cover_art_label_->hide();
+        }
+        left_panel_layout_->setStretch(0, 1);
+        left_panel_layout_->setStretch(1, 1);
+    }
+    else
+    {
+        lyrics_and_cover_container_->hide();
+        cover_art_label_->hide();
+        left_panel_layout_->setStretch(0, 1);
+        left_panel_layout_->setStretch(1, 0);
+    }
+}
+
 void mainwindow::on_stop_clicked()
 {
     controller_->stop();
@@ -290,26 +315,30 @@ void mainwindow::on_stop_clicked()
     shuffled_indices_.clear();
     current_shuffle_index_ = -1;
     clear_playing_indicator();
-    cover_art_label_->hide();
-    lyrics_list_widget_->hide();
+
+    has_cover_art_ = false;
+    has_lyrics_ = false;
     lyrics_list_widget_->clear();
     current_lyrics_.clear();
+    update_media_display_layout();
 }
 
 void mainwindow::on_playback_started(const QString& file_path, const QString& file_name)
 {
-    lyrics_list_widget_->hide();
+    has_cover_art_ = false;
+    has_lyrics_ = false;
+
     lyrics_list_widget_->clear();
     current_lyrics_.clear();
     current_lyric_index_ = -1;
+
+    update_media_display_layout();
 
     is_playing_ = true;
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
     setWindowTitle(file_name);
     clear_playing_indicator();
-
-    cover_art_label_->hide();
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == file_path)
     {
@@ -328,13 +357,14 @@ void mainwindow::on_cover_art_updated(const QByteArray& image_data)
     if (cover_pixmap.loadFromData(image_data))
     {
         cover_art_label_->setPixmap(cover_pixmap);
-        cover_art_label_->show();
+        has_cover_art_ = true;
     }
     else
     {
         LOG_WARN("无法从数据加载封面图片");
-        cover_art_label_->hide();
+        has_cover_art_ = false;
     }
+    update_media_display_layout();
 }
 
 void mainwindow::on_lyrics_updated(const QList<LyricLine>& lyrics)
@@ -345,17 +375,18 @@ void mainwindow::on_lyrics_updated(const QList<LyricLine>& lyrics)
 
     if (current_lyrics_.isEmpty())
     {
-        lyrics_list_widget_->hide();
+        has_lyrics_ = false;
     }
     else
     {
+        has_lyrics_ = true;
         for (const auto& line : current_lyrics_)
         {
             auto* item = new QListWidgetItem(line.text, lyrics_list_widget_);
             item->setTextAlignment(Qt::AlignCenter);
         }
-        lyrics_list_widget_->show();
     }
+    update_media_display_layout();
 }
 
 void mainwindow::on_playback_mode_clicked()
