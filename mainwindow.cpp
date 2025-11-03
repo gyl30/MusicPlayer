@@ -70,7 +70,7 @@ mainwindow::mainwindow(QWidget* parent) : QMainWindow(parent)
     playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
     setWindowTitle("Music Player");
-    resize(800, 600);
+    resize(480, 600);
 }
 
 mainwindow::~mainwindow() = default;
