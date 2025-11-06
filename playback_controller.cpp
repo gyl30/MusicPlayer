@@ -13,6 +13,7 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     qRegisterMetaType<QMap<QString, QString>>("QMap<QString, QString>");
     qRegisterMetaType<QByteArray>("QByteArray");
     qRegisterMetaType<QList<LyricLine>>("QList<LyricLine>");
+    qRegisterMetaType<playback_mode>("playback_mode");
 
     decoder_thread_ = new QThread(this);
     decoder_ = new audio_decoder();
@@ -50,6 +51,12 @@ void playback_controller::set_spectrum_widget(spectrum_widget* widget)
     }
 }
 
+void playback_controller::set_playback_mode(playback_mode mode)
+{
+    LOG_INFO("播放模式已设置为 {}", static_cast<int>(mode));
+    current_mode_ = mode;
+}
+
 void playback_controller::play_file(const QString& file_path)
 {
     LOG_INFO("播放流程二 控制中心收到文件播放请求");
@@ -80,7 +87,6 @@ void playback_controller::stop()
     is_media_loaded_ = false;
     is_paused_ = false;
     LOG_INFO("重置暂停状态");
-    buffered_bytes_ = 0;
 
     LOG_INFO("停止流程二 通知解码器关闭");
     QMetaObject::invokeMethod(decoder_, "shutdown", Qt::QueuedConnection);
@@ -103,7 +109,14 @@ void playback_controller::pause_resume()
 {
     if (!is_media_loaded_)
     {
-        LOG_WARN("媒体未加载无法暂停或恢复");
+        if (is_playing_)
+        {
+            emit playback_finished();
+        }
+        else
+        {
+            LOG_WARN("媒体未加载无法暂停或恢复");
+        }
         return;
     }
     is_paused_ = !is_paused_;
@@ -118,6 +131,7 @@ void playback_controller::pause_resume()
         LOG_INFO("请求恢复播放会话id {}", current_session_id_);
         QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
     }
+    emit playback_paused(is_paused_);
 }
 
 void playback_controller::seek(qint64 position_ms)
@@ -169,8 +183,6 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
 
     cleanup_player();
 
-    buffered_bytes_ = 0;
-
     player_thread_ = new QThread(this);
     player_ = new audio_player();
     player_->set_volume(cached_volume_);
@@ -178,7 +190,7 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
     player_->moveToThread(player_thread_);
 
     connect(player_, &audio_player::progress_update, this, &playback_controller::on_progress_update, Qt::QueuedConnection);
-    connect(player_, &audio_player::playback_finished, this, &playback_controller::on_playback_finished, Qt::QueuedConnection);
+    connect(player_, &audio_player::playback_finished, this, &playback_controller::on_playback_completed, Qt::QueuedConnection);
     connect(player_, &audio_player::playback_ready, this, &playback_controller::on_player_ready_for_spectrum, Qt::QueuedConnection);
     connect(player_, &audio_player::playback_error, this, &playback_controller::on_player_error, Qt::QueuedConnection);
     connect(player_, &audio_player::packet_played, this, &playback_controller::on_packet_for_spectrum, Qt::QueuedConnection);
@@ -246,8 +258,7 @@ void playback_controller::on_packet_from_decoder(qint64 session_id, const std::s
 
     if (packet)
     {
-        buffered_bytes_ += static_cast<qint64>(packet->data.size());
-        LOG_TRACE("控制器->播放器 入队数据包 ms {} size {} buffered_bytes {}", packet->ms, packet->data.size(), buffered_bytes_.load());
+        LOG_TRACE("控制器->播放器 入队数据包 ms {} size {}", packet->ms, packet->data.size());
     }
     else
     {
@@ -262,7 +273,6 @@ void playback_controller::on_packet_for_spectrum(const std::shared_ptr<audio_pac
 {
     if (spectrum_widget_ != nullptr && is_playing_)
     {
-        buffered_bytes_ -= static_cast<qint64>(packet->data.size());
         spectrum_widget_->enqueue_packet(packet);
     }
 }
@@ -296,7 +306,7 @@ void playback_controller::on_progress_update(qint64 session_id, qint64 current_m
     emit progress_updated(current_ms, total_duration_ms_);
 }
 
-void playback_controller::on_playback_finished(qint64 session_id)
+void playback_controller::on_playback_completed(qint64 session_id)
 {
     if (session_id != current_session_id_)
     {
@@ -306,6 +316,7 @@ void playback_controller::on_playback_finished(qint64 session_id)
     LOG_INFO("结束流程三 从播放器收到播放完成信号");
     LOG_INFO("结束流程四 通知频谱部件停止");
     is_playing_ = false;
+    is_media_loaded_ = false;
     if (spectrum_widget_ != nullptr)
     {
         QMetaObject::invokeMethod(spectrum_widget_, "stop_playback", Qt::QueuedConnection);
@@ -345,12 +356,11 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
         {
             QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
         }
-        on_playback_finished(session_id);
+        on_playback_completed(session_id);
         return;
     }
 
     LOG_INFO("跳转流程七 通知播放器处理跳转");
-    buffered_bytes_ = 0;
     seek_result_ms_ = actual_seek_ms;
 
     if (player_ != nullptr)

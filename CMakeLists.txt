@@ -113,12 +113,13 @@ pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample
 add_executable(MusicPlayer
     main.cpp
     log.cpp
-    mainwindow.cpp
     playback_controller.cpp
     spectrum_processor.cpp
     playlist_manager.cpp
     database_manager.cpp
+    playlist_window.cpp
     spectrum_widget.cpp
+    player_window.cpp
     audio_decoder.cpp
     lyrics_parser.cpp
     audio_player.cpp

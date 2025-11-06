@@ -2,8 +2,8 @@
 #include <QFile>
 #include <QIcon>
 #include "log.h"
-#include "mainwindow.h"
 #include "scoped_exit.h"
+#include "playlist_window.h"
 
 int main(int argc, char* argv[])
 {
@@ -26,7 +26,7 @@ int main(int argc, char* argv[])
         LOG_WARN("无法加载样式表文件");
     }
     QApplication::setWindowIcon(QIcon(":/icons/app_icon.svg"));
-    mainwindow main_window;
+    playlist_window main_window;
     main_window.show();
     return QApplication::exec();
 }

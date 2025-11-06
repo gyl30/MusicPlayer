@@ -9,6 +9,7 @@
 #include <QByteArray>
 #include <QList>
 #include "audio_packet.h"
+#include "player_window.h"
 
 class QThread;
 class audio_decoder;
@@ -25,6 +26,7 @@ class playback_controller : public QObject
     ~playback_controller() override;
 
     void set_spectrum_widget(spectrum_widget* widget);
+    bool is_media_loaded() const { return is_media_loaded_; }
 
    public slots:
     void play_file(const QString& file_path);
@@ -32,6 +34,7 @@ class playback_controller : public QObject
     void stop();
     void pause_resume();
     void set_volume(int volume_percent);
+    void set_playback_mode(playback_mode mode);
 
    signals:
     void track_info_ready(qint64 duration_ms);
@@ -44,6 +47,7 @@ class playback_controller : public QObject
     void metadata_ready(const QMap<QString, QString>& metadata);
     void cover_art_ready(const QByteArray& image_data);
     void lyrics_updated(const QList<LyricLine>& lyrics);
+    void playback_paused(bool is_paused);
 
    private slots:
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
@@ -55,7 +59,7 @@ class playback_controller : public QObject
     void on_spectrum_ready_for_decoding(qint64 session_id);
     void on_player_error(const QString& error_message);
     void on_progress_update(qint64 session_id, qint64 current_ms);
-    void on_playback_finished(qint64 session_id);
+    void on_playback_completed(qint64 session_id);
     void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
     void on_buffer_level_low(qint64 session_id);
     void on_buffer_level_high(qint64 session_id);
@@ -79,12 +83,10 @@ class playback_controller : public QObject
     qint64 current_session_id_ = 0;
     bool is_paused_ = false;
     std::atomic<qint64> buffered_bytes_{0};
-    qint64 buffer_high_water_mark_ = 0;
-    bool decoder_is_waiting_ = false;
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
-
+    playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
 };
 
