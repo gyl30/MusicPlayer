@@ -113,8 +113,17 @@ void playlist_window::setup_ui()
     auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), " 管理音乐");
     manage_button->setIconSize(QSize(18, 18));
 
+    toggle_player_window_button_ = new QPushButton("显示/隐藏播放器");
+    toggle_player_window_button_->setToolTip("切换播放器窗口的可见性");
+    toggle_player_window_button_->setEnabled(false);
+
+    auto* button_layout = new QHBoxLayout();
+    button_layout->addWidget(toggle_player_window_button_);
+    button_layout->addStretch();
+    button_layout->addWidget(manage_button);
+
     main_layout->addWidget(song_tree_widget_);
-    main_layout->addWidget(manage_button);
+    main_layout->addLayout(button_layout);
 
     connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
     connect(tray_icon_,
@@ -138,6 +147,7 @@ void playlist_window::setup_connections()
 {
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &playlist_window::on_tree_item_double_clicked);
     connect(song_tree_widget_, &QTreeWidget::customContextMenuRequested, this, &playlist_window::on_song_tree_context_menu_requested);
+    connect(toggle_player_window_button_, &QPushButton::clicked, this, &playlist_window::on_toggle_player_window_clicked);
 
     connect(playlist_manager_, &playlist_manager::playlist_added, this, &playlist_window::on_playlist_added);
     connect(playlist_manager_, &playlist_manager::playlist_removed, this, &playlist_window::on_playlist_removed);
@@ -178,14 +188,16 @@ void playlist_window::on_stop_requested()
     shuffled_indices_.clear();
     current_shuffle_index_ = -1;
     player_window_->on_playback_stopped();
+    toggle_player_window_button_->setEnabled(false);
 }
 
 void playlist_window::on_playback_started(const QString& file_path, const QString& file_name)
 {
+    (void)file_path;
     (void)file_name;
     clear_playing_indicator();
 
-    if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == file_path)
+    if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)
     {
         currently_playing_item_ = clicked_song_item_;
         QFont font = currently_playing_item_->font(0);
@@ -198,6 +210,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     {
         player_window_->show();
     }
+    toggle_player_window_button_->setEnabled(true);
 }
 
 void playlist_window::generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index)
@@ -238,6 +251,19 @@ void playlist_window::on_manage_playlists_action()
     auto* dialog = new music_management_dialog(playlist_manager_, this);
     dialog->exec();
     LOG_INFO("音乐管理对话框已关闭");
+}
+
+void playlist_window::on_toggle_player_window_clicked()
+{
+    if (player_window_ == nullptr)
+    {
+        return;
+    }
+    player_window_->setVisible(!player_window_->isVisible());
+    if (player_window_->isVisible())
+    {
+        player_window_->activateWindow();
+    }
 }
 
 void playlist_window::populate_playlists_on_startup()

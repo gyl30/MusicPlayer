@@ -6,11 +6,12 @@
 #include <QMap>
 
 #include "playlist_data.h"
-#include "player_window.h"    
+#include "player_window.h"
 
 class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
+class QPushButton;
 
 class playback_controller;
 class playlist_manager;
@@ -37,6 +38,7 @@ class playlist_window : public QMainWindow
     void on_sort_playlist_action();
     void on_editing_finished(bool accepted, const QString& text);
     void on_manage_playlists_action();
+    void on_toggle_player_window_clicked();
 
     void on_playlist_added(const Playlist& new_playlist);
     void on_playlist_removed(qint64 playlist_id);
@@ -71,6 +73,7 @@ class playlist_window : public QMainWindow
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
+    QPushButton* toggle_player_window_button_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
