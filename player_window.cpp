@@ -75,6 +75,7 @@ void player_window::setup_ui()
 
     track_title_label_ = new QLabel("欢迎使用", this);
     track_title_label_->setAlignment(Qt::AlignCenter);
+    track_title_label_->hide();
 
     progress_slider_ = new QSlider(Qt::Horizontal);
     time_label_ = new QLabel("00:00 / 00:00", this);
@@ -255,6 +256,7 @@ void player_window::on_playback_started(const QString& file_path, const QString&
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
     track_title_label_->setText(file_name);
+    setWindowTitle(file_name);
 }
 
 void player_window::on_cover_art_updated(const QByteArray& image_data)
