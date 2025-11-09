@@ -9,6 +9,9 @@
 #include "audio_packet.h"
 #include "playlist_data.h"
 
+class QMoveEvent;
+class QMouseEvent;
+
 class QListWidget;
 class QListWidgetItem;
 class QVBoxLayout;
@@ -40,6 +43,7 @@ class player_window : public QWidget
     void previous_requested();
     void playback_mode_changed(playback_mode new_mode);
     void stop_requested();
+    void moved_by_user();
 
    public slots:
     void update_track_info(qint64 duration_ms);
@@ -52,6 +56,11 @@ class player_window : public QWidget
     void on_playback_stopped();
     void on_playback_finished();
     void on_playback_paused(bool is_paused);
+
+   protected:
+    void moveEvent(QMoveEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
    private slots:
     void on_seek_requested();
@@ -96,6 +105,7 @@ class player_window : public QWidget
     bool is_slider_pressed_ = false;
     bool has_cover_art_ = false;
     bool has_lyrics_ = false;
+    bool is_being_dragged_by_user_ = false;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<LyricLine> current_lyrics_;

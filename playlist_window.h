@@ -12,6 +12,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
 class QPushButton;
+class QMoveEvent;
 
 class playback_controller;
 class playlist_manager;
@@ -55,8 +56,11 @@ class playlist_window : public QMainWindow
 
     void quit_application();
 
+    void on_player_window_moved_by_user();
+
    protected:
     void closeEvent(QCloseEvent* event) override;
+    void moveEvent(QMoveEvent* event) override;
 
    private:
     void setup_ui();
@@ -65,6 +69,7 @@ class playlist_window : public QMainWindow
     void populate_playlists_on_startup();
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
     void play_first_song_in_list();
+    void update_player_window_position();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -84,6 +89,8 @@ class playlist_window : public QMainWindow
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<int> shuffled_indices_;
     int current_shuffle_index_ = -1;
+
+    bool is_player_attached_ = true;
 };
 
 #endif

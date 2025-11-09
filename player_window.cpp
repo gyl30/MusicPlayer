@@ -10,6 +10,8 @@
 #include <QStyle>
 #include <QScrollBar>
 #include <QEasingCurve>
+#include <QMoveEvent>
+#include <QMouseEvent>
 
 #include "player_window.h"
 #include "playback_controller.h"
@@ -28,6 +30,37 @@ player_window::player_window(playback_controller* controller, QWidget* parent) :
 }
 
 player_window::~player_window() = default;
+
+void player_window::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton)
+    {
+        is_being_dragged_by_user_ = true;
+        LOG_INFO("播放器窗口: mousePressEvent, is_being_dragged_by_user_ = true");
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void player_window::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton)
+    {
+        is_being_dragged_by_user_ = false;
+        LOG_INFO("播放器窗口: mouseReleaseEvent, is_being_dragged_by_user_ = false");
+    }
+    QWidget::mouseReleaseEvent(event);
+}
+
+void player_window::moveEvent(QMoveEvent* event)
+{
+    QWidget::moveEvent(event);
+    LOG_TRACE("播放器窗口: moveEvent. is_being_dragged_by_user_ = {}", is_being_dragged_by_user_);
+    if (is_being_dragged_by_user_)
+    {
+        LOG_INFO("播放器窗口: moveEvent 期间检测到用户正在拖动，发射 moved_by_user 信号");
+        emit moved_by_user();
+    }
+}
 
 void player_window::setup_ui()
 {
@@ -269,7 +302,6 @@ void player_window::on_cover_art_updated(const QByteArray& image_data)
     }
     else
     {
-        LOG_WARN("无法从数据加载封面图片");
         has_cover_art_ = false;
     }
     update_media_display_layout();

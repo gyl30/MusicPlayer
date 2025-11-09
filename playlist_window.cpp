@@ -14,6 +14,7 @@
 #include <QFont>
 #include <QCollator>
 #include <QPushButton>
+#include <QMoveEvent>
 
 #include "log.h"
 #include "playlist_window.h"
@@ -91,6 +92,15 @@ void playlist_window::closeEvent(QCloseEvent* event)
     }
 }
 
+void playlist_window::moveEvent(QMoveEvent* event)
+{
+    QMainWindow::moveEvent(event);
+    if (is_player_attached_)
+    {
+        update_player_window_position();
+    }
+}
+
 void playlist_window::setup_ui()
 {
     tray_icon_ = new tray_icon(this);
@@ -161,6 +171,8 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::previous_requested, this, &playlist_window::on_previous_requested);
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
+
+    connect(player_window_, &player_window::moved_by_user, this, &playlist_window::on_player_window_moved_by_user);
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -208,6 +220,8 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     }
     if (!player_window_->isVisible())
     {
+        is_player_attached_ = true;
+        update_player_window_position();
         player_window_->show();
     }
     toggle_player_window_button_->setEnabled(true);
@@ -241,16 +255,12 @@ void playlist_window::generate_shuffled_list(QTreeWidgetItem* playlist_item, int
             shuffled_indices_.swapItemsAt(0, current_pos);
         }
     }
-
-    LOG_INFO("为播放列表 '{}' 生成随机队列", playlist_item->text(0).toStdString());
 }
 
 void playlist_window::on_manage_playlists_action()
 {
-    LOG_INFO("打开音乐管理对话框");
     auto* dialog = new music_management_dialog(playlist_manager_, this);
     dialog->exec();
-    LOG_INFO("音乐管理对话框已关闭");
 }
 
 void playlist_window::on_toggle_player_window_clicked()
@@ -259,16 +269,38 @@ void playlist_window::on_toggle_player_window_clicked()
     {
         return;
     }
-    player_window_->setVisible(!player_window_->isVisible());
     if (player_window_->isVisible())
     {
-        player_window_->activateWindow();
+        player_window_->hide();
+    }
+    else
+    {
+        is_player_attached_ = true;
+        update_player_window_position();
+        player_window_->show();
+    }
+}
+
+void playlist_window::on_player_window_moved_by_user()
+{
+    if (is_player_attached_)
+    {
+        is_player_attached_ = false;
+        LOG_INFO("主窗口: on_player_window_moved_by_user, 判定为用户拖动，状态切换为 分离");
+    }
+}
+
+void playlist_window::update_player_window_position()
+{
+    if (player_window_)
+    {
+        const QPoint main_window_top_right = this->frameGeometry().topRight();
+        player_window_->move(main_window_top_right);
     }
 }
 
 void playlist_window::populate_playlists_on_startup()
 {
-    LOG_DEBUG("首次从数据填充播放列表ui");
     song_tree_widget_->blockSignals(true);
     song_tree_widget_->clear();
     QList<Playlist> playlists = playlist_manager_->get_all_playlists();
@@ -294,7 +326,6 @@ void playlist_window::populate_playlists_on_startup()
 
 void playlist_window::on_playlist_added(const Playlist& new_playlist)
 {
-    LOG_DEBUG("ui添加新播放列表 id {}", new_playlist.id);
     song_tree_widget_->blockSignals(true);
     auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
     playlist_item->setText(0, QString("%1 [0]").arg(new_playlist.name));
@@ -306,20 +337,14 @@ void playlist_window::on_playlist_added(const Playlist& new_playlist)
 
 void playlist_window::on_playlist_removed(qint64 playlist_id)
 {
-    LOG_DEBUG("ui移除播放列表 id {}", playlist_id);
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
     delete item;
 }
 
-void playlist_window::on_playlist_renamed(qint64 playlist_id)
-{
-    LOG_DEBUG("ui重命名播放列表 id {}", playlist_id);
-    on_songs_changed(playlist_id);
-}
+void playlist_window::on_playlist_renamed(qint64 playlist_id) { on_songs_changed(playlist_id); }
 
 void playlist_window::on_songs_changed(qint64 playlist_id)
 {
-    LOG_DEBUG("ui更新播放列表歌曲 id {}", playlist_id);
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
     if (item != nullptr)
     {
@@ -339,19 +364,16 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
 void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
 {
     context_menu_item_ = song_tree_widget_->itemAt(pos);
-    LOG_DEBUG("右键菜单请求 位置 ({}, {})", pos.x(), pos.y());
 
     QMenu context_menu(this);
 
     if (context_menu_item_ == nullptr)
     {
-        LOG_DEBUG("在空白区域创建菜单");
         auto* new_playlist_action = context_menu.addAction("新建播放列表");
         connect(new_playlist_action, &QAction::triggered, this, &playlist_window::on_create_playlist_action);
     }
     else if (context_menu_item_->parent() == nullptr)
     {
-        LOG_DEBUG("在播放列表项上创建菜单");
         auto* add_songs_action = context_menu.addAction("添加歌曲");
         auto* sort_playlist_action = context_menu.addAction("排序列表");
         context_menu.addSeparator();
@@ -368,7 +390,6 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
     }
     else
     {
-        LOG_DEBUG("在歌曲项上创建菜单");
         auto* remove_songs_action = context_menu.addAction("从播放列表移除");
         connect(remove_songs_action, &QAction::triggered, this, &playlist_window::on_remove_songs_action);
     }
@@ -378,7 +399,6 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
 
 void playlist_window::on_create_playlist_action()
 {
-    LOG_INFO("动作触发 创建新播放列表");
     is_creating_playlist_ = true;
 
     auto* editor = new quick_editor("新建播放列表", this);
@@ -399,7 +419,6 @@ void playlist_window::on_rename_playlist_action()
 
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
     const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
-    LOG_INFO("动作触发 重命名播放列表 id {}", playlist_id);
 
     auto* editor = new quick_editor(playlist.name, this);
     connect(editor, &quick_editor::editing_finished, this, &playlist_window::on_editing_finished);
@@ -414,21 +433,18 @@ void playlist_window::on_editing_finished(bool accepted, const QString& text)
 {
     if (!accepted)
     {
-        LOG_INFO("用户取消编辑");
         return;
     }
 
     const QString new_name = text.trimmed();
     if (new_name.isEmpty())
     {
-        LOG_WARN("用户输入为空名称");
         QMessageBox::warning(this, "无效名称", "播放列表名称不能为空");
         return;
     }
 
     if (is_creating_playlist_)
     {
-        LOG_INFO("用户确认创建新播放列表 名称 {}", new_name.toStdString());
         playlist_manager_->create_new_playlist(new_name);
     }
     else
@@ -436,7 +452,6 @@ void playlist_window::on_editing_finished(bool accepted, const QString& text)
         if (context_menu_item_ != nullptr)
         {
             const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
-            LOG_INFO("用户确认重命名播放列表 id {} 为 {}", playlist_id, new_name.toStdString());
             playlist_manager_->rename_playlist(playlist_id, new_name);
         }
     }
@@ -450,7 +465,6 @@ void playlist_window::on_delete_playlist_action()
     }
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
     const QString playlist_name = playlist_manager_->get_playlist_by_id(playlist_id).name;
-    LOG_INFO("动作触发 删除播放列表 id {}", playlist_id);
 
     QMessageBox::StandardButton reply;
     reply = QMessageBox::question(
@@ -458,12 +472,7 @@ void playlist_window::on_delete_playlist_action()
 
     if (reply == QMessageBox::Yes)
     {
-        LOG_INFO("用户确认删除播放列表 id {}", playlist_id);
         playlist_manager_->delete_playlist(playlist_id);
-    }
-    else
-    {
-        LOG_INFO("用户取消删除播放列表 id {}", playlist_id);
     }
 }
 
@@ -474,19 +483,13 @@ void playlist_window::on_add_songs_action()
         return;
     }
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
-    LOG_INFO("动作触发 添加歌曲到播放列表 id {}", playlist_id);
 
     const QStringList files =
         QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", "音频文件 (*.mp3 *.flac *.wav *.m4a *.ogg *.mp4 *.webm)");
 
     if (!files.isEmpty())
     {
-        LOG_INFO("用户选择了 {} 个文件进行添加", files.count());
         playlist_manager_->add_songs_to_playlist(playlist_id, files);
-    }
-    else
-    {
-        LOG_INFO("用户取消了文件选择");
     }
 }
 
@@ -497,7 +500,6 @@ void playlist_window::on_remove_songs_action()
     {
         return;
     }
-    LOG_INFO("动作触发 移除歌曲");
 
     QTreeWidgetItem* parent_playlist_item = nullptr;
     QList<int> indices_to_remove;
@@ -521,12 +523,7 @@ void playlist_window::on_remove_songs_action()
     if (parent_playlist_item != nullptr && !indices_to_remove.isEmpty())
     {
         const qint64 playlist_id = parent_playlist_item->data(0, Qt::UserRole).toLongLong();
-        LOG_INFO("准备从播放列表 id {} 中移除 {} 首歌曲", playlist_id, indices_to_remove.count());
         playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove);
-    }
-    else
-    {
-        LOG_WARN("没有有效的歌曲项被选中用于移除");
     }
 }
 
@@ -537,7 +534,6 @@ void playlist_window::on_sort_playlist_action()
         return;
     }
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
-    LOG_INFO("动作触发 排序播放列表 id {}", playlist_id);
     playlist_manager_->sort_playlist(playlist_id);
 }
 
