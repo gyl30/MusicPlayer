@@ -16,14 +16,13 @@
 #include <QPushButton>
 #include <QMoveEvent>
 
-#include "log.h"
-#include "playlist_window.h"
-#include "player_window.h"
+#include "tray_icon.h"
 #include "quick_editor.h"
+#include "player_window.h"
+#include "playlist_window.h"
 #include "playlist_manager.h"
 #include "playback_controller.h"
 #include "music_management_dialog.h"
-#include "tray_icon.h"
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 {
@@ -44,8 +43,8 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
-    playlist_manager_ = new playlist_manager(this);
     controller_ = new playback_controller(this);
+    playlist_manager_ = new playlist_manager(this);
     player_window_ = new player_window(controller_, nullptr);
 
     setup_ui();
@@ -286,13 +285,12 @@ void playlist_window::on_player_window_moved_by_user()
     if (is_player_attached_)
     {
         is_player_attached_ = false;
-        LOG_INFO("主窗口: on_player_window_moved_by_user, 判定为用户拖动，状态切换为 分离");
     }
 }
 
 void playlist_window::update_player_window_position()
 {
-    if (player_window_)
+    if (player_window_ != nullptr)
     {
         const QPoint main_window_top_right = this->frameGeometry().topRight();
         player_window_->move(main_window_top_right);

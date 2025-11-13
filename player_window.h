@@ -7,10 +7,10 @@
 #include <QList>
 #include <QPropertyAnimation>
 #include "audio_packet.h"
-#include "playlist_data.h"
 
 class QMoveEvent;
 class QMouseEvent;
+class QEvent;
 
 class QListWidget;
 class QListWidgetItem;
@@ -38,6 +38,9 @@ class player_window : public QWidget
     explicit player_window(playback_controller* controller, QWidget* parent = nullptr);
     ~player_window() override;
 
+   public:
+    void set_attach(bool attach) { is_attached_ = attach; }
+
    signals:
     void next_requested();
     void previous_requested();
@@ -59,8 +62,7 @@ class player_window : public QWidget
 
    protected:
     void moveEvent(QMoveEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
    private slots:
     void on_seek_requested();
@@ -82,6 +84,7 @@ class player_window : public QWidget
     playback_controller* controller_ = nullptr;
 
     spectrum_widget* spectrum_widget_ = nullptr;
+    QWidget* main_container_ = nullptr;
 
     QLabel* cover_art_label_ = nullptr;
     QListWidget* lyrics_list_widget_ = nullptr;
@@ -106,11 +109,13 @@ class player_window : public QWidget
     bool has_cover_art_ = false;
     bool has_lyrics_ = false;
     bool is_being_dragged_by_user_ = false;
+    bool is_attached_ = false;
+
+    QPoint drag_position_;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<LyricLine> current_lyrics_;
     int current_lyric_index_ = -1;
-
     QPropertyAnimation* lyrics_scroll_animation_ = nullptr;
 };
 

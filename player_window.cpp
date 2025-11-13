@@ -12,17 +12,19 @@
 #include <QEasingCurve>
 #include <QMoveEvent>
 #include <QMouseEvent>
+#include <QEvent>
 
-#include "player_window.h"
-#include "playback_controller.h"
-#include "spectrum_widget.h"
 #include "volumemeter.h"
-#include "log.h"
+#include "player_window.h"
+#include "spectrum_widget.h"
+#include "playback_controller.h"
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
 player_window::player_window(playback_controller* controller, QWidget* parent) : QWidget(parent), controller_(controller)
 {
+    setWindowFlags(Qt::FramelessWindowHint);
+
     setup_ui();
     setup_connections();
     setWindowTitle("播放器");
@@ -31,47 +33,59 @@ player_window::player_window(playback_controller* controller, QWidget* parent) :
 
 player_window::~player_window() = default;
 
-void player_window::mousePressEvent(QMouseEvent* event)
-{
-    if (event->button() == Qt::LeftButton)
-    {
-        is_being_dragged_by_user_ = true;
-        LOG_INFO("播放器窗口: mousePressEvent, is_being_dragged_by_user_ = true");
-    }
-    QWidget::mousePressEvent(event);
-}
-
-void player_window::mouseReleaseEvent(QMouseEvent* event)
-{
-    if (event->button() == Qt::LeftButton)
-    {
-        is_being_dragged_by_user_ = false;
-        LOG_INFO("播放器窗口: mouseReleaseEvent, is_being_dragged_by_user_ = false");
-    }
-    QWidget::mouseReleaseEvent(event);
-}
-
 void player_window::moveEvent(QMoveEvent* event)
 {
     QWidget::moveEvent(event);
-    LOG_TRACE("播放器窗口: moveEvent. is_being_dragged_by_user_ = {}", is_being_dragged_by_user_);
     if (is_being_dragged_by_user_)
     {
-        LOG_INFO("播放器窗口: moveEvent 期间检测到用户正在拖动，发射 moved_by_user 信号");
         emit moved_by_user();
     }
 }
 
+bool player_window::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == main_container_ || watched == spectrum_widget_ || watched == lyrics_list_widget_)
+    {
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (event->type() == QEvent::MouseButtonPress)
+        {
+            if (mouseEvent->button() == Qt::LeftButton)
+            {
+                is_being_dragged_by_user_ = true;
+                drag_position_ = mouseEvent->globalPosition().toPoint() - frameGeometry().topLeft();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseMove)
+        {
+            if (is_being_dragged_by_user_)
+            {
+                move(mouseEvent->globalPosition().toPoint() - drag_position_);
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease)
+        {
+            if (mouseEvent->button() == Qt::LeftButton)
+            {
+                is_being_dragged_by_user_ = false;
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void player_window::setup_ui()
 {
-    auto* main_container = new QWidget(this);
-    main_container->setObjectName("bottomContainer");
-    auto* main_layout = new QHBoxLayout(main_container);
+    main_container_ = new QWidget(this);
+    main_container_->setObjectName("bottomContainer");
+    auto* main_layout = new QHBoxLayout(main_container_);
     main_layout->setContentsMargins(0, 0, 0, 0);
     main_layout->setSpacing(0);
 
     auto* top_layout = new QVBoxLayout(this);
-    top_layout->addWidget(main_container);
+    top_layout->addWidget(main_container_);
     top_layout->setContentsMargins(0, 0, 0, 0);
 
     auto* left_panel = new QWidget();
@@ -172,6 +186,10 @@ void player_window::setup_ui()
     main_layout->addWidget(volume_meter_);
 
     update_media_display_layout();
+
+    main_container_->installEventFilter(this);
+    spectrum_widget_->installEventFilter(this);
+    lyrics_list_widget_->installEventFilter(this);
 }
 
 void player_window::setup_connections()
