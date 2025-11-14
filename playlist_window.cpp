@@ -15,6 +15,8 @@
 #include <QCollator>
 #include <QPushButton>
 #include <QMoveEvent>
+#include <QEvent>
+#include <QMouseEvent>
 
 #include "tray_icon.h"
 #include "quick_editor.h"
@@ -43,6 +45,8 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
+    setWindowFlags(Qt::FramelessWindowHint);
+
     controller_ = new playback_controller(this);
     playlist_manager_ = new playlist_manager(this);
     player_window_ = new player_window(controller_, nullptr);
@@ -54,6 +58,9 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     populate_playlists_on_startup();
     setWindowTitle("音乐播放器 - 播放列表");
     resize(400, 600);
+
+    centralWidget()->installEventFilter(this);
+    song_tree_widget_->installEventFilter(this);
 }
 
 playlist_window::~playlist_window()
@@ -98,6 +105,40 @@ void playlist_window::moveEvent(QMoveEvent* event)
     {
         update_player_window_position();
     }
+}
+
+bool playlist_window::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == centralWidget() || watched == song_tree_widget_)
+    {
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (event->type() == QEvent::MouseButtonPress)
+        {
+            if (mouseEvent->button() == Qt::LeftButton)
+            {
+                is_being_dragged_by_user_ = true;
+                drag_position_ = mouseEvent->globalPosition().toPoint() - frameGeometry().topLeft();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseMove)
+        {
+            if (is_being_dragged_by_user_)
+            {
+                move(mouseEvent->globalPosition().toPoint() - drag_position_);
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease)
+        {
+            if (mouseEvent->button() == Qt::LeftButton)
+            {
+                is_being_dragged_by_user_ = false;
+                return true;
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void playlist_window::setup_ui()

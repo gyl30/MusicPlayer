@@ -13,6 +13,8 @@ class QTreeWidgetItem;
 class QCloseEvent;
 class QPushButton;
 class QMoveEvent;
+class QEvent;
+class QMouseEvent;
 
 class playback_controller;
 class playlist_manager;
@@ -61,6 +63,7 @@ class playlist_window : public QMainWindow
    protected:
     void closeEvent(QCloseEvent* event) override;
     void moveEvent(QMoveEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
    private:
     void setup_ui();
@@ -91,6 +94,9 @@ class playlist_window : public QMainWindow
     int current_shuffle_index_ = -1;
 
     bool is_player_attached_ = true;
+
+    bool is_being_dragged_by_user_ = false;
+    QPoint drag_position_;
 };
 
 #endif
