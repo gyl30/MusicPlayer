@@ -58,8 +58,9 @@ class playlist_window : public QMainWindow
 
     void quit_application();
 
-    void on_player_request_snap(SnapSide side);
+    void on_player_request_snap(snap_side side);
     void on_player_request_detach();
+    void on_player_request_resnap();
 
    protected:
     void closeEvent(QCloseEvent* event) override;
@@ -95,7 +96,7 @@ class playlist_window : public QMainWindow
     int current_shuffle_index_ = -1;
 
     bool is_player_attached_ = true;
-    SnapSide current_snap_side_ = SnapSide::Right;
+    snap_side current_snap_side_ = snap_side::right;
 
     bool is_being_dragged_by_user_ = false;
     QPoint drag_position_;

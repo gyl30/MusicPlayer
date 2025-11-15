@@ -1,3 +1,5 @@
+#include "player_window.h"
+
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -15,10 +17,9 @@
 #include <QEvent>
 
 #include "volumemeter.h"
-#include "player_window.h"
 #include "spectrum_widget.h"
-#include "playlist_window.h"
 #include "playback_controller.h"
+#include "playlist_window.h"
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
@@ -49,7 +50,6 @@ void player_window::mousePressEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton)
     {
         is_being_dragged_by_user_ = true;
-
         drag_position_ = event->globalPosition().toPoint() - frameGeometry().topLeft();
 
         if (is_attached_)
@@ -68,6 +68,11 @@ void player_window::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
+    if (!is_attached_ || is_checking_for_unsnap_)
+    {
+        move(event->globalPosition().toPoint() - drag_position_);
+    }
+
     if (is_attached_ && is_checking_for_unsnap_)
     {
         const int UNSNAP_THRESHOLD = 25;
@@ -75,17 +80,11 @@ void player_window::mouseMoveEvent(QMouseEvent* event)
         if (delta.manhattanLength() > UNSNAP_THRESHOLD)
         {
             emit request_detach();
-
             is_checking_for_unsnap_ = false;
-            drag_position_ = event->globalPosition().toPoint() - frameGeometry().topLeft();
         }
-        return;
     }
-
-    if (!is_attached_)
+    else if (!is_attached_)
     {
-        move(event->globalPosition().toPoint() - drag_position_);
-
         if (main_window_ == nullptr)
         {
             return;
@@ -102,19 +101,19 @@ void player_window::mouseMoveEvent(QMouseEvent* event)
 
         if (player_rect.intersects(right_snap_zone))
         {
-            emit request_snap(SnapSide::Right);
+            emit request_snap(snap_side::right);
         }
         else if (player_rect.intersects(left_snap_zone))
         {
-            emit request_snap(SnapSide::Left);
+            emit request_snap(snap_side::left);
         }
         else if (player_rect.intersects(top_snap_zone))
         {
-            emit request_snap(SnapSide::Top);
+            emit request_snap(snap_side::top);
         }
         else if (player_rect.intersects(bottom_snap_zone))
         {
-            emit request_snap(SnapSide::Bottom);
+            emit request_snap(snap_side::bottom);
         }
     }
 }
@@ -123,6 +122,16 @@ void player_window::mouseReleaseEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
     {
+        if (is_checking_for_unsnap_)
+        {
+            const int UNSNAP_THRESHOLD = 25;
+            QPoint delta = event->globalPosition().toPoint() - drag_start_position_;
+            if (delta.manhattanLength() < UNSNAP_THRESHOLD)
+            {
+                emit request_resnap();
+            }
+        }
+
         is_being_dragged_by_user_ = false;
         is_checking_for_unsnap_ = false;
     }

@@ -20,7 +20,6 @@
 
 #include "tray_icon.h"
 #include "quick_editor.h"
-#include "player_window.h"
 #include "playlist_window.h"
 #include "playlist_manager.h"
 #include "playback_controller.h"
@@ -102,7 +101,6 @@ void playlist_window::closeEvent(QCloseEvent* event)
 void playlist_window::moveEvent(QMoveEvent* event)
 {
     QMainWindow::moveEvent(event);
-
     if (is_player_attached_)
     {
         update_player_window_position();
@@ -216,6 +214,17 @@ void playlist_window::setup_connections()
 
     connect(player_window_, &player_window::request_snap, this, &playlist_window::on_player_request_snap);
     connect(player_window_, &player_window::request_detach, this, &playlist_window::on_player_request_detach);
+    connect(player_window_, &player_window::request_resnap, this, &playlist_window::on_player_request_resnap);
+}
+
+void playlist_window::on_player_request_resnap()
+{
+    if (!is_player_attached_)
+    {
+        is_player_attached_ = true;
+        player_window_->set_attach(true);
+    }
+    update_player_window_position();
 }
 
 void playlist_window::on_player_request_detach()
@@ -226,11 +235,10 @@ void playlist_window::on_player_request_detach()
     }
 
     is_player_attached_ = false;
-    current_snap_side_ = SnapSide::None;
     player_window_->set_attach(false);
 }
 
-void playlist_window::on_player_request_snap(SnapSide side)
+void playlist_window::on_player_request_snap(snap_side side)
 {
     if (is_player_attached_ && current_snap_side_ == side)
     {
@@ -291,7 +299,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     {
         is_player_attached_ = true;
         player_window_->set_attach(true);
-        current_snap_side_ = SnapSide::Right;
+        current_snap_side_ = snap_side::right;
         update_player_window_position();
         player_window_->show();
     }
@@ -348,7 +356,7 @@ void playlist_window::on_toggle_player_window_clicked()
     {
         is_player_attached_ = true;
         player_window_->set_attach(true);
-        current_snap_side_ = SnapSide::Right;
+        current_snap_side_ = snap_side::right;
         update_player_window_position();
         player_window_->show();
     }
@@ -367,23 +375,23 @@ void playlist_window::update_player_window_position()
 
     switch (current_snap_side_)
     {
-        case SnapSide::Right:
+        case snap_side::right:
             target_pos.setX(main_rect.right());
             target_pos.setY(main_rect.top());
             break;
-        case SnapSide::Left:
+        case snap_side::left:
             target_pos.setX(main_rect.left() - player_rect.width());
             target_pos.setY(main_rect.top());
             break;
-        case SnapSide::Top:
+        case snap_side::top:
             target_pos.setX(main_rect.left());
             target_pos.setY(main_rect.top() - player_rect.height());
             break;
-        case SnapSide::Bottom:
+        case snap_side::bottom:
             target_pos.setX(main_rect.left());
             target_pos.setY(main_rect.bottom());
             break;
-        case SnapSide::None:
+        case snap_side::none:
             return;
     }
 

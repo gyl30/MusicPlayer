@@ -31,13 +31,13 @@ enum class playback_mode : uint8_t
     Sequential
 };
 
-enum class SnapSide : uint8_t
+enum class snap_side : uint8_t
 {
-    None,
-    Top,
-    Bottom,
-    Left,
-    Right
+    none,
+    top,
+    bottom,
+    left,
+    right
 };
 
 class player_window : public QWidget
@@ -57,8 +57,9 @@ class player_window : public QWidget
     void playback_mode_changed(playback_mode new_mode);
     void stop_requested();
     void moved_by_user();
-    void request_snap(SnapSide side);
+    void request_snap(snap_side side);
     void request_detach();
+    void request_resnap();
 
    public slots:
     void update_track_info(qint64 duration_ms);
