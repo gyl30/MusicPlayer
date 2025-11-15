@@ -17,11 +17,13 @@
 #include "volumemeter.h"
 #include "player_window.h"
 #include "spectrum_widget.h"
+#include "playlist_window.h"
 #include "playback_controller.h"
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
-player_window::player_window(playback_controller* controller, QWidget* parent) : QWidget(parent), controller_(controller)
+player_window::player_window(playback_controller* controller, playlist_window* main_wnd, QWidget* parent)
+    : QWidget(parent), controller_(controller), main_window_(main_wnd)
 {
     setWindowFlags(Qt::FramelessWindowHint);
 
@@ -42,38 +44,89 @@ void player_window::moveEvent(QMoveEvent* event)
     }
 }
 
-bool player_window::eventFilter(QObject* watched, QEvent* event)
+void player_window::mousePressEvent(QMouseEvent* event)
 {
-    if (watched == main_container_ || watched == spectrum_widget_ || watched == lyrics_list_widget_)
+    if (event->button() == Qt::LeftButton)
     {
-        auto* mouseEvent = static_cast<QMouseEvent*>(event);
-        if (event->type() == QEvent::MouseButtonPress)
+        is_being_dragged_by_user_ = true;
+
+        drag_position_ = event->globalPosition().toPoint() - frameGeometry().topLeft();
+
+        if (is_attached_)
         {
-            if (mouseEvent->button() == Qt::LeftButton)
-            {
-                is_being_dragged_by_user_ = true;
-                drag_position_ = mouseEvent->globalPosition().toPoint() - frameGeometry().topLeft();
-                return true;
-            }
-        }
-        else if (event->type() == QEvent::MouseMove)
-        {
-            if (is_being_dragged_by_user_)
-            {
-                move(mouseEvent->globalPosition().toPoint() - drag_position_);
-                return true;
-            }
-        }
-        else if (event->type() == QEvent::MouseButtonRelease)
-        {
-            if (mouseEvent->button() == Qt::LeftButton)
-            {
-                is_being_dragged_by_user_ = false;
-                return true;
-            }
+            is_checking_for_unsnap_ = true;
+            drag_start_position_ = event->globalPosition().toPoint();
         }
     }
-    return QWidget::eventFilter(watched, event);
+    QWidget::mousePressEvent(event);
+}
+
+void player_window::mouseMoveEvent(QMouseEvent* event)
+{
+    if (!is_being_dragged_by_user_)
+    {
+        return;
+    }
+
+    if (is_attached_ && is_checking_for_unsnap_)
+    {
+        const int UNSNAP_THRESHOLD = 25;
+        QPoint delta = event->globalPosition().toPoint() - drag_start_position_;
+        if (delta.manhattanLength() > UNSNAP_THRESHOLD)
+        {
+            emit request_detach();
+
+            is_checking_for_unsnap_ = false;
+            drag_position_ = event->globalPosition().toPoint() - frameGeometry().topLeft();
+        }
+        return;
+    }
+
+    if (!is_attached_)
+    {
+        move(event->globalPosition().toPoint() - drag_position_);
+
+        if (main_window_ == nullptr)
+        {
+            return;
+        }
+
+        const int SNAP_DISTANCE = 30;
+        QRect main_rect = main_window_->frameGeometry();
+        QRect player_rect = this->frameGeometry();
+
+        QRect top_snap_zone(main_rect.left(), main_rect.top() - SNAP_DISTANCE, main_rect.width(), SNAP_DISTANCE);
+        QRect bottom_snap_zone(main_rect.left(), main_rect.bottom(), main_rect.width(), SNAP_DISTANCE);
+        QRect left_snap_zone(main_rect.left() - SNAP_DISTANCE, main_rect.top(), SNAP_DISTANCE, main_rect.height());
+        QRect right_snap_zone(main_rect.right(), main_rect.top(), SNAP_DISTANCE, main_rect.height());
+
+        if (player_rect.intersects(right_snap_zone))
+        {
+            emit request_snap(SnapSide::Right);
+        }
+        else if (player_rect.intersects(left_snap_zone))
+        {
+            emit request_snap(SnapSide::Left);
+        }
+        else if (player_rect.intersects(top_snap_zone))
+        {
+            emit request_snap(SnapSide::Top);
+        }
+        else if (player_rect.intersects(bottom_snap_zone))
+        {
+            emit request_snap(SnapSide::Bottom);
+        }
+    }
+}
+
+void player_window::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton)
+    {
+        is_being_dragged_by_user_ = false;
+        is_checking_for_unsnap_ = false;
+    }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void player_window::setup_ui()
@@ -186,10 +239,6 @@ void player_window::setup_ui()
     main_layout->addWidget(volume_meter_);
 
     update_media_display_layout();
-
-    main_container_->installEventFilter(this);
-    spectrum_widget_->installEventFilter(this);
-    lyrics_list_widget_->installEventFilter(this);
 }
 
 void player_window::setup_connections()

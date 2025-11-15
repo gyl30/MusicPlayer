@@ -21,6 +21,7 @@ class QPushButton;
 class volume_meter;
 class spectrum_widget;
 class playback_controller;
+class playlist_window;
 
 enum class playback_mode : uint8_t
 {
@@ -30,12 +31,21 @@ enum class playback_mode : uint8_t
     Sequential
 };
 
+enum class SnapSide : uint8_t
+{
+    None,
+    Top,
+    Bottom,
+    Left,
+    Right
+};
+
 class player_window : public QWidget
 {
     Q_OBJECT
 
    public:
-    explicit player_window(playback_controller* controller, QWidget* parent = nullptr);
+    explicit player_window(playback_controller* controller, playlist_window* main_wnd, QWidget* parent = nullptr);
     ~player_window() override;
 
    public:
@@ -47,6 +57,8 @@ class player_window : public QWidget
     void playback_mode_changed(playback_mode new_mode);
     void stop_requested();
     void moved_by_user();
+    void request_snap(SnapSide side);
+    void request_detach();
 
    public slots:
     void update_track_info(qint64 duration_ms);
@@ -62,7 +74,9 @@ class player_window : public QWidget
 
    protected:
     void moveEvent(QMoveEvent* event) override;
-    bool eventFilter(QObject* watched, QEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
    private slots:
     void on_seek_requested();
@@ -82,6 +96,7 @@ class player_window : public QWidget
 
    private:
     playback_controller* controller_ = nullptr;
+    playlist_window* main_window_ = nullptr;
 
     spectrum_widget* spectrum_widget_ = nullptr;
     QWidget* main_container_ = nullptr;
@@ -112,6 +127,8 @@ class player_window : public QWidget
     bool is_attached_ = false;
 
     QPoint drag_position_;
+    QPoint drag_start_position_;
+    bool is_checking_for_unsnap_ = false;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<LyricLine> current_lyrics_;

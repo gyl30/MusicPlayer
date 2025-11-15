@@ -49,7 +49,8 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 
     controller_ = new playback_controller(this);
     playlist_manager_ = new playlist_manager(this);
-    player_window_ = new player_window(controller_, nullptr);
+    player_window_ = new player_window(controller_, this, nullptr);
+    player_window_->set_attach(is_player_attached_);
 
     setup_ui();
     setup_connections();
@@ -101,6 +102,7 @@ void playlist_window::closeEvent(QCloseEvent* event)
 void playlist_window::moveEvent(QMoveEvent* event)
 {
     QMainWindow::moveEvent(event);
+
     if (is_player_attached_)
     {
         update_player_window_position();
@@ -212,7 +214,34 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
 
-    connect(player_window_, &player_window::moved_by_user, this, &playlist_window::on_player_window_moved_by_user);
+    connect(player_window_, &player_window::request_snap, this, &playlist_window::on_player_request_snap);
+    connect(player_window_, &player_window::request_detach, this, &playlist_window::on_player_request_detach);
+}
+
+void playlist_window::on_player_request_detach()
+{
+    if (!is_player_attached_)
+    {
+        return;
+    }
+
+    is_player_attached_ = false;
+    current_snap_side_ = SnapSide::None;
+    player_window_->set_attach(false);
+}
+
+void playlist_window::on_player_request_snap(SnapSide side)
+{
+    if (is_player_attached_ && current_snap_side_ == side)
+    {
+        return;
+    }
+
+    is_player_attached_ = true;
+    current_snap_side_ = side;
+    player_window_->set_attach(true);
+
+    update_player_window_position();
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -261,6 +290,8 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (!player_window_->isVisible())
     {
         is_player_attached_ = true;
+        player_window_->set_attach(true);
+        current_snap_side_ = SnapSide::Right;
         update_player_window_position();
         player_window_->show();
     }
@@ -316,26 +347,47 @@ void playlist_window::on_toggle_player_window_clicked()
     else
     {
         is_player_attached_ = true;
+        player_window_->set_attach(true);
+        current_snap_side_ = SnapSide::Right;
         update_player_window_position();
         player_window_->show();
     }
 }
 
-void playlist_window::on_player_window_moved_by_user()
-{
-    if (is_player_attached_)
-    {
-        is_player_attached_ = false;
-    }
-}
-
 void playlist_window::update_player_window_position()
 {
-    if (player_window_ != nullptr)
+    if (player_window_ == nullptr || !is_player_attached_)
     {
-        const QPoint main_window_top_right = this->frameGeometry().topRight();
-        player_window_->move(main_window_top_right);
+        return;
     }
+
+    QRect main_rect = this->frameGeometry();
+    QRect player_rect = player_window_->frameGeometry();
+    QPoint target_pos;
+
+    switch (current_snap_side_)
+    {
+        case SnapSide::Right:
+            target_pos.setX(main_rect.right());
+            target_pos.setY(main_rect.top());
+            break;
+        case SnapSide::Left:
+            target_pos.setX(main_rect.left() - player_rect.width());
+            target_pos.setY(main_rect.top());
+            break;
+        case SnapSide::Top:
+            target_pos.setX(main_rect.left());
+            target_pos.setY(main_rect.top() - player_rect.height());
+            break;
+        case SnapSide::Bottom:
+            target_pos.setX(main_rect.left());
+            target_pos.setY(main_rect.bottom());
+            break;
+        case SnapSide::None:
+            return;
+    }
+
+    player_window_->move(target_pos);
 }
 
 void playlist_window::populate_playlists_on_startup()
