@@ -1,15 +1,27 @@
 QPushButton {
     background-color: transparent;
     border: none;
-    padding: 6px;
-    min-width: 38px;
-    min-height: 38px;
+    padding: 4px;
+    min-width: 32px;
+    min-height: 32px;
     color: #34495E;
+    qproperty-iconSize: 22px 22px;
+}
+
+QPushButton#playPauseButton {
+    qproperty-iconSize: 26px 26px;
+    min-width: 36px;
+    min-height: 36px;
+}
+
+#controlsContainer QPushButton {
+    margin-left: 4px;
+    margin-right: 4px;
 }
 
 QPushButton:hover {
     background-color: #EAF2F8;
-    border-radius: 20px;
+    border-radius: 18px;
 }
 
 QPushButton:pressed {
@@ -18,11 +30,25 @@ QPushButton:pressed {
 
 QPushButton#modeButton[active="true"] {
     background-color: #D4E6F1;
-    border-radius: 20px;
+    border-radius: 18px;
 }
 
 QLabel {
     background-color: transparent;
+}
+
+QLabel#timeLabel {
+    min-width: 95px;
+    max-width: 95px;
+}
+
+QLabel#coverArtLabel {
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 80px;
+    max-height: 80px;
+    border: 1px solid #E0E0E0;
+    border-radius: 5px;
 }
 
 QSlider::groove:horizontal {
@@ -50,6 +76,8 @@ volume_meter {
     background: transparent;
     border: none;
     qproperty-barColor: #3498DB;
+    min-width: 8px;
+    max-width: 8px;
 }
 
 spectrum_widget {

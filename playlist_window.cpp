@@ -57,10 +57,9 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
     setWindowTitle("音乐播放器 - 播放列表");
-    resize(400, 600);
-
     centralWidget()->installEventFilter(this);
     song_tree_widget_->installEventFilter(this);
+    resize(480, 300);
 }
 
 playlist_window::~playlist_window()

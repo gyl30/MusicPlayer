@@ -1,5 +1,3 @@
-#include "player_window.h"
-
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -17,9 +15,10 @@
 #include <QEvent>
 
 #include "volumemeter.h"
+#include "player_window.h"
+#include "playlist_window.h"
 #include "spectrum_widget.h"
 #include "playback_controller.h"
-#include "playlist_window.h"
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
@@ -30,7 +29,7 @@ player_window::player_window(playback_controller* controller, playlist_window* m
     setup_ui();
     setup_connections();
     setWindowTitle("播放器");
-    resize(480, 260);
+    resize(480, 300);
 }
 
 player_window::~player_window() = default;
@@ -165,9 +164,7 @@ void player_window::setup_ui()
 
     cover_art_label_ = new QLabel();
     cover_art_label_->setObjectName("coverArtLabel");
-    cover_art_label_->setFixedSize(80, 80);
     cover_art_label_->setScaledContents(true);
-    cover_art_label_->setStyleSheet("border: 1px solid #E0E0E0; border-radius: 5px;");
 
     lyrics_list_widget_ = new QListWidget(this);
     lyrics_list_widget_->setObjectName("lyricsListWidget");
@@ -187,7 +184,7 @@ void player_window::setup_ui()
 
     progress_slider_ = new QSlider(Qt::Horizontal);
     time_label_ = new QLabel("00:00 / 00:00", this);
-    time_label_->setFixedWidth(120);
+    time_label_->setObjectName("timeLabel");
     time_label_->setAlignment(Qt::AlignCenter);
 
     auto* progress_layout = new QHBoxLayout();
@@ -197,16 +194,10 @@ void player_window::setup_ui()
     stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "");
     prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "");
     play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
+    play_pause_button_->setObjectName("playPauseButton");
     next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
     shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "");
     shuffle_button_->setObjectName("modeButton");
-
-    QSize icon_size(24, 24);
-    stop_button_->setIconSize(icon_size);
-    prev_button_->setIconSize(icon_size);
-    play_pause_button_->setIconSize(QSize(28, 28));
-    next_button_->setIconSize(icon_size);
-    shuffle_button_->setIconSize(icon_size);
 
     stop_button_->setToolTip("停止");
     prev_button_->setToolTip("上一首");
@@ -215,9 +206,11 @@ void player_window::setup_ui()
     shuffle_button_->setToolTip("列表循环");
 
     auto* controls_container = new QWidget();
+    controls_container->setObjectName("controlsContainer");
     auto* controls_layout = new QHBoxLayout(controls_container);
     controls_layout->setContentsMargins(0, 0, 0, 0);
-    controls_layout->setSpacing(10);
+    controls_layout->setSpacing(0);
+
     controls_layout->addStretch();
     controls_layout->addWidget(shuffle_button_);
     controls_layout->addWidget(prev_button_);
@@ -236,7 +229,6 @@ void player_window::setup_ui()
     left_panel_layout_->setStretchFactor(lyrics_and_cover_container_, 1);
 
     volume_meter_ = new volume_meter();
-    volume_meter_->setFixedWidth(8);
     volume_meter_->setRange(0, 100);
     volume_meter_->setValue(80);
     volume_meter_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
