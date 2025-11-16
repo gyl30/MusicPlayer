@@ -48,7 +48,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 
     controller_ = new playback_controller(this);
     playlist_manager_ = new playlist_manager(this);
-    player_window_ = new player_window(controller_, this, nullptr);
+    player_window_ = new player_window(controller_, this);
     player_window_->set_attach(is_player_attached_);
 
     setup_ui();

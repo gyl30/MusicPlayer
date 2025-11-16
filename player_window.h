@@ -45,7 +45,7 @@ class player_window : public QWidget
     Q_OBJECT
 
    public:
-    explicit player_window(playback_controller* controller, playlist_window* main_wnd, QWidget* parent = nullptr);
+    explicit player_window(playback_controller* controller, playlist_window* main_wnd);
     ~player_window() override;
 
    public:

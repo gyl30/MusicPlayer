@@ -23,11 +23,10 @@
 
 constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
 
-player_window::player_window(playback_controller* controller, playlist_window* main_wnd, QWidget* parent)
-    : QWidget(parent), controller_(controller), main_window_(main_wnd)
+player_window::player_window(playback_controller* controller, playlist_window* main_wnd)
+    : QWidget(main_wnd), controller_(controller), main_window_(main_wnd)
 {
-    setWindowFlags(Qt::FramelessWindowHint);
-
+    setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
     setup_ui();
     setup_connections();
     setWindowTitle("播放器");
