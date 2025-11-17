@@ -349,14 +349,22 @@ void playlist_window::on_toggle_player_window_clicked()
     }
     if (player_window_->isVisible())
     {
+        last_player_pos_ = player_window_->pos();
         player_window_->hide();
     }
     else
     {
-        is_player_attached_ = true;
-        player_window_->set_attach(true);
-        current_snap_side_ = snap_side::right;
-        update_player_window_position();
+        if (!last_player_pos_.isNull())
+        {
+            player_window_->move(last_player_pos_);
+        }
+        else
+        {
+            is_player_attached_ = true;
+            player_window_->set_attach(true);
+            current_snap_side_ = snap_side::right;
+            update_player_window_position();
+        }
         player_window_->show();
     }
 }

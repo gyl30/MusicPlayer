@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QList>
 #include <QMap>
+#include <QPoint>
 
 #include "playlist_data.h"
 #include "player_window.h"
@@ -100,6 +101,7 @@ class playlist_window : public QMainWindow
 
     bool is_being_dragged_by_user_ = false;
     QPoint drag_position_;
+    QPoint last_player_pos_;
 };
 
 #endif
