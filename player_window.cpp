@@ -20,8 +20,6 @@
 #include "spectrum_widget.h"
 #include "playback_controller.h"
 
-constexpr qint64 LYRIC_PREDICTION_OFFSET_MS = 250;
-
 player_window::player_window(playback_controller* controller, playlist_window* main_wnd)
     : QWidget(main_wnd), controller_(controller), main_window_(main_wnd)
 {
@@ -29,7 +27,7 @@ player_window::player_window(playback_controller* controller, playlist_window* m
     setup_ui();
     setup_connections();
     setWindowTitle("播放器");
-    resize(480, 300);
+    resize(480, 150);
 }
 
 player_window::~player_window() = default;
@@ -166,17 +164,11 @@ void player_window::setup_ui()
     cover_art_label_->setObjectName("coverArtLabel");
     cover_art_label_->setScaledContents(true);
 
-    lyrics_list_widget_ = new QListWidget(this);
-    lyrics_list_widget_->setObjectName("lyricsListWidget");
-    lyrics_list_widget_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    lyrics_list_widget_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    lyrics_list_widget_->setSelectionMode(QAbstractItemView::NoSelection);
-    lyrics_list_widget_->setFocusPolicy(Qt::NoFocus);
-    lyrics_list_widget_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lyrics_widget_ = new lyrics_widget(this);
+    lyrics_widget_->setObjectName("lyricsWidget");
 
     lyrics_and_cover_layout->addWidget(cover_art_label_);
-    lyrics_and_cover_layout->addWidget(lyrics_list_widget_, 1);
-    lyrics_scroll_animation_ = new QPropertyAnimation(lyrics_list_widget_->verticalScrollBar(), "value", this);
+    lyrics_and_cover_layout->addWidget(lyrics_widget_, 1);
 
     track_title_label_ = new QLabel("欢迎使用", this);
     track_title_label_->setAlignment(Qt::AlignCenter);
@@ -282,8 +274,9 @@ void player_window::reset_ui()
 
     has_cover_art_ = false;
     has_lyrics_ = false;
-    lyrics_list_widget_->clear();
-    current_lyrics_.clear();
+
+    lyrics_widget_->clear();
+
     cover_art_label_->clear();
     update_media_display_layout();
 }
@@ -376,22 +369,15 @@ void player_window::on_cover_art_updated(const QByteArray& image_data)
 
 void player_window::on_lyrics_updated(const QList<LyricLine>& lyrics)
 {
-    current_lyrics_ = lyrics;
-    current_lyric_index_ = -1;
-    lyrics_list_widget_->clear();
-
-    if (current_lyrics_.isEmpty())
+    if (lyrics.isEmpty())
     {
         has_lyrics_ = false;
+        lyrics_widget_->clear();
     }
     else
     {
         has_lyrics_ = true;
-        for (const auto& line : current_lyrics_)
-        {
-            auto* item = new QListWidgetItem(line.text, lyrics_list_widget_);
-            item->setTextAlignment(Qt::AlignCenter);
-        }
+        lyrics_widget_->set_lyrics(lyrics);
     }
     update_media_display_layout();
 }
@@ -464,45 +450,7 @@ void player_window::update_progress(qint64 current_ms, qint64 total_ms)
     QString time_str = QString("%1 / %2").arg(current_time.toString(format)).arg(total_time.toString(format));
     time_label_->setText(time_str);
 
-    if (current_lyrics_.isEmpty())
-    {
-        return;
-    }
-
-    const qint64 predicted_ms = current_ms + LYRIC_PREDICTION_OFFSET_MS;
-    int new_lyric_index = -1;
-    for (int i = 0; i < current_lyrics_.size(); ++i)
-    {
-        if (predicted_ms >= current_lyrics_[i].timestamp_ms)
-        {
-            new_lyric_index = i;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    if (new_lyric_index != -1 && new_lyric_index != current_lyric_index_)
-    {
-        if (lyrics_scroll_animation_->state() == QAbstractAnimation::Running)
-        {
-            lyrics_scroll_animation_->stop();
-        }
-
-        if (current_lyric_index_ >= 0 && current_lyric_index_ < lyrics_list_widget_->count())
-        {
-            lyrics_list_widget_->item(current_lyric_index_)->setSelected(false);
-        }
-
-        auto* new_item = lyrics_list_widget_->item(new_lyric_index);
-        if (new_item != nullptr)
-        {
-            new_item->setSelected(true);
-            lyrics_list_widget_->scrollToItem(new_item, QAbstractItemView::PositionAtCenter);
-        }
-        current_lyric_index_ = new_lyric_index;
-    }
+    lyrics_widget_->set_current_time(current_ms);
 }
 
 void player_window::handle_playback_error(const QString& error_message)

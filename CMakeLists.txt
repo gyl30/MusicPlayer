@@ -128,6 +128,7 @@ add_executable(MusicPlayer
     resources.qrc
     tray_icon.cpp
     music_management_dialog.cpp
+    lyrics_widget.cpp
 )
 
 target_compile_options(MusicPlayer PRIVATE

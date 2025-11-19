@@ -7,6 +7,7 @@
 #include <QList>
 #include <QPropertyAnimation>
 #include "audio_packet.h"
+#include "lyrics_widget.h"
 
 class QMoveEvent;
 class QMouseEvent;
@@ -103,7 +104,9 @@ class player_window : public QWidget
     QWidget* main_container_ = nullptr;
 
     QLabel* cover_art_label_ = nullptr;
-    QListWidget* lyrics_list_widget_ = nullptr;
+
+    lyrics_widget* lyrics_widget_ = nullptr;
+
     QWidget* lyrics_and_cover_container_ = nullptr;
     QVBoxLayout* left_panel_layout_ = nullptr;
 
@@ -132,9 +135,6 @@ class player_window : public QWidget
     bool is_checking_for_unsnap_ = false;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
-    QList<LyricLine> current_lyrics_;
-    int current_lyric_index_ = -1;
-    QPropertyAnimation* lyrics_scroll_animation_ = nullptr;
 };
 
 #endif
