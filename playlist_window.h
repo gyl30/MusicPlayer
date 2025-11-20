@@ -97,7 +97,7 @@ class playlist_window : public QMainWindow
     int current_shuffle_index_ = -1;
 
     bool is_player_attached_ = true;
-    snap_side current_snap_side_ = snap_side::right;
+    snap_side current_snap_side_ = snap_side::bottom;
 
     bool is_being_dragged_by_user_ = false;
     QPoint drag_position_;

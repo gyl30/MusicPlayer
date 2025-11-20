@@ -298,7 +298,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     {
         is_player_attached_ = true;
         player_window_->set_attach(true);
-        current_snap_side_ = snap_side::right;
+        current_snap_side_ = snap_side::bottom;
         update_player_window_position();
         player_window_->show();
     }
@@ -362,7 +362,7 @@ void playlist_window::on_toggle_player_window_clicked()
         {
             is_player_attached_ = true;
             player_window_->set_attach(true);
-            current_snap_side_ = snap_side::right;
+            current_snap_side_ = snap_side::bottom;
             update_player_window_position();
         }
         player_window_->show();

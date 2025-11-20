@@ -92,18 +92,8 @@ void player_window::mouseMoveEvent(QMouseEvent* event)
 
         QRect top_snap_zone(main_rect.left(), main_rect.top() - SNAP_DISTANCE, main_rect.width(), SNAP_DISTANCE);
         QRect bottom_snap_zone(main_rect.left(), main_rect.bottom(), main_rect.width(), SNAP_DISTANCE);
-        QRect left_snap_zone(main_rect.left() - SNAP_DISTANCE, main_rect.top(), SNAP_DISTANCE, main_rect.height());
-        QRect right_snap_zone(main_rect.right(), main_rect.top(), SNAP_DISTANCE, main_rect.height());
 
-        if (player_rect.intersects(right_snap_zone))
-        {
-            emit request_snap(snap_side::right);
-        }
-        else if (player_rect.intersects(left_snap_zone))
-        {
-            emit request_snap(snap_side::left);
-        }
-        else if (player_rect.intersects(top_snap_zone))
+        if (player_rect.intersects(top_snap_zone))
         {
             emit request_snap(snap_side::top);
         }
