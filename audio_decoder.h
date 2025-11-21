@@ -5,6 +5,9 @@
 #include <QAudioFormat>
 #include <atomic>
 #include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <QMap>
 #include <QByteArray>
 #include <QList>
@@ -28,6 +31,8 @@ class audio_decoder : public QObject
     explicit audio_decoder(QObject* parent = nullptr);
     ~audio_decoder() override;
 
+    bool is_aborted() const { return abort_request_.load(); }
+
    public slots:
     void start_decoding(qint64 session_id, const QString& file, qint64 offset = -1);
     void resume_decoding();
@@ -45,11 +50,9 @@ class audio_decoder : public QObject
     void cover_art_ready(qint64 session_id, const QByteArray& image_data);
     void lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);
 
-   private slots:
-    void do_seek();
-    void do_decoding_cycle();
-
    private:
+    void decoding_loop();
+
     bool open_audio_context(const QString& file_path);
     void close_audio_context();
     void process_frame(AVFrame* frame);
@@ -57,8 +60,15 @@ class audio_decoder : public QObject
 
    private:
     QString file_path_;
-    std::atomic<bool> stop_flag_{true};
     qint64 session_id_ = 0;
+
+    std::thread worker_thread_;
+    std::mutex state_mutex_;
+    std::condition_variable wait_cv_;
+
+    std::atomic<bool> is_running_{false};
+    std::atomic<bool> abort_request_{false};
+    bool is_paused_ = true;
 
     bool seek_requested_ = false;
     qint64 seek_position_ms_ = -1;
@@ -79,7 +89,6 @@ class audio_decoder : public QObject
 
     qint64 start_time_offset_ms_ = 0;
     bool first_frame_processed_ = false;
-    std::atomic<bool> decoding_paused_{true};
 };
 
 #endif
