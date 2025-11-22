@@ -17,7 +17,9 @@
 #include <QMoveEvent>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QTimer>
 
+#include "log.h"
 #include "tray_icon.h"
 #include "quick_editor.h"
 #include "playlist_window.h"
@@ -205,6 +207,7 @@ void playlist_window::setup_connections()
 
     connect(controller_, &playback_controller::playback_started, this, &playlist_window::on_playback_started);
     connect(controller_, &playback_controller::playback_finished, this, &playlist_window::handle_playback_finished);
+    connect(controller_, &playback_controller::playback_error, this, &playlist_window::handle_playback_error_strategy);
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
     connect(player_window_, &player_window::previous_requested, this, &playlist_window::on_previous_requested);
@@ -283,6 +286,9 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
 {
     (void)file_path;
     (void)file_name;
+
+    consecutive_failures_ = 0;
+
     clear_playing_indicator();
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)
@@ -303,6 +309,29 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         player_window_->show();
     }
     toggle_player_window_button_->setEnabled(true);
+}
+
+void playlist_window::handle_playback_error_strategy(const QString& error_message)
+{
+    LOG_WARN("播放出错 (连续第 {} 次): {}", consecutive_failures_ + 1, error_message.toStdString());
+
+    consecutive_failures_++;
+
+    if (consecutive_failures_ >= MAX_CONSECUTIVE_FAILURES)
+    {
+        LOG_ERROR("达到最大连续错误次数 ({})，停止自动播放。", MAX_CONSECUTIVE_FAILURES);
+        on_stop_requested();
+
+        QMessageBox::warning(
+            this, "播放停止", QString("连续 %1 首歌曲播放失败，已停止播放。\n最后错误: %2").arg(MAX_CONSECUTIVE_FAILURES).arg(error_message));
+
+        consecutive_failures_ = 0;
+        return;
+    }
+
+    LOG_INFO("尝试自动跳转到下一首...");
+
+    QTimer::singleShot(200, this, [this]() { this->on_next_requested(); });
 }
 
 void playlist_window::generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index)

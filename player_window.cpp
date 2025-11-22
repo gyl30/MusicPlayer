@@ -443,11 +443,7 @@ void player_window::update_progress(qint64 current_ms, qint64 total_ms)
     lyrics_widget_->set_current_time(current_ms);
 }
 
-void player_window::handle_playback_error(const QString& error_message)
-{
-    QMessageBox::warning(this, "播放错误", error_message);
-    emit stop_requested();
-}
+void player_window::handle_playback_error(const QString& error_message) { track_title_label_->setText(QString("错误: %1").arg(error_message)); }
 
 void player_window::on_metadata_updated(const QMap<QString, QString>& metadata)
 {

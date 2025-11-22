@@ -63,6 +63,8 @@ class playlist_window : public QMainWindow
     void on_player_request_detach();
     void on_player_request_resnap();
 
+    void handle_playback_error_strategy(const QString& error_message);
+
    protected:
     void closeEvent(QCloseEvent* event) override;
     void moveEvent(QMoveEvent* event) override;
@@ -102,6 +104,9 @@ class playlist_window : public QMainWindow
     bool is_being_dragged_by_user_ = false;
     QPoint drag_position_;
     QPoint last_player_pos_;
+
+    int consecutive_failures_ = 0;
+    const int MAX_CONSECUTIVE_FAILURES = 5;
 };
 
 #endif
