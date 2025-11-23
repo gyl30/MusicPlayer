@@ -150,7 +150,7 @@ void playlist_window::setup_ui()
     auto* central_widget = new QWidget(this);
     setCentralWidget(central_widget);
     auto* main_layout = new QVBoxLayout(central_widget);
-    main_layout->setContentsMargins(5, 5, 5, 5);
+    main_layout->setContentsMargins(0, 0, 0, 0);
 
     song_tree_widget_ = new QTreeWidget();
     song_tree_widget_->setObjectName("songTreeWidget");
@@ -160,6 +160,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->setIndentation(10);
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    song_tree_widget_->setFrameShape(QFrame::NoFrame);
 
     auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), " 管理音乐");
     manage_button->setIconSize(QSize(18, 18));
@@ -169,6 +170,7 @@ void playlist_window::setup_ui()
     toggle_player_window_button_->setEnabled(false);
 
     auto* button_layout = new QHBoxLayout();
+    button_layout->setContentsMargins(5, 5, 5, 5);
     button_layout->addWidget(toggle_player_window_button_);
     button_layout->addStretch();
     button_layout->addWidget(manage_button);

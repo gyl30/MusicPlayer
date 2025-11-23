@@ -211,6 +211,7 @@ void player_window::setup_ui()
     left_panel_layout_->setStretchFactor(lyrics_and_cover_container_, 1);
 
     volume_meter_ = new volume_meter();
+    volume_meter_->setObjectName("volumeMeter");
     volume_meter_->setRange(0, 100);
     volume_meter_->setValue(80);
     volume_meter_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);

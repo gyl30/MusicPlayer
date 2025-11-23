@@ -76,8 +76,8 @@ volume_meter {
     background: transparent;
     border: none;
     qproperty-barColor: #3498DB;
-    min-width: 8px;
-    max-width: 8px;
+    min-width: 15px;
+    max-width: 15px;
 }
 
 spectrum_widget {
@@ -130,4 +130,13 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
+}
+
+#bottomContainer {
+    padding: 0px 0px 0px 0px;
+}
+
+#volumeMeter {
+    min-width: 8px;
+    max-width: 8px;
 }
