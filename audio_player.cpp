@@ -139,11 +139,9 @@ void audio_player::stop_playback()
 
     if (device_id_ != 0)
     {
-        SDL_LockAudioDevice(device_id_);
         SDL_PauseAudioDevice(device_id_, 1);
         SDL_CloseAudioDevice(device_id_);
         device_id_ = 0;
-        SDL_UnlockAudioDevice(device_id_);
         LOG_DEBUG("sdl 音频设备已关闭");
     }
 
@@ -190,18 +188,46 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         return;
     }
+
     LOG_INFO("跳转流程 7/10 sdl 播放器收到跳转处理请求");
 
     if (device_id_ != 0)
     {
-        SDL_CloseAudioDevice(device_id_);
-        device_id_ = 0;
-        LOG_DEBUG("sdl 音频设备已为跳转关闭");
+        SDL_LockAudioDevice(device_id_);
+
+        {
+            QMutexLocker locker(&queue_mutex_);
+            data_queue_.clear();
+        }
+
+        playback_start_offset_ms_ = actual_seek_ms;
+        bytes_processed_by_device_ = 0;
+        decoder_finished_ = false;
+
+        low_water_mark_triggered_ = true;
+        high_water_mark_triggered_ = false;
+
+        SDL_UnlockAudioDevice(device_id_);
+
+        if (!is_playing_)
+        {
+            is_playing_ = true;
+            SDL_PauseAudioDevice(device_id_, 0);
+        }
+
+        if (!progress_timer_->isActive())
+        {
+            progress_timer_->start();
+        }
+
+        LOG_INFO("跳转流程 8/10 sdl 复用现有设备完成跳转");
+        emit seek_handled(session_id_);
+        return;
     }
 
     if (!last_format_.isValid())
     {
-        LOG_ERROR("sdl 无法重新打开设备 最后一次使用的音频格式无效");
+        LOG_ERROR("sdl 无法打开设备 最后一次使用的音频格式无效");
         emit playback_error("无法在播放结束后跳转 音频格式信息已丢失");
         return;
     }
@@ -216,19 +242,25 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     desired_spec.callback = audio_callback;
     desired_spec.userdata = this;
 
-    device_id_ = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &audio_spec_, 0);
-    if (device_id_ == 0)
+    SDL_AudioSpec obtained_spec;
+    SDL_zero(obtained_spec);
+
+    SDL_AudioDeviceID new_dev = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &obtained_spec, 0);
+
+    if (new_dev == 0)
     {
-        LOG_ERROR("sdl 在 seek 期间重新打开音频设备失败 {}", SDL_GetError());
-        emit playback_error("为跳转操作重新打开音频设备失败");
+        LOG_ERROR("sdl 在 seek 期间打开音频设备失败 {}", SDL_GetError());
+        emit playback_error("为跳转操作打开音频设备失败");
         return;
     }
-    LOG_INFO("sdl 音频设备已为 seek 重新打开 id {}", device_id_);
+
+    audio_spec_ = obtained_spec;
+    device_id_ = new_dev;
+    LOG_INFO("sdl 音频设备已为 seek 新建打开 id {}", new_dev);
 
     {
         QMutexLocker locker(&queue_mutex_);
         data_queue_.clear();
-        LOG_INFO("跳转流程 8/10 sdl 播放器数据队列已为跳转清空");
     }
 
     playback_start_offset_ms_ = actual_seek_ms;
@@ -242,6 +274,8 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         progress_timer_->start();
     }
+
+    SDL_PauseAudioDevice(new_dev, 0);
 
     LOG_INFO("跳转流程 8/10 sdl 跳转处理完毕 通知控制中心");
     emit seek_handled(session_id_);
