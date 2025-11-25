@@ -283,7 +283,7 @@ void playback_controller::on_buffer_level_low(qint64 session_id)
     {
         return;
     }
-    LOG_INFO("缓冲区事件 触发低水位线请求解码器继续解码");
+    LOG_TRACE("缓冲区事件 触发低水位线请求解码器继续解码");
     QMetaObject::invokeMethod(decoder_, "resume_decoding", Qt::QueuedConnection);
 }
 
@@ -293,7 +293,7 @@ void playback_controller::on_buffer_level_high(qint64 session_id)
     {
         return;
     }
-    LOG_INFO("缓冲区事件 触发高水位线 请求解码器暂停解码");
+    LOG_TRACE("缓冲区事件 触发高水位线 请求解码器暂停解码");
     QMetaObject::invokeMethod(decoder_, "pause_decoding", Qt::QueuedConnection);
 }
 
