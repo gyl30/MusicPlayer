@@ -141,7 +141,6 @@ void audio_decoder::decoding_loop()
     {
         {
             std::unique_lock<std::mutex> lock(state_mutex_);
-
             wait_cv_.wait(lock, [this] { return (!is_paused_ || seek_requested_ || !is_running_); });
 
             if (!is_running_)
@@ -173,16 +172,23 @@ void audio_decoder::decoding_loop()
 
                 avcodec_flush_buffers(codec_ctx_);
 
-                int ret = av_seek_frame(format_ctx_, audio_stream_index_, seek_target_ts, AVSEEK_FLAG_BACKWARD);
+                int ret = avformat_seek_file(format_ctx_, audio_stream_index_, INT64_MIN, seek_target_ts, seek_target_ts, 0);
+
+                if (ret < 0)
+                {
+                    ret = avformat_seek_file(format_ctx_, audio_stream_index_, INT64_MIN, seek_target_ts, INT64_MAX, 0);
+                }
+
                 qint64 actual_ms = target_ms;
 
                 if (ret < 0)
                 {
+                    LOG_WARN("avformat_seek_file failed: {}", ffmpeg_error_string(ret));
                     actual_ms = -1;
+                    seek_target_exact_ms_ = -1;
                 }
                 else
                 {
-                    first_frame_processed_ = false;
                     accumulated_ms_ = target_ms;
                 }
 
@@ -244,7 +250,6 @@ void audio_decoder::decoding_loop()
         }
     }
 }
-
 bool audio_decoder::open_audio_context(const QString& file_path)
 {
     close_audio_context();

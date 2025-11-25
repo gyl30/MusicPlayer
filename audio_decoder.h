@@ -82,6 +82,7 @@ class audio_decoder : public QObject
     uint8_t* swr_data_ = nullptr;
     int swr_data_linesize_ = 0;
     int audio_stream_index_ = -1;
+    qint64 seek_target_exact_ms_ = -1;
     AVRational time_base_;
     QAudioFormat target_format_;
     AVSampleFormat target_ffmpeg_fmt_ = AV_SAMPLE_FMT_NONE;
