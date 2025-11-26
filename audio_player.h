@@ -69,7 +69,7 @@ class audio_player : public QObject
 
     QAudioFormat last_format_;
 
-    std::atomic<float> volume_{1.0F};
+    std::atomic<int> volume_{128};
 };
 
 #endif

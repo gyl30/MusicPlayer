@@ -3,6 +3,7 @@
 #include <numeric>
 #include <algorithm>
 #include <memory>
+#include <cmath>
 #include "log.h"
 #include "audio_player.h"
 
@@ -44,8 +45,12 @@ audio_player::~audio_player()
 
 void audio_player::set_volume(int volume_percent)
 {
-    volume_ = static_cast<float>(qBound(0, volume_percent, 100)) / 100.0F;
-    LOG_DEBUG("音量已设置为 {}", volume_.load());
+    int clamped_percent = qBound(0, volume_percent, 100);
+    float factor = std::pow(static_cast<float>(clamped_percent) / 100.0F, 3.0F);
+    int sdl_volume = static_cast<int>(factor * SDL_MIX_MAXVOLUME);
+
+    volume_.store(sdl_volume);
+    LOG_DEBUG("音量已设置为 SDL: {} (UI: {}%)", sdl_volume, volume_percent);
 }
 
 void audio_player::on_playback_completed_internal()
@@ -332,6 +337,8 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
         int bytes_to_fill = len;
         auto* stream_ptr = stream;
 
+        int current_sdl_volume = volume_.load();
+
         while (bytes_to_fill > 0 && !data_queue_.empty())
         {
             auto& packet = data_queue_.front();
@@ -346,15 +353,9 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
                     emit packet_played(packet);
                 }
 
-                float current_volume = volume_.load();
-                const auto* source_data = reinterpret_cast<const int16_t*>(packet->data.data() + packet->bytes_played);
-                auto* dest_data = reinterpret_cast<int16_t*>(stream_ptr);
-                size_t samples_to_copy = bytes_to_copy / sizeof(int16_t);
+                const Uint8* source_ptr = packet->data.data() + packet->bytes_played;
 
-                for (size_t i = 0; i < samples_to_copy; ++i)
-                {
-                    dest_data[i] = static_cast<int16_t>(static_cast<float>(source_data[i]) * current_volume);
-                }
+                SDL_MixAudioFormat(stream_ptr, source_ptr, audio_spec_.format, static_cast<Uint32>(bytes_to_copy), current_sdl_volume);
 
                 packet->bytes_played += bytes_to_copy;
                 stream_ptr += bytes_to_copy;
