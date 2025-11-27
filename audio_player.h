@@ -1,14 +1,13 @@
 #ifndef AUDIO_PLAYER_H
 #define AUDIO_PLAYER_H
 
-#include <deque>
 #include <atomic>
+#include <memory>
 #include <QObject>
 #include <QTimer>
-#include <QMutex>
 #include <QAudioFormat>
-
 #include <SDL.h>
+#include <boost/lockfree/spsc_queue.hpp>
 
 #include "audio_packet.h"
 
@@ -42,6 +41,7 @@ class audio_player : public QObject
    private:
     void fill_audio_buffer(Uint8* stream, int len);
     static void audio_callback(void* userdata, Uint8* stream, int len);
+    void clear_queue();
 
    private slots:
     void update_progress_ui();
@@ -51,8 +51,9 @@ class audio_player : public QObject
     SDL_AudioDeviceID device_id_ = 0;
     SDL_AudioSpec audio_spec_;
 
-    std::deque<std::shared_ptr<audio_packet>> data_queue_;
-    QMutex queue_mutex_;
+    boost::lockfree::spsc_queue<std::shared_ptr<audio_packet>, boost::lockfree::capacity<1024>> packet_queue_;
+    std::shared_ptr<audio_packet> current_packet_ = nullptr;
+    std::atomic<int64_t> approx_buffered_bytes_{0};
 
     qint64 session_id_ = 0;
     std::atomic<bool> is_playing_{false};

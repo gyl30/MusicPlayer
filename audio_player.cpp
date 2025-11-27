@@ -1,9 +1,6 @@
-#include <QMutexLocker>
-#include <QMetaObject>
-#include <numeric>
-#include <algorithm>
-#include <memory>
 #include <cmath>
+#include <algorithm>
+#include <QMetaObject>
 #include "log.h"
 #include "audio_player.h"
 
@@ -41,6 +38,13 @@ audio_player::~audio_player()
     stop_playback();
     SDL_Quit();
     LOG_DEBUG("音频播放器已销毁 sdl 已退出");
+}
+
+void audio_player::clear_queue()
+{
+    packet_queue_.consume_all([](const std::shared_ptr<audio_packet>&) {});
+    current_packet_.reset();
+    approx_buffered_bytes_.store(0);
 }
 
 void audio_player::set_volume(int volume_percent)
@@ -107,6 +111,8 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
               (int)audio_spec_.format,
               audio_spec_.size);
 
+    clear_queue();
+
     playback_start_offset_ms_ = start_offset_ms;
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
@@ -144,14 +150,15 @@ void audio_player::stop_playback()
 
     if (device_id_ != 0)
     {
+        SDL_LockAudioDevice(device_id_);
+        clear_queue();
+        SDL_UnlockAudioDevice(device_id_);
+
         SDL_PauseAudioDevice(device_id_, 1);
         SDL_CloseAudioDevice(device_id_);
         device_id_ = 0;
         LOG_DEBUG("sdl 音频设备已关闭");
     }
-
-    QMutexLocker locker(&queue_mutex_);
-    data_queue_.clear();
 }
 
 void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
@@ -168,16 +175,13 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
         return;
     }
 
-    qint64 current_buffer_size;
+    if (packet_queue_.push(packet))
     {
-        QMutexLocker locker(&queue_mutex_);
-        data_queue_.push_back(packet);
+        approx_buffered_bytes_.fetch_add(packet->data.size(), std::memory_order_relaxed);
         low_water_mark_triggered_ = false;
-        current_buffer_size = std::accumulate(data_queue_.begin(),
-                                              data_queue_.end(),
-                                              0LL,
-                                              [](qint64 sum, const auto& pkt) { return sum + (pkt ? static_cast<qint64>(pkt->data.size()) : 0); });
     }
+
+    qint64 current_buffer_size = approx_buffered_bytes_.load(std::memory_order_relaxed);
 
     if (!high_water_mark_triggered_ && current_buffer_size >= buffer_high_water_mark_)
     {
@@ -200,10 +204,7 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     {
         SDL_LockAudioDevice(device_id_);
 
-        {
-            QMutexLocker locker(&queue_mutex_);
-            data_queue_.clear();
-        }
+        clear_queue();
 
         playback_start_offset_ms_ = actual_seek_ms;
         bytes_processed_by_device_ = 0;
@@ -263,10 +264,7 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     device_id_ = new_dev;
     LOG_INFO("sdl 音频设备已为 seek 新建打开 id {}", new_dev);
 
-    {
-        QMutexLocker locker(&queue_mutex_);
-        data_queue_.clear();
-    }
+    clear_queue();
 
     playback_start_offset_ms_ = actual_seek_ms;
     bytes_processed_by_device_ = 0;
@@ -310,79 +308,69 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
 {
     SDL_memset(stream, 0, static_cast<size_t>(len));
 
-    bool should_finish = false;
+    if (!is_playing_)
     {
-        QMutexLocker locker(&queue_mutex_);
-        if (data_queue_.empty() && decoder_finished_)
+        return;
+    }
+
+    Uint8* stream_ptr = stream;
+    int bytes_to_fill = len;
+    int current_sdl_volume = volume_.load(std::memory_order_relaxed);
+
+    while (bytes_to_fill > 0)
+    {
+        if (!current_packet_)
         {
-            should_finish = true;
+            if (packet_queue_.pop(current_packet_))
+            {
+                if (current_packet_->bytes_played == 0)
+                {
+                    emit packet_played(current_packet_);
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        size_t bytes_remaining = current_packet_->data.size() - current_packet_->bytes_played;
+        size_t bytes_to_copy = std::min(static_cast<size_t>(bytes_to_fill), bytes_remaining);
+
+        if (bytes_to_copy > 0)
+        {
+            SDL_MixAudioFormat(stream_ptr,
+                               current_packet_->data.data() + current_packet_->bytes_played,
+                               audio_spec_.format,
+                               static_cast<Uint32>(bytes_to_copy),
+                               current_sdl_volume);
+
+            stream_ptr += bytes_to_copy;
+            bytes_to_fill -= static_cast<int>(bytes_to_copy);
+            current_packet_->bytes_played += bytes_to_copy;
+
+            approx_buffered_bytes_.fetch_sub(bytes_to_copy, std::memory_order_relaxed);
+            bytes_processed_by_device_.fetch_add(bytes_to_copy, std::memory_order_relaxed);
+        }
+
+        if (current_packet_->bytes_played >= current_packet_->data.size())
+        {
+            current_packet_.reset();
         }
     }
 
-    if (should_finish)
+    bool queue_empty = (packet_queue_.read_available() == 0) && (!current_packet_);
+
+    if (queue_empty && decoder_finished_.load(std::memory_order_acquire))
     {
         decoder_finished_ = false;
         QMetaObject::invokeMethod(this, "on_playback_completed_internal", Qt::QueuedConnection);
         return;
     }
 
-    int bytes_filled_this_cycle = 0;
-    {
-        QMutexLocker locker(&queue_mutex_);
-        if (!is_playing_ || data_queue_.empty())
-        {
-            return;
-        }
-
-        int bytes_to_fill = len;
-        auto* stream_ptr = stream;
-
-        int current_sdl_volume = volume_.load();
-
-        while (bytes_to_fill > 0 && !data_queue_.empty())
-        {
-            auto& packet = data_queue_.front();
-
-            const size_t bytes_remaining_in_packet = packet->data.size() - packet->bytes_played;
-            const size_t bytes_to_copy = std::min(static_cast<size_t>(bytes_to_fill), bytes_remaining_in_packet);
-
-            if (bytes_to_copy > 0)
-            {
-                if (packet->bytes_played == 0)
-                {
-                    emit packet_played(packet);
-                }
-
-                const Uint8* source_ptr = packet->data.data() + packet->bytes_played;
-
-                SDL_MixAudioFormat(stream_ptr, source_ptr, audio_spec_.format, static_cast<Uint32>(bytes_to_copy), current_sdl_volume);
-
-                packet->bytes_played += bytes_to_copy;
-                stream_ptr += bytes_to_copy;
-                bytes_to_fill -= static_cast<int>(bytes_to_copy);
-            }
-
-            if (packet->bytes_played >= packet->data.size())
-            {
-                data_queue_.pop_front();
-            }
-        }
-        bytes_filled_this_cycle = len - bytes_to_fill;
-    }
-    bytes_processed_by_device_ += bytes_filled_this_cycle;
-
     if (!low_water_mark_triggered_)
     {
-        qint64 remaining_bytes;
-        {
-            QMutexLocker locker(&queue_mutex_);
-            remaining_bytes = std::accumulate(data_queue_.begin(),
-                                              data_queue_.end(),
-                                              0LL,
-                                              [](qint64 sum, const auto& pkt)
-                                              { return sum + (pkt ? (static_cast<qint64>(pkt->data.size()) - pkt->bytes_played) : 0); });
-        }
-
+        qint64 remaining_bytes = approx_buffered_bytes_.load(std::memory_order_relaxed);
         if (remaining_bytes < buffer_low_water_mark_)
         {
             LOG_TRACE("sdl 缓冲区水位低 {} 字节 请求更多数据", remaining_bytes);
