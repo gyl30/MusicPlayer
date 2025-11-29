@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QElapsedTimer>
 
+#include "fftreal.h"
 #include "audio_packet.h"
 
 class spectrum_processor : public QObject
@@ -30,6 +31,9 @@ class spectrum_processor : public QObject
     void on_render_timeout();
 
    private:
+    std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_packet>& packet);
+
+   private:
     QTimer* render_timer_;
     QElapsedTimer animation_clock_;
 
@@ -42,6 +46,9 @@ class spectrum_processor : public QObject
 
     std::deque<std::shared_ptr<audio_packet>> packet_queue_;
     bool needs_resync_ = false;
+
+    std::unique_ptr<fft_real<double>> fft_transformer_;
+    std::vector<double> fft_input_buffer_;
 };
 
 #endif

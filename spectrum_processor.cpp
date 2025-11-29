@@ -1,5 +1,4 @@
 #include <cmath>
-#include "fftreal.h"
 #include "spectrum_processor.h"
 #include "log.h"
 
@@ -9,45 +8,50 @@
 
 static double lerp(double a, double b, double t) { return a + (t * (b - a)); }
 
-static std::vector<double> calculate_magnitudes(const std::shared_ptr<audio_packet>& packet)
+spectrum_processor::spectrum_processor(QObject* parent) : QObject(parent)
+{
+    render_timer_ = new QTimer(this);
+    connect(render_timer_, &QTimer::timeout, this, &spectrum_processor::on_render_timeout);
+
+    const int fft_size = 512;
+    fft_transformer_ = std::make_unique<fft_real<double>>(fft_size);
+    fft_input_buffer_.resize(fft_size);
+}
+
+std::vector<double> spectrum_processor::calculate_magnitudes(const std::shared_ptr<audio_packet>& packet)
 {
     if (packet == nullptr)
     {
         return {};
     }
+
     const int fft_size = 512;
+
     const auto* pcm_data = reinterpret_cast<const qint16*>(packet->data.data());
     auto num_samples = packet->data.size() / sizeof(qint16);
+
     if (num_samples < fft_size)
     {
         return {};
     }
 
-    std::vector<double> fft_input(fft_size);
     for (size_t i = 0; i < fft_size; ++i)
     {
         double window = 0.5 * (1.0 - cos(2.0 * M_PI * static_cast<double>(i) / (fft_size - 1)));
-        fft_input[i] = (static_cast<double>(pcm_data[i]) / 32768.0) * window;
+        fft_input_buffer_[i] = (static_cast<double>(pcm_data[i]) / 32768.0) * window;
     }
 
-    fft_real<double> fft(fft_size);
-    fft.do_fft(fft_input.data());
+    fft_transformer_->do_fft(fft_input_buffer_.data());
 
     std::vector<double> magnitudes;
     magnitudes.reserve(fft_size / 2);
     for (size_t i = 1; i < fft_size / 2; ++i)
     {
-        double real = fft.get_real(i);
-        double imag = fft.get_imag(i);
+        double real = fft_transformer_->get_real(i);
+        double imag = fft_transformer_->get_imag(i);
         magnitudes.push_back(std::sqrt((real * real) + (imag * imag)));
     }
     return magnitudes;
-}
-
-spectrum_processor::spectrum_processor(QObject* parent) : QObject(parent)
-{
-    render_timer_ = new QTimer(this);
-    connect(render_timer_, &QTimer::timeout, this, &spectrum_processor::on_render_timeout);
 }
 
 void spectrum_processor::process_packet(const std::shared_ptr<audio_packet>& packet)
