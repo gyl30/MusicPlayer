@@ -107,10 +107,8 @@ QPushButton:pressed {
 
 #timeLabel {
     color: #ECFBFF;
-    font-size: 13pt;
+    font-size: 12pt;
     font-weight: 700;
-    min-width: 104px;
-    max-width: 104px;
 }
 
 #controlsContainer {

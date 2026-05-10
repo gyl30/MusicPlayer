@@ -67,7 +67,9 @@ class player_window : public QWidget
     void setup_connections();
     void update_playback_mode_button_style();
     void reset_ui();
+    void set_time_text(const QString& text);
     void set_track_title(const QString& title);
+    void refresh_time_label_width();
     void refresh_track_title_elision();
     [[nodiscard]] QString lyric_at_time(qint64 time_ms) const;
 
