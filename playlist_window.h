@@ -53,6 +53,7 @@ class playlist_window : public QMainWindow
     void on_next_requested();
     void on_previous_requested();
     void on_stop_requested();
+    void on_play_requested();
     void on_playback_mode_changed(playback_mode new_mode);
 
     void quit_application();
@@ -74,6 +75,7 @@ class playlist_window : public QMainWindow
     void clear_saved_playback_state() const;
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
     QTreeWidgetItem* find_song_item_by_path(const QString& file_path) const;
+    void mark_restored_song_item(QTreeWidgetItem* item);
     void play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms = -1);
     void play_first_song_in_list();
 
@@ -91,6 +93,7 @@ class playlist_window : public QMainWindow
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
     QTreeWidgetItem* clicked_song_item_ = nullptr;
+    QTreeWidgetItem* restored_song_item_ = nullptr;
     QString current_playing_file_path_;
     bool is_creating_playlist_ = false;
     qint64 current_progress_ms_ = 0;

@@ -38,6 +38,26 @@ void player_window::set_playback_mode(playback_mode mode)
     emit playback_mode_changed(current_mode_);
 }
 
+void player_window::restore_idle_state(const QString& title, qint64 position_ms)
+{
+    is_paused_ = false;
+    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
+    set_track_title(title);
+
+    const qint64 safe_position_ms = qMax<qint64>(0, position_ms);
+    progress_slider_->setRange(0, static_cast<int>(safe_position_ms));
+    progress_slider_->setValue(static_cast<int>(safe_position_ms));
+
+    const QTime restored_time = QTime(0, 0).addMSecs(static_cast<int>(safe_position_ms));
+    const QString format = safe_position_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
+    const QString time_text = QString("%1 / --:--").arg(restored_time.toString(format));
+    set_time_text(time_text);
+
+    lyrics_.clear();
+    current_lyric_status_.clear();
+    emit lyric_status_changed(QString());
+}
+
 void player_window::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
@@ -190,6 +210,11 @@ void player_window::on_play_pause_clicked()
 {
     if (controller_ != nullptr)
     {
+        if (!controller_->is_media_loaded())
+        {
+            emit play_requested();
+            return;
+        }
         controller_->pause_resume();
     }
 }

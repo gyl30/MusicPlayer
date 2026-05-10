@@ -292,6 +292,7 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
     connect(player_window_, &player_window::previous_requested, this, &playlist_window::on_previous_requested);
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
+    connect(player_window_, &player_window::play_requested, this, &playlist_window::on_play_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
     connect(player_window_,
             &player_window::lyric_status_changed,
@@ -360,6 +361,7 @@ void playlist_window::on_stop_requested()
 {
     controller_->stop();
     clear_playing_indicator();
+    restored_song_item_ = nullptr;
     current_playing_file_path_.clear();
     current_progress_ms_ = 0;
     pending_restore_seek_ms_ = -1;
@@ -367,6 +369,23 @@ void playlist_window::on_stop_requested()
     current_shuffle_index_ = -1;
     clear_saved_playback_state();
     player_window_->on_playback_stopped();
+}
+
+void playlist_window::on_play_requested()
+{
+    if (restored_song_item_ != nullptr)
+    {
+        play_song_item(restored_song_item_, true, current_progress_ms_);
+        return;
+    }
+
+    if (currently_playing_item_ != nullptr)
+    {
+        play_song_item(currently_playing_item_, true, current_progress_ms_);
+        return;
+    }
+
+    play_first_song_in_list();
 }
 
 void playlist_window::on_playback_started(const QString& file_path, const QString& file_name)
@@ -479,7 +498,14 @@ void playlist_window::restore_playback_state()
         return;
     }
 
-    play_song_item(song_item, false, position_ms);
+    current_playing_file_path_ = file_path;
+    current_progress_ms_ = position_ms;
+    pending_restore_seek_ms_ = -1;
+    restored_song_item_ = song_item;
+    clicked_song_item_ = song_item;
+    mark_restored_song_item(song_item);
+    player_window_->restore_idle_state(song_item->text(0), position_ms);
+    save_playback_state();
 }
 
 void playlist_window::save_playback_state() const
@@ -534,6 +560,27 @@ QTreeWidgetItem* playlist_window::find_song_item_by_path(const QString& file_pat
     return nullptr;
 }
 
+void playlist_window::mark_restored_song_item(QTreeWidgetItem* item)
+{
+    if (item == nullptr || item->parent() == nullptr || song_tree_widget_ == nullptr)
+    {
+        return;
+    }
+
+    clear_playing_indicator();
+    currently_playing_item_ = item;
+
+    QFont font = currently_playing_item_->font(0);
+    font.setBold(true);
+    currently_playing_item_->setFont(0, font);
+    currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+    currently_playing_item_->parent()->setExpanded(true);
+    song_tree_widget_->clearSelection();
+    song_tree_widget_->setCurrentItem(currently_playing_item_);
+    currently_playing_item_->setSelected(true);
+    song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
+}
+
 void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms)
 {
     if (item == nullptr || item->parent() == nullptr)
@@ -543,6 +590,7 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
 
     current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
     clicked_song_item_ = item;
+    restored_song_item_ = nullptr;
     current_progress_ms_ = restore_position_ms > 0 ? restore_position_ms : 0;
     pending_restore_seek_ms_ = restore_position_ms > 0 ? restore_position_ms : -1;
 

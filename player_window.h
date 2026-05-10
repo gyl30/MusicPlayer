@@ -31,12 +31,14 @@ class player_window : public QWidget
     explicit player_window(playback_controller* controller, playlist_window* main_wnd);
     ~player_window() override;
     void set_playback_mode(playback_mode mode);
+    void restore_idle_state(const QString& title, qint64 position_ms);
 
    signals:
     void next_requested();
     void previous_requested();
     void playback_mode_changed(playback_mode new_mode);
     void stop_requested();
+    void play_requested();
     void lyric_status_changed(const QString& text);
 
    public slots:
