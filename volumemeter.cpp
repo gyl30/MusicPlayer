@@ -27,15 +27,31 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     QStyleOptionProgressBar option;
     initStyleOption(&option);
 
-    const int numBlocks = 10;
-    double blockHeight = static_cast<double>(height()) / numBlocks;
-    int litBlocks = static_cast<int>((static_cast<double>(value()) / maximum()) * numBlocks);
+    painter.setPen(QColor("#53B6D4"));
+    painter.setBrush(QColor("#0F75A8"));
+    painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 2, 2);
 
-    for (int i = 0; i < litBlocks; ++i)
+    const int numBlocks = 10;
+    const int litBlocks = static_cast<int>((static_cast<double>(value()) / maximum()) * numBlocks);
+
+    if (orientation() == Qt::Horizontal)
     {
-        double y = height() - ((i + 1) * blockHeight);
-        QRectF blockRect(0, y, width(), blockHeight);
-        painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
+        const double blockWidth = static_cast<double>(width()) / numBlocks;
+        for (int i = 0; i < litBlocks; ++i)
+        {
+            const QRectF blockRect(i * blockWidth, 0, blockWidth, height());
+            painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
+        }
+    }
+    else
+    {
+        const double blockHeight = static_cast<double>(height()) / numBlocks;
+        for (int i = 0; i < litBlocks; ++i)
+        {
+            const double y = height() - ((i + 1) * blockHeight);
+            const QRectF blockRect(0, y, width(), blockHeight);
+            painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
+        }
     }
 }
 
@@ -67,7 +83,15 @@ void volume_meter::wheelEvent(QWheelEvent* event)
 
 void volume_meter::setValueFromPosition(const QPoint& pos)
 {
-    double ratio = static_cast<double>(height() - pos.y()) / static_cast<double>(height());
+    double ratio = 0.0;
+    if (orientation() == Qt::Horizontal)
+    {
+        ratio = static_cast<double>(pos.x()) / static_cast<double>(width());
+    }
+    else
+    {
+        ratio = static_cast<double>(height() - pos.y()) / static_cast<double>(height());
+    }
     int newValue = static_cast<int>(ratio * maximum());
     newValue = qBound(minimum(), newValue, maximum());
 

@@ -1,7 +1,7 @@
 #ifndef MUSIC_MANAGEMENT_DIALOG_H
 #define MUSIC_MANAGEMENT_DIALOG_H
 
-#include <QDialog>
+#include <QWidget>
 #include <QMap>
 #include "playlist_data.h"
 
@@ -10,13 +10,19 @@ class QListWidgetItem;
 class QPushButton;
 class playlist_manager;
 
-class music_management_dialog : public QDialog
+class music_management_dialog : public QWidget
 {
     Q_OBJECT
 
    public:
     explicit music_management_dialog(playlist_manager* manager, QWidget* parent = nullptr);
     ~music_management_dialog() override = default;
+
+   public slots:
+    void reload();
+
+   signals:
+    void changes_applied();
 
    private slots:
     void on_source_playlist_selected();

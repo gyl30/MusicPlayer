@@ -4,7 +4,9 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QStackedWidget>
 #include <QMessageBox>
+#include <QStatusBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QHeaderView>
@@ -13,11 +15,13 @@
 #include <QRandomGenerator>
 #include <QFont>
 #include <QCollator>
-#include <QPushButton>
-#include <QMoveEvent>
-#include <QEvent>
-#include <QMouseEvent>
+#include <QShortcut>
+#include <QKeySequence>
 #include <QTimer>
+#include <QLabel>
+#include <QPushButton>
+#include <QMouseEvent>
+#include <QWindow>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -44,24 +48,107 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
     return nullptr;
 }
 
+struct SongDisplayText
+{
+    QString title;
+    QString artist;
+    QString full_text;
+};
+
+static QString normalize_display_text(const QString& text)
+{
+    QString display_text = text.trimmed();
+    display_text.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+    display_text.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+    display_text.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+    display_text.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+    return display_text;
+}
+
+static SongDisplayText song_display_text(const QString& file_name)
+{
+    const QString full_text = normalize_display_text(file_name);
+    QString base_name = QFileInfo(full_text).completeBaseName();
+    if (base_name.isEmpty())
+    {
+        base_name = full_text;
+    }
+
+    SongDisplayText display;
+    display.title = base_name;
+    display.full_text = full_text;
+
+    const QStringList separators = {QStringLiteral(" - "), QStringLiteral("-")};
+    for (const QString& separator : separators)
+    {
+        const int separator_index = base_name.indexOf(separator);
+        if (separator_index <= 0)
+        {
+            continue;
+        }
+
+        const QString left = base_name.left(separator_index).trimmed();
+        const QString right = base_name.mid(separator_index + separator.size()).trimmed();
+        if (!left.isEmpty() && !right.isEmpty())
+        {
+            display.title = left;
+            display.artist = right;
+            break;
+        }
+    }
+
+    return display;
+}
+
+static void set_item_text_with_tooltip(QTreeWidgetItem* item, const QString& text)
+{
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    const QString display_text = normalize_display_text(text);
+    item->setText(0, display_text);
+    item->setToolTip(0, display_text);
+    item->setText(1, {});
+    item->setToolTip(1, display_text);
+    item->setFirstColumnSpanned(true);
+}
+
+static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString& file_name)
+{
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    const SongDisplayText display = song_display_text(file_name);
+    item->setText(0, display.title);
+    item->setText(1, display.artist);
+    item->setToolTip(0, display.full_text);
+    item->setToolTip(1, display.full_text);
+    item->setFirstColumnSpanned(false);
+}
+
+constexpr int kPlaybackPageIndex = 0;
+constexpr int kManagementPageIndex = 1;
+
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
-    setWindowFlags(Qt::FramelessWindowHint);
+    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
 
     controller_ = new playback_controller(this);
     playlist_manager_ = new playlist_manager(this);
     player_window_ = new player_window(controller_, this);
-    player_window_->set_attach(is_player_attached_);
+    management_page_ = new music_management_dialog(playlist_manager_, this);
 
     setup_ui();
     setup_connections();
 
     playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
-    setWindowTitle("音乐播放器 - 播放列表");
-    centralWidget()->installEventFilter(this);
-    song_tree_widget_->installEventFilter(this);
-    resize(480, 300);
+    setWindowTitle("音乐播放器");
+    resize(298, 450);
 }
 
 playlist_window::~playlist_window()
@@ -75,10 +162,6 @@ playlist_window::~playlist_window()
 void playlist_window::quit_application()
 {
     hide();
-    if (player_window_ != nullptr)
-    {
-        player_window_->hide();
-    }
     QApplication::quit();
 }
 
@@ -87,10 +170,6 @@ void playlist_window::closeEvent(QCloseEvent* event)
     if (tray_icon_->isVisible())
     {
         hide();
-        if (player_window_ != nullptr)
-        {
-            player_window_->hide();
-        }
         event->ignore();
     }
     else
@@ -99,46 +178,18 @@ void playlist_window::closeEvent(QCloseEvent* event)
     }
 }
 
-void playlist_window::moveEvent(QMoveEvent* event)
-{
-    QMainWindow::moveEvent(event);
-    if (is_player_attached_)
-    {
-        update_player_window_position();
-    }
-}
-
 bool playlist_window::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == centralWidget() || watched == song_tree_widget_)
+    if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonPress)
     {
-        auto* mouseEvent = static_cast<QMouseEvent*>(event);
-        if (event->type() == QEvent::MouseButtonPress)
+        auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (mouse_event->button() == Qt::LeftButton && windowHandle() != nullptr)
         {
-            if (mouseEvent->button() == Qt::LeftButton)
-            {
-                is_being_dragged_by_user_ = true;
-                drag_position_ = mouseEvent->globalPosition().toPoint() - frameGeometry().topLeft();
-                return true;
-            }
-        }
-        else if (event->type() == QEvent::MouseMove)
-        {
-            if (is_being_dragged_by_user_)
-            {
-                move(mouseEvent->globalPosition().toPoint() - drag_position_);
-                return true;
-            }
-        }
-        else if (event->type() == QEvent::MouseButtonRelease)
-        {
-            if (mouseEvent->button() == Qt::LeftButton)
-            {
-                is_being_dragged_by_user_ = false;
-                return true;
-            }
+            windowHandle()->startSystemMove();
+            return true;
         }
     }
+
     return QMainWindow::eventFilter(watched, event);
 }
 
@@ -148,37 +199,94 @@ void playlist_window::setup_ui()
     tray_icon_->show();
 
     auto* central_widget = new QWidget(this);
+    central_widget->setObjectName("appFrame");
     setCentralWidget(central_widget);
+    statusBar()->setSizeGripEnabled(false);
+    lyric_status_label_ = new QLabel(statusBar());
+    lyric_status_label_->setObjectName("lyricStatusLabel");
+    lyric_status_label_->setAlignment(Qt::AlignCenter);
+    lyric_status_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    statusBar()->addWidget(lyric_status_label_, 1);
+    lyric_status_label_->hide();
+    statusBar()->hide();
+
     auto* main_layout = new QVBoxLayout(central_widget);
-    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->setContentsMargins(1, 1, 1, 1);
+    main_layout->setSpacing(0);
+
+    auto* title_bar = new QWidget(central_widget);
+    title_bar->setObjectName("appTitleBar");
+    title_bar->setFixedHeight(22);
+    title_bar->installEventFilter(this);
+
+    auto* title_layout = new QHBoxLayout(title_bar);
+    title_layout->setContentsMargins(4, 0, 2, 0);
+    title_layout->setSpacing(3);
+
+    auto* icon_label = new QLabel(title_bar);
+    icon_label->setObjectName("appTitleIcon");
+    icon_label->setPixmap(QIcon(":/icons/app_icon.svg").pixmap(16, 16));
+    icon_label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    title_layout->addWidget(icon_label);
+
+    auto* title_label = new QLabel("音乐播放器", title_bar);
+    title_label->setObjectName("appTitleText");
+    title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    title_layout->addWidget(title_label);
+    title_layout->addStretch();
+
+    auto* hint_label = new QLabel("Ctrl+M", title_bar);
+    hint_label->setObjectName("appTitleHint");
+    hint_label->setToolTip("切换管理页面");
+    hint_label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    title_layout->addWidget(hint_label);
+
+    auto* minimize_button = new QPushButton("-", title_bar);
+    minimize_button->setObjectName("windowMinButton");
+    minimize_button->setFocusPolicy(Qt::NoFocus);
+    title_layout->addWidget(minimize_button);
+
+    auto* close_button = new QPushButton("×", title_bar);
+    close_button->setObjectName("windowCloseButton");
+    close_button->setFocusPolicy(Qt::NoFocus);
+    title_layout->addWidget(close_button);
+
+    main_layout->addWidget(title_bar);
+
+    connect(minimize_button, &QPushButton::clicked, this, &playlist_window::showMinimized);
+    connect(close_button, &QPushButton::clicked, this, &playlist_window::close);
 
     song_tree_widget_ = new QTreeWidget();
     song_tree_widget_->setObjectName("songTreeWidget");
-    song_tree_widget_->setColumnCount(1);
+    song_tree_widget_->setColumnCount(2);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
+    song_tree_widget_->header()->resizeSection(1, 104);
     song_tree_widget_->setIndentation(10);
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     song_tree_widget_->setFrameShape(QFrame::NoFrame);
+    song_tree_widget_->setTextElideMode(Qt::ElideRight);
+    song_tree_widget_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    song_tree_widget_->setAlternatingRowColors(true);
 
-    auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), " 管理音乐");
-    manage_button->setIconSize(QSize(18, 18));
+    auto* playback_page = new QWidget(this);
+    auto* playback_layout = new QVBoxLayout(playback_page);
+    playback_layout->setContentsMargins(0, 0, 0, 0);
+    playback_layout->setSpacing(4);
+    playback_layout->addWidget(player_window_);
+    playback_layout->addWidget(song_tree_widget_, 1);
 
-    toggle_player_window_button_ = new QPushButton("显示/隐藏播放器");
-    toggle_player_window_button_->setToolTip("切换播放器窗口的可见性");
-    toggle_player_window_button_->setEnabled(false);
+    main_stack_ = new QStackedWidget(this);
+    main_stack_->addWidget(playback_page);
+    main_stack_->addWidget(management_page_);
 
-    auto* button_layout = new QHBoxLayout();
-    button_layout->setContentsMargins(5, 5, 5, 5);
-    button_layout->addWidget(toggle_player_window_button_);
-    button_layout->addStretch();
-    button_layout->addWidget(manage_button);
+    main_layout->addWidget(main_stack_, 1);
 
-    main_layout->addWidget(song_tree_widget_);
-    main_layout->addLayout(button_layout);
+    auto* manage_shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+M")), this);
+    connect(manage_shortcut, &QShortcut::activated, this, &playlist_window::on_manage_playlists_action);
 
-    connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
     connect(tray_icon_,
             &tray_icon::show_hide_triggered,
             this,
@@ -200,7 +308,6 @@ void playlist_window::setup_connections()
 {
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &playlist_window::on_tree_item_double_clicked);
     connect(song_tree_widget_, &QTreeWidget::customContextMenuRequested, this, &playlist_window::on_song_tree_context_menu_requested);
-    connect(toggle_player_window_button_, &QPushButton::clicked, this, &playlist_window::on_toggle_player_window_clicked);
 
     connect(playlist_manager_, &playlist_manager::playlist_added, this, &playlist_window::on_playlist_added);
     connect(playlist_manager_, &playlist_manager::playlist_removed, this, &playlist_window::on_playlist_removed);
@@ -215,45 +322,49 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::previous_requested, this, &playlist_window::on_previous_requested);
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
+    connect(player_window_,
+            &player_window::lyric_status_changed,
+            this,
+            [this](const QString& text)
+            {
+                if (text.isEmpty())
+                {
+                    if (lyric_status_label_ != nullptr)
+                    {
+                        lyric_status_label_->clear();
+                        lyric_status_label_->hide();
+                    }
+                    statusBar()->hide();
+                    return;
+                }
 
-    connect(player_window_, &player_window::request_snap, this, &playlist_window::on_player_request_snap);
-    connect(player_window_, &player_window::request_detach, this, &playlist_window::on_player_request_detach);
-    connect(player_window_, &player_window::request_resnap, this, &playlist_window::on_player_request_resnap);
+                if (lyric_status_label_ != nullptr)
+                {
+                    lyric_status_label_->setText(text);
+                    lyric_status_label_->show();
+                }
+                statusBar()->show();
+            });
+
+    connect(management_page_,
+            &music_management_dialog::changes_applied,
+            this,
+            [this]()
+            {
+                populate_playlists_on_startup();
+                switch_to_page(kPlaybackPageIndex);
+            });
 }
 
-void playlist_window::on_player_request_resnap()
+void playlist_window::switch_to_page(int page_index)
 {
-    if (!is_player_attached_)
-    {
-        is_player_attached_ = true;
-        player_window_->set_attach(true);
-    }
-    update_player_window_position();
-}
-
-void playlist_window::on_player_request_detach()
-{
-    if (!is_player_attached_)
+    if (main_stack_ == nullptr)
     {
         return;
     }
 
-    is_player_attached_ = false;
-    player_window_->set_attach(false);
-}
-
-void playlist_window::on_player_request_snap(snap_side side)
-{
-    if (is_player_attached_ && current_snap_side_ == side)
-    {
-        return;
-    }
-
-    is_player_attached_ = true;
-    current_snap_side_ = side;
-    player_window_->set_attach(true);
-
-    update_player_window_position();
+    main_stack_->setCurrentIndex(page_index);
+    resize(page_index == kPlaybackPageIndex ? QSize(298, 450) : QSize(760, 450));
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -281,7 +392,6 @@ void playlist_window::on_stop_requested()
     shuffled_indices_.clear();
     current_shuffle_index_ = -1;
     player_window_->on_playback_stopped();
-    toggle_player_window_button_->setEnabled(false);
 }
 
 void playlist_window::on_playback_started(const QString& file_path, const QString& file_name)
@@ -302,15 +412,6 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
         song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
     }
-    if (!player_window_->isVisible())
-    {
-        is_player_attached_ = true;
-        player_window_->set_attach(true);
-        current_snap_side_ = snap_side::bottom;
-        update_player_window_position();
-        player_window_->show();
-    }
-    toggle_player_window_button_->setEnabled(true);
 }
 
 void playlist_window::handle_playback_error_strategy(const QString& error_message)
@@ -368,72 +469,17 @@ void playlist_window::generate_shuffled_list(QTreeWidgetItem* playlist_item, int
 
 void playlist_window::on_manage_playlists_action()
 {
-    auto* dialog = new music_management_dialog(playlist_manager_, this);
-    dialog->exec();
-}
-
-void playlist_window::on_toggle_player_window_clicked()
-{
-    if (player_window_ == nullptr)
+    if (main_stack_ != nullptr && main_stack_->currentIndex() == kManagementPageIndex)
     {
-        return;
-    }
-    if (player_window_->isVisible())
-    {
-        last_player_pos_ = player_window_->pos();
-        player_window_->hide();
-    }
-    else
-    {
-        if (!last_player_pos_.isNull())
-        {
-            player_window_->move(last_player_pos_);
-        }
-        else
-        {
-            is_player_attached_ = true;
-            player_window_->set_attach(true);
-            current_snap_side_ = snap_side::bottom;
-            update_player_window_position();
-        }
-        player_window_->show();
-    }
-}
-
-void playlist_window::update_player_window_position()
-{
-    if (player_window_ == nullptr || !is_player_attached_)
-    {
+        switch_to_page(kPlaybackPageIndex);
         return;
     }
 
-    QRect main_rect = this->frameGeometry();
-    QRect player_rect = player_window_->frameGeometry();
-    QPoint target_pos;
-
-    switch (current_snap_side_)
+    if (management_page_ != nullptr)
     {
-        case snap_side::right:
-            target_pos.setX(main_rect.right());
-            target_pos.setY(main_rect.top());
-            break;
-        case snap_side::left:
-            target_pos.setX(main_rect.left() - player_rect.width());
-            target_pos.setY(main_rect.top());
-            break;
-        case snap_side::top:
-            target_pos.setX(main_rect.left());
-            target_pos.setY(main_rect.top() - player_rect.height());
-            break;
-        case snap_side::bottom:
-            target_pos.setX(main_rect.left());
-            target_pos.setY(main_rect.bottom());
-            break;
-        case snap_side::none:
-            return;
+        management_page_->reload();
     }
-
-    player_window_->move(target_pos);
+    switch_to_page(kManagementPageIndex);
 }
 
 void playlist_window::populate_playlists_on_startup()
@@ -445,7 +491,7 @@ void playlist_window::populate_playlists_on_startup()
     {
         Playlist full_playlist = playlist_manager_->get_playlist_by_id(playlist.id);
         auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
-        playlist_item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(full_playlist.songs.count()));
+        set_item_text_with_tooltip(playlist_item, QString("%1 [%2]").arg(playlist.name).arg(full_playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
         playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
         playlist_item->setExpanded(false);
@@ -454,7 +500,7 @@ void playlist_window::populate_playlists_on_startup()
         {
             auto* song_item = new QTreeWidgetItem(playlist_item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
-            song_item->setText(0, song.file_name);
+            set_song_item_text_with_tooltip(song_item, song.file_name);
             song_item->setData(0, Qt::UserRole, song.file_path);
         }
     }
@@ -465,7 +511,7 @@ void playlist_window::on_playlist_added(const Playlist& new_playlist)
 {
     song_tree_widget_->blockSignals(true);
     auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
-    playlist_item->setText(0, QString("%1 [0]").arg(new_playlist.name));
+    set_item_text_with_tooltip(playlist_item, QString("%1 [0]").arg(new_playlist.name));
     playlist_item->setData(0, Qt::UserRole, new_playlist.id);
     playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
     playlist_item->setExpanded(false);
@@ -491,10 +537,10 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
         {
             auto* song_item = new QTreeWidgetItem(item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
-            song_item->setText(0, song.file_name);
+            set_song_item_text_with_tooltip(song_item, song.file_name);
             song_item->setData(0, Qt::UserRole, song.file_path);
         }
-        item->setText(0, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+        set_item_text_with_tooltip(item, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
     }
 }
 
@@ -676,7 +722,8 @@ void playlist_window::on_sort_playlist_action()
 
 void playlist_window::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
 {
-    if (item == nullptr || item->parent() == nullptr || column != 0)
+    (void)column;
+    if (item == nullptr || item->parent() == nullptr)
     {
         return;
     }

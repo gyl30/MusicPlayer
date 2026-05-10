@@ -1,1 +1,5 @@
-<svg width="24px" height="24" viewBox="0 0 24 24" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" data-iconid="456453" data-svgname="Music folder"><defs><style>.cls-1{fill:none;stroke:#020202;stroke-miterlimit:10;stroke-width:1.91px;}</style></defs> <path class="cls-1" d="M8.18,17.73a1,1,0,1,1,1,.95,1,1,0,0,1-1-.95"></path><circle class="cls-1" cx="14.86" cy="16.77" r="0.95"></circle><polyline class="cls-1" points="15.82 16.77 15.82 11.04 10.09 12 10.09 17.73"></polyline><path class="cls-1" d="M12,3.41,10.09,1.5H1.5V20.59A1.9,1.9,0,0,0,3.41,22.5H20.59a1.9,1.9,0,0,0,1.91-1.91V3.41Z"></path><line class="cls-1" x1="1.5" y1="7.23" x2="22.5" y2="7.23"></line></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path fill="#FFE08A" stroke="#C98313" stroke-width="1" d="M1.5 4.5h4.3l1.1 1.4h7.6v7.6h-13z"/>
+  <path fill="#FFF3B6" d="M2.3 6.6h11.4v1.1H2.3z"/>
+  <path fill="#D89416" d="M6.4 10.6a1.15 1.15 0 1 1-1.15-1.15 1.15 1.15 0 0 1 1.15 1.15zm3.7-.45V7.7l3-.45v2.42a1.15 1.15 0 1 1-.65-1.03V8.1l-1.7.25v2.42a1.15 1.15 0 1 1-.65-1.03z"/>
+</svg>

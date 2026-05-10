@@ -12,16 +12,15 @@
 class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
-class QPushButton;
-class QMoveEvent;
-class QEvent;
-class QMouseEvent;
+class QStackedWidget;
+class QLabel;
 
 class playback_controller;
 class playlist_manager;
 class quick_editor;
 class tray_icon;
 class player_window;
+class music_management_dialog;
 
 class playlist_window : public QMainWindow
 {
@@ -42,7 +41,6 @@ class playlist_window : public QMainWindow
     void on_sort_playlist_action();
     void on_editing_finished(bool accepted, const QString& text);
     void on_manage_playlists_action();
-    void on_toggle_player_window_clicked();
 
     void on_playlist_added(const Playlist& new_playlist);
     void on_playlist_removed(qint64 playlist_id);
@@ -59,34 +57,31 @@ class playlist_window : public QMainWindow
 
     void quit_application();
 
-    void on_player_request_snap(snap_side side);
-    void on_player_request_detach();
-    void on_player_request_resnap();
-
     void handle_playback_error_strategy(const QString& error_message);
 
    protected:
     void closeEvent(QCloseEvent* event) override;
-    void moveEvent(QMoveEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 
    private:
     void setup_ui();
     void setup_connections();
+    void switch_to_page(int page_index);
     void clear_playing_indicator();
     void populate_playlists_on_startup();
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
     void play_first_song_in_list();
-    void update_player_window_position();
 
    private:
     playback_controller* controller_ = nullptr;
     playlist_manager* playlist_manager_ = nullptr;
     player_window* player_window_ = nullptr;
+    music_management_dialog* management_page_ = nullptr;
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
-    QPushButton* toggle_player_window_button_ = nullptr;
+    QStackedWidget* main_stack_ = nullptr;
+    QLabel* lyric_status_label_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
@@ -97,13 +92,6 @@ class playlist_window : public QMainWindow
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<int> shuffled_indices_;
     int current_shuffle_index_ = -1;
-
-    bool is_player_attached_ = true;
-    snap_side current_snap_side_ = snap_side::bottom;
-
-    bool is_being_dragged_by_user_ = false;
-    QPoint drag_position_;
-    QPoint last_player_pos_;
 
     int consecutive_failures_ = 0;
     const int MAX_CONSECUTIVE_FAILURES = 5;

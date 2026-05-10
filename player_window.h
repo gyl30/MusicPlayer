@@ -5,22 +5,13 @@
 #include <QMap>
 #include <QByteArray>
 #include <QList>
-#include <QPropertyAnimation>
 #include "audio_packet.h"
-#include "lyrics_widget.h"
 
-class QMoveEvent;
-class QMouseEvent;
-class QEvent;
-
-class QListWidget;
-class QListWidgetItem;
 class QVBoxLayout;
 class QSlider;
 class QLabel;
 class QPushButton;
 class volume_meter;
-class spectrum_widget;
 class playback_controller;
 class playlist_window;
 
@@ -32,15 +23,6 @@ enum class playback_mode : uint8_t
     Sequential
 };
 
-enum class snap_side : uint8_t
-{
-    none,
-    top,
-    bottom,
-    left,
-    right
-};
-
 class player_window : public QWidget
 {
     Q_OBJECT
@@ -49,18 +31,12 @@ class player_window : public QWidget
     explicit player_window(playback_controller* controller, playlist_window* main_wnd);
     ~player_window() override;
 
-   public:
-    void set_attach(bool attach) { is_attached_ = attach; }
-
    signals:
     void next_requested();
     void previous_requested();
     void playback_mode_changed(playback_mode new_mode);
     void stop_requested();
-    void moved_by_user();
-    void request_snap(snap_side side);
-    void request_detach();
-    void request_resnap();
+    void lyric_status_changed(const QString& text);
 
    public slots:
     void update_track_info(qint64 duration_ms);
@@ -75,10 +51,7 @@ class player_window : public QWidget
     void on_playback_paused(bool is_paused);
 
    protected:
-    void moveEvent(QMoveEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
    private slots:
     void on_seek_requested();
@@ -93,21 +66,16 @@ class player_window : public QWidget
     void setup_ui();
     void setup_connections();
     void update_playback_mode_button_style();
-    void update_media_display_layout();
     void reset_ui();
+    void set_track_title(const QString& title);
+    void refresh_track_title_elision();
+    [[nodiscard]] QString lyric_at_time(qint64 time_ms) const;
 
    private:
     playback_controller* controller_ = nullptr;
-    playlist_window* main_window_ = nullptr;
 
-    spectrum_widget* spectrum_widget_ = nullptr;
     QWidget* main_container_ = nullptr;
 
-    QLabel* cover_art_label_ = nullptr;
-
-    lyrics_widget* lyrics_widget_ = nullptr;
-
-    QWidget* lyrics_and_cover_container_ = nullptr;
     QVBoxLayout* left_panel_layout_ = nullptr;
 
     QSlider* progress_slider_ = nullptr;
@@ -118,21 +86,16 @@ class player_window : public QWidget
     QPushButton* next_button_ = nullptr;
     QPushButton* stop_button_ = nullptr;
     QPushButton* shuffle_button_ = nullptr;
-    QPushButton* manage_button_ = nullptr;
 
     QLabel* time_label_ = nullptr;
     QLabel* track_title_label_ = nullptr;
+    QString full_track_title_ = "欢迎使用";
 
     bool is_paused_ = false;
     bool is_slider_pressed_ = false;
-    bool has_cover_art_ = false;
-    bool has_lyrics_ = false;
-    bool is_being_dragged_by_user_ = false;
-    bool is_attached_ = false;
 
-    QPoint drag_position_;
-    QPoint drag_start_position_;
-    bool is_checking_for_unsnap_ = false;
+    QList<LyricLine> lyrics_;
+    QString current_lyric_status_;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
 };

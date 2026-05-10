@@ -10,14 +10,23 @@
 #include "music_management_dialog.h"
 #include "playlist_manager.h"
 
-music_management_dialog::music_management_dialog(playlist_manager* manager, QWidget* parent) : QDialog(parent), playlist_manager_(manager)
+static QListWidgetItem* create_elided_item(const QString& text)
+{
+    auto* item = new QListWidgetItem(text);
+    item->setToolTip(text);
+    return item;
+}
+
+music_management_dialog::music_management_dialog(playlist_manager* manager, QWidget* parent) : QWidget(parent), playlist_manager_(manager)
 {
     setup_ui();
     setup_connections();
+}
+
+void music_management_dialog::reload()
+{
     load_initial_data();
     populate_playlist_widgets();
-    setWindowTitle("音乐管理");
-    resize(900, 600);
 }
 
 void music_management_dialog::load_initial_data()
@@ -33,17 +42,27 @@ void music_management_dialog::load_initial_data()
 void music_management_dialog::setup_ui()
 {
     auto* main_layout = new QHBoxLayout(this);
+    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->setSpacing(10);
 
     auto* source_panel = new QWidget();
+    source_panel->setObjectName("managementPanel");
     auto* source_layout = new QVBoxLayout(source_panel);
     source_layout->addWidget(new QLabel("源播放列表 (可操作)"));
     source_playlists_list_ = new QListWidget();
+    source_playlists_list_->setTextElideMode(Qt::ElideRight);
+    source_playlists_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    source_playlists_list_->setAlternatingRowColors(true);
     source_layout->addWidget(source_playlists_list_);
     source_layout->addWidget(new QLabel("源歌曲列表"));
     source_songs_list_ = new QListWidget();
+    source_songs_list_->setTextElideMode(Qt::ElideRight);
+    source_songs_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    source_songs_list_->setAlternatingRowColors(true);
     source_layout->addWidget(source_songs_list_);
 
     auto* action_panel = new QWidget();
+    action_panel->setObjectName("managementActionPanel");
     auto* action_layout = new QVBoxLayout(action_panel);
     action_layout->addStretch();
     copy_button_ = new QPushButton("复制");
@@ -52,8 +71,8 @@ void music_management_dialog::setup_ui()
     move_button_->setToolTip("将左侧选中歌曲移动到右侧列表，并从左侧列表中移除。");
     delete_button_ = new QPushButton("删除");
     delete_button_->setToolTip("将左侧选中歌曲暂存，以待删除");
-    done_button_ = new QPushButton("完成");
-    done_button_->setToolTip("应用更改");
+    done_button_ = new QPushButton("应用并返回");
+    done_button_->setToolTip("应用更改并回到播放页面");
     action_layout->addWidget(copy_button_);
     action_layout->addWidget(move_button_);
     action_layout->addWidget(delete_button_);
@@ -63,12 +82,19 @@ void music_management_dialog::setup_ui()
     action_panel->setLayout(action_layout);
 
     auto* dest_panel = new QWidget();
+    dest_panel->setObjectName("managementPanel");
     auto* dest_layout = new QVBoxLayout(dest_panel);
     dest_layout->addWidget(new QLabel("目标播放列表 (仅预览)"));
     dest_playlists_list_ = new QListWidget();
+    dest_playlists_list_->setTextElideMode(Qt::ElideRight);
+    dest_playlists_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    dest_playlists_list_->setAlternatingRowColors(true);
     dest_layout->addWidget(dest_playlists_list_);
     dest_layout->addWidget(new QLabel("目标歌曲列表"));
     dest_songs_list_ = new QListWidget();
+    dest_songs_list_->setTextElideMode(Qt::ElideRight);
+    dest_songs_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    dest_songs_list_->setAlternatingRowColors(true);
     dest_layout->addWidget(dest_songs_list_);
 
     main_layout->addWidget(source_panel, 2);
@@ -114,11 +140,11 @@ void music_management_dialog::populate_playlist_widgets()
     for (int i = 0; i < playlists.count(); ++i)
     {
         const auto& playlist = playlists[i];
-        auto* source_item = new QListWidgetItem(QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+        auto* source_item = create_elided_item(QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
         source_item->setData(Qt::UserRole, playlist.id);
         source_playlists_list_->addItem(source_item);
 
-        auto* dest_item = new QListWidgetItem(QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+        auto* dest_item = create_elided_item(QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
         dest_item->setData(Qt::UserRole, playlist.id);
         dest_playlists_list_->addItem(dest_item);
 
@@ -156,7 +182,7 @@ void music_management_dialog::update_songs_list(QListWidget* songs_list_widget, 
 
     for (const auto& song : playlist.songs)
     {
-        auto* song_item = new QListWidgetItem(song.file_name);
+        auto* song_item = create_elided_item(song.file_name);
         song_item->setData(Qt::UserRole, song.file_path);
         if (is_source_list)
         {
@@ -340,5 +366,5 @@ void music_management_dialog::on_delete_button_clicked()
 void music_management_dialog::on_done_button_clicked()
 {
     playlist_manager_->apply_changes_from_dialog(temp_playlists_);
-    accept();
+    emit changes_applied();
 }
