@@ -25,6 +25,19 @@ player_window::player_window(playback_controller* controller, playlist_window* m
 
 player_window::~player_window() = default;
 
+void player_window::set_playback_mode(playback_mode mode)
+{
+    if (current_mode_ == mode)
+    {
+        update_playback_mode_button_style();
+        return;
+    }
+
+    current_mode_ = mode;
+    update_playback_mode_button_style();
+    emit playback_mode_changed(current_mode_);
+}
+
 void player_window::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);

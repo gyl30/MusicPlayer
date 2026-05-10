@@ -17,6 +17,7 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QTimer>
+#include <QSettings>
 #include <QLabel>
 #include <QPushButton>
 #include <QMouseEvent>
@@ -98,12 +99,14 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 
     playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
+    restore_playback_state();
     setWindowTitle("音乐播放器");
     resize(298, 450);
 }
 
 playlist_window::~playlist_window()
 {
+    save_playback_state();
     if (player_window_ != nullptr)
     {
         player_window_->close();
@@ -112,12 +115,14 @@ playlist_window::~playlist_window()
 
 void playlist_window::quit_application()
 {
+    save_playback_state();
     hide();
     QApplication::quit();
 }
 
 void playlist_window::closeEvent(QCloseEvent* event)
 {
+    save_playback_state();
     if (tray_icon_->isVisible())
     {
         hide();
@@ -185,12 +190,6 @@ void playlist_window::setup_ui()
     title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(title_label);
     title_layout->addStretch();
-
-    auto* hint_label = new QLabel("Ctrl+M", title_bar);
-    hint_label->setObjectName("appTitleHint");
-    hint_label->setToolTip("切换管理页面");
-    hint_label->setAttribute(Qt::WA_TransparentForMouseEvents);
-    title_layout->addWidget(hint_label);
 
     auto* minimize_button = new QPushButton("-", title_bar);
     minimize_button->setObjectName("windowMinButton");
@@ -266,6 +265,29 @@ void playlist_window::setup_connections()
     connect(controller_, &playback_controller::playback_started, this, &playlist_window::on_playback_started);
     connect(controller_, &playback_controller::playback_finished, this, &playlist_window::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &playlist_window::handle_playback_error_strategy);
+    connect(controller_,
+            &playback_controller::track_info_ready,
+            this,
+            [this](qint64 duration_ms)
+            {
+                if (pending_restore_seek_ms_ <= 0)
+                {
+                    return;
+                }
+
+                const qint64 seek_ms = qBound<qint64>(0, pending_restore_seek_ms_, duration_ms);
+                pending_restore_seek_ms_ = -1;
+                current_progress_ms_ = seek_ms;
+                QTimer::singleShot(0, this, [this, seek_ms]() { controller_->seek(seek_ms); });
+            });
+    connect(controller_,
+            &playback_controller::progress_updated,
+            this,
+            [this](qint64 current_ms, qint64 total_ms)
+            {
+                (void)total_ms;
+                current_progress_ms_ = current_ms;
+            });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
     connect(player_window_, &player_window::previous_requested, this, &playlist_window::on_previous_requested);
@@ -331,6 +353,7 @@ void playlist_window::on_playback_mode_changed(playback_mode new_mode)
         shuffled_indices_.clear();
         current_shuffle_index_ = -1;
     }
+    save_playback_state();
 }
 
 void playlist_window::on_stop_requested()
@@ -338,8 +361,11 @@ void playlist_window::on_stop_requested()
     controller_->stop();
     clear_playing_indicator();
     current_playing_file_path_.clear();
+    current_progress_ms_ = 0;
+    pending_restore_seek_ms_ = -1;
     shuffled_indices_.clear();
     current_shuffle_index_ = -1;
+    clear_saved_playback_state();
     player_window_->on_playback_stopped();
 }
 
@@ -349,6 +375,10 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     (void)file_name;
 
     consecutive_failures_ = 0;
+    if (pending_restore_seek_ms_ <= 0)
+    {
+        current_progress_ms_ = 0;
+    }
 
     clear_playing_indicator();
 
@@ -359,7 +389,15 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         font.setBold(true);
         currently_playing_item_->setFont(0, font);
         currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+        if (currently_playing_item_->parent() != nullptr)
+        {
+            currently_playing_item_->parent()->setExpanded(true);
+        }
+        song_tree_widget_->clearSelection();
+        song_tree_widget_->setCurrentItem(currently_playing_item_);
+        currently_playing_item_->setSelected(true);
         song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
+        save_playback_state();
     }
 }
 
@@ -414,6 +452,115 @@ void playlist_window::generate_shuffled_list(QTreeWidgetItem* playlist_item, int
             shuffled_indices_.swapItemsAt(0, current_pos);
         }
     }
+}
+
+void playlist_window::restore_playback_state()
+{
+    QSettings settings("MusicPlayer", "MusicPlayer");
+
+    const QString file_path = settings.value("playback/filePath").toString();
+    const qint64 position_ms = qMax<qint64>(0, settings.value("playback/positionMs", 0).toLongLong());
+    const int saved_mode = settings.value("playback/mode", static_cast<int>(playback_mode::ListLoop)).toInt();
+    const int min_mode = static_cast<int>(playback_mode::ListLoop);
+    const int max_mode = static_cast<int>(playback_mode::Sequential);
+    if (saved_mode >= min_mode && saved_mode <= max_mode)
+    {
+        player_window_->set_playback_mode(static_cast<playback_mode>(saved_mode));
+    }
+
+    if (file_path.isEmpty())
+    {
+        return;
+    }
+
+    QTreeWidgetItem* song_item = find_song_item_by_path(file_path);
+    if (song_item == nullptr)
+    {
+        return;
+    }
+
+    play_song_item(song_item, false, position_ms);
+}
+
+void playlist_window::save_playback_state() const
+{
+    QSettings settings("MusicPlayer", "MusicPlayer");
+    settings.setValue("playback/mode", static_cast<int>(current_mode_));
+
+    if (current_playing_file_path_.isEmpty())
+    {
+        settings.remove("playback/filePath");
+        settings.remove("playback/positionMs");
+        return;
+    }
+
+    settings.setValue("playback/filePath", current_playing_file_path_);
+    settings.setValue("playback/positionMs", current_progress_ms_);
+}
+
+void playlist_window::clear_saved_playback_state() const
+{
+    QSettings settings("MusicPlayer", "MusicPlayer");
+    settings.setValue("playback/mode", static_cast<int>(current_mode_));
+    settings.remove("playback/filePath");
+    settings.remove("playback/positionMs");
+}
+
+QTreeWidgetItem* playlist_window::find_song_item_by_path(const QString& file_path) const
+{
+    if (song_tree_widget_ == nullptr || file_path.isEmpty())
+    {
+        return nullptr;
+    }
+
+    for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
+        if (playlist_item == nullptr)
+        {
+            continue;
+        }
+
+        for (int j = 0; j < playlist_item->childCount(); ++j)
+        {
+            QTreeWidgetItem* song_item = playlist_item->child(j);
+            if (song_item != nullptr && song_item->data(0, Qt::UserRole).toString() == file_path)
+            {
+                return song_item;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms)
+{
+    if (item == nullptr || item->parent() == nullptr)
+    {
+        return;
+    }
+
+    current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
+    clicked_song_item_ = item;
+    current_progress_ms_ = restore_position_ms > 0 ? restore_position_ms : 0;
+    pending_restore_seek_ms_ = restore_position_ms > 0 ? restore_position_ms : -1;
+
+    if (increment_play_count)
+    {
+        playlist_manager_->increment_play_count(current_playing_file_path_);
+    }
+
+    if (current_mode_ == playback_mode::Shuffle)
+    {
+        QTreeWidgetItem* playlist_item = item->parent();
+        const int clicked_song_index = playlist_item->indexOfChild(item);
+        generate_shuffled_list(playlist_item, clicked_song_index);
+        current_shuffle_index_ = 0;
+    }
+
+    controller_->play_file(current_playing_file_path_);
+    save_playback_state();
 }
 
 void playlist_window::on_manage_playlists_action()
@@ -672,23 +819,7 @@ void playlist_window::on_sort_playlist_action()
 void playlist_window::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
 {
     (void)column;
-    if (item == nullptr || item->parent() == nullptr)
-    {
-        return;
-    }
-    current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
-    clicked_song_item_ = item;
-
-    playlist_manager_->increment_play_count(current_playing_file_path_);
-
-    if (current_mode_ == playback_mode::Shuffle)
-    {
-        QTreeWidgetItem* playlist_item = item->parent();
-        const int clicked_song_index = playlist_item->indexOfChild(item);
-        generate_shuffled_list(playlist_item, clicked_song_index);
-        current_shuffle_index_ = 0;
-    }
-    controller_->play_file(current_playing_file_path_);
+    play_song_item(item, true);
 }
 
 void playlist_window::on_next_requested()

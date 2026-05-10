@@ -30,6 +30,7 @@ class player_window : public QWidget
    public:
     explicit player_window(playback_controller* controller, playlist_window* main_wnd);
     ~player_window() override;
+    void set_playback_mode(playback_mode mode);
 
    signals:
     void next_requested();
