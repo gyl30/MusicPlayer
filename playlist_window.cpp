@@ -48,13 +48,6 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
     return nullptr;
 }
 
-struct SongDisplayText
-{
-    QString title;
-    QString artist;
-    QString full_text;
-};
-
 static QString normalize_display_text(const QString& text)
 {
     QString display_text = text.trimmed();
@@ -65,18 +58,14 @@ static QString normalize_display_text(const QString& text)
     return display_text;
 }
 
-static SongDisplayText song_display_text(const QString& file_name)
+static QString song_title_text(const QString& file_name)
 {
     const QString full_text = normalize_display_text(file_name);
     QString base_name = QFileInfo(full_text).completeBaseName();
     if (base_name.isEmpty())
     {
-        base_name = full_text;
+        return full_text;
     }
-
-    SongDisplayText display;
-    display.title = base_name;
-    display.full_text = full_text;
 
     const QStringList separators = {QStringLiteral(" - "), QStringLiteral("-")};
     for (const QString& separator : separators)
@@ -91,13 +80,11 @@ static SongDisplayText song_display_text(const QString& file_name)
         const QString right = base_name.mid(separator_index + separator.size()).trimmed();
         if (!left.isEmpty() && !right.isEmpty())
         {
-            display.title = left;
-            display.artist = right;
-            break;
+            return left;
         }
     }
 
-    return display;
+    return base_name;
 }
 
 static void set_item_text_with_tooltip(QTreeWidgetItem* item, const QString& text)
@@ -110,9 +97,6 @@ static void set_item_text_with_tooltip(QTreeWidgetItem* item, const QString& tex
     const QString display_text = normalize_display_text(text);
     item->setText(0, display_text);
     item->setToolTip(0, display_text);
-    item->setText(1, {});
-    item->setToolTip(1, display_text);
-    item->setFirstColumnSpanned(true);
 }
 
 static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString& file_name)
@@ -122,12 +106,8 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
         return;
     }
 
-    const SongDisplayText display = song_display_text(file_name);
-    item->setText(0, display.title);
-    item->setText(1, display.artist);
-    item->setToolTip(0, display.full_text);
-    item->setToolTip(1, display.full_text);
-    item->setFirstColumnSpanned(false);
+    item->setText(0, song_title_text(file_name));
+    item->setToolTip(0, normalize_display_text(file_name));
 }
 
 constexpr int kPlaybackPageIndex = 0;
@@ -258,11 +238,9 @@ void playlist_window::setup_ui()
 
     song_tree_widget_ = new QTreeWidget();
     song_tree_widget_->setObjectName("songTreeWidget");
-    song_tree_widget_->setColumnCount(2);
+    song_tree_widget_->setColumnCount(1);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
-    song_tree_widget_->header()->resizeSection(1, 104);
     song_tree_widget_->setIndentation(10);
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
