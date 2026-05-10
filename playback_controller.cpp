@@ -57,11 +57,12 @@ void playback_controller::set_playback_mode(playback_mode mode)
     current_mode_ = mode;
 }
 
-void playback_controller::play_file(const QString& file_path)
+void playback_controller::play_file(const QString& file_path, qint64 start_position_ms)
 {
     LOG_INFO("播放流程二 控制中心收到文件播放请求");
     stop();
     is_paused_ = false;
+    playback_start_position_ms_ = qMax<qint64>(0, start_position_ms);
     LOG_INFO("重置暂停状态");
     current_session_id_ = ++session_id_counter_;
     LOG_INFO("生成新会话id {}", current_session_id_);
@@ -72,8 +73,13 @@ void playback_controller::play_file(const QString& file_path)
     emit playback_started(file_path, file_name);
 
     LOG_INFO("播放流程三 通知解码器开始处理文件");
-    QMetaObject::invokeMethod(
-        decoder_, "start_decoding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_), Q_ARG(QString, file_path), Q_ARG(qint64, -1));
+    const qint64 decoder_start_position_ms = playback_start_position_ms_ > 0 ? playback_start_position_ms_ : -1;
+    QMetaObject::invokeMethod(decoder_,
+                              "start_decoding",
+                              Qt::QueuedConnection,
+                              Q_ARG(qint64, current_session_id_),
+                              Q_ARG(QString, file_path),
+                              Q_ARG(qint64, decoder_start_position_ms));
 }
 
 void playback_controller::stop()
@@ -102,6 +108,7 @@ void playback_controller::stop()
     total_duration_ms_ = 0;
     is_seeking_ = false;
     pending_seek_ms_ = -1;
+    playback_start_position_ms_ = 0;
     current_session_id_ = 0;
 }
 
@@ -202,9 +209,11 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
     player_thread_->start();
     player_thread_->setPriority(QThread::TimeCriticalPriority);
 
+    const qint64 player_start_position_ms = qBound<qint64>(0, playback_start_position_ms_, duration_ms);
+
     LOG_INFO("播放流程八 通知播放器准备启动");
     QMetaObject::invokeMethod(
-        player_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(QAudioFormat, format), Q_ARG(qint64, 0));
+        player_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(QAudioFormat, format), Q_ARG(qint64, player_start_position_ms));
 }
 
 void playback_controller::on_player_ready_for_spectrum(qint64 session_id)

@@ -268,21 +268,6 @@ void playlist_window::setup_connections()
     connect(controller_, &playback_controller::playback_finished, this, &playlist_window::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &playlist_window::handle_playback_error_strategy);
     connect(controller_,
-            &playback_controller::track_info_ready,
-            this,
-            [this](qint64 duration_ms)
-            {
-                if (pending_restore_seek_ms_ <= 0)
-                {
-                    return;
-                }
-
-                const qint64 seek_ms = qBound<qint64>(0, pending_restore_seek_ms_, duration_ms);
-                pending_restore_seek_ms_ = -1;
-                current_progress_ms_ = seek_ms;
-                QTimer::singleShot(0, this, [this, seek_ms]() { controller_->seek(seek_ms); });
-            });
-    connect(controller_,
             &playback_controller::progress_updated,
             this,
             [this](qint64 current_ms, qint64 total_ms)
@@ -400,6 +385,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     {
         current_progress_ms_ = 0;
     }
+    pending_restore_seek_ms_ = -1;
 
     clear_playing_indicator();
 
@@ -609,7 +595,8 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
         current_shuffle_index_ = 0;
     }
 
-    controller_->play_file(current_playing_file_path_);
+    const qint64 start_position_ms = restore_position_ms > 0 ? restore_position_ms : 0;
+    controller_->play_file(current_playing_file_path_, start_position_ms);
     save_playback_state();
 }
 

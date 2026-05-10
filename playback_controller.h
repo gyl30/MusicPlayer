@@ -29,7 +29,7 @@ class playback_controller : public QObject
     bool is_media_loaded() const { return is_media_loaded_; }
 
    public slots:
-    void play_file(const QString& file_path);
+    void play_file(const QString& file_path, qint64 start_position_ms = 0);
     void seek(qint64 position_ms);
     void stop();
     void pause_resume();
@@ -86,6 +86,7 @@ class playback_controller : public QObject
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
+    qint64 playback_start_position_ms_ = 0;
     playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
 };
