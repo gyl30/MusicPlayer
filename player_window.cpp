@@ -58,13 +58,12 @@ void player_window::restore_idle_state(const QString& title, qint64 position_ms)
     set_track_title(title);
 
     const qint64 safe_position_ms = qMax<qint64>(0, position_ms);
-    progress_slider_->setRange(0, static_cast<int>(safe_position_ms));
-    progress_slider_->setValue(static_cast<int>(safe_position_ms));
+    progress_slider_->setRange(0, 100);
+    progress_slider_->setValue(0);
 
     const QTime restored_time = QTime(0, 0).addMSecs(static_cast<int>(safe_position_ms));
     const QString format = safe_position_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
-    const QString time_text = QString("%1 / --:--").arg(restored_time.toString(format));
-    set_time_text(time_text);
+    set_time_text(restored_time.toString(format));
 
     lyrics_.clear();
     current_lyric_status_.clear();
@@ -109,15 +108,19 @@ void player_window::setup_ui()
     track_title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     title_layout->addWidget(track_title_label_, 1);
 
-    time_label_ = new QLabel("00:00 / 00:00", this);
+    time_label_ = new QLabel("00:00", this);
     time_label_->setObjectName("timeLabel");
     time_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     time_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    time_label_->setFixedHeight(24);
     refresh_time_label_width();
     title_layout->addWidget(time_label_);
 
     progress_slider_ = new QSlider(Qt::Horizontal);
     progress_slider_->setObjectName("progressSlider");
+    progress_slider_->setRange(0, 100);
+    progress_slider_->setValue(0);
+    progress_slider_->setFixedHeight(8);
 
     auto* progress_layout = new QHBoxLayout();
     progress_layout->setContentsMargins(0, 0, 0, 0);
@@ -209,7 +212,8 @@ void player_window::reset_ui()
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
     set_track_title("欢迎使用");
-    set_time_text("00:00 / 00:00");
+    set_time_text("00:00");
+    progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
     lyrics_.clear();
     current_lyric_status_.clear();
@@ -327,11 +331,10 @@ void player_window::update_playback_mode_button_style()
 
 void player_window::update_track_info(qint64 duration_ms)
 {
-    progress_slider_->setRange(0, static_cast<int>(duration_ms));
-    QTime total_time = QTime(0, 0).addMSecs(static_cast<int>(duration_ms));
+    progress_slider_->setRange(0, qMax(1, static_cast<int>(duration_ms)));
+    progress_slider_->setValue(0);
     QString format = duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
-    QString current_time_str = QTime(0, 0).toString(format);
-    set_time_text(QString("%1 / %2").arg(current_time_str).arg(total_time.toString(format)));
+    set_time_text(QTime(0, 0).toString(format));
 }
 
 void player_window::update_progress(qint64 current_ms, qint64 total_ms)
@@ -341,10 +344,8 @@ void player_window::update_progress(qint64 current_ms, qint64 total_ms)
         progress_slider_->setValue(static_cast<int>(current_ms));
     }
     QTime current_time = QTime(0, 0).addMSecs(static_cast<int>(current_ms));
-    QTime total_time = QTime(0, 0).addMSecs(static_cast<int>(total_ms));
     QString format = total_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
-    QString time_str = QString("%1 / %2").arg(current_time.toString(format)).arg(total_time.toString(format));
-    set_time_text(time_str);
+    set_time_text(current_time.toString(format));
 
     const QString lyric_status = lyric_at_time(current_ms);
     if (lyric_status != current_lyric_status_)
@@ -437,7 +438,8 @@ void player_window::refresh_time_label_width()
     }
 
     const QFontMetrics metrics(time_label_->font());
-    time_label_->setFixedWidth(metrics.horizontalAdvance(time_label_->text()) + 10);
+    const QString width_sample = time_label_->text().size() > 5 ? "88:88:88" : "88:88";
+    time_label_->setFixedWidth(metrics.horizontalAdvance(width_sample) + 12);
 }
 
 void player_window::refresh_track_title_elision()

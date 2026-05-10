@@ -106,9 +106,13 @@ QPushButton:pressed {
 }
 
 #timeLabel {
-    color: #ECFBFF;
-    font-size: 12pt;
+    background-color: transparent;
+    border: none;
+    color: #DFFFF8;
+    font-family: "DSEG7 Classic", "DS-Digital", "Digital-7 Mono", "DejaVu Sans Mono", monospace;
+    font-size: 13pt;
     font-weight: 700;
+    padding: 0px;
 }
 
 #controlsContainer {
@@ -145,27 +149,38 @@ QPushButton:pressed {
     font-weight: 600;
 }
 
-QSlider::groove:horizontal {
-    background: #0B6EA4;
-    border: 1px solid #64CAE5;
-    height: 5px;
-    border-radius: 2px;
+QSlider#progressSlider {
+    background: transparent;
+    min-height: 8px;
+    max-height: 8px;
 }
 
-QSlider::sub-page:horizontal {
-    background: #75EB4D;
-    border: 1px solid #B9FF95;
-    height: 5px;
-    border-radius: 2px;
+QSlider#progressSlider::groove:horizontal {
+    background: rgba(7, 83, 119, 165);
+    border: none;
+    height: 2px;
+    border-radius: 1px;
 }
 
-QSlider::handle:horizontal {
-    background: #F2FFFF;
-    border: 1px solid #51B9D8;
-    width: 9px;
-    height: 9px;
-    margin: -4px 0px;
-    border-radius: 4px;
+QSlider#progressSlider::sub-page:horizontal {
+    background: #B9FF95;
+    border: none;
+    height: 2px;
+    border-radius: 1px;
+}
+
+QSlider#progressSlider::add-page:horizontal {
+    background: rgba(7, 83, 119, 165);
+    border: none;
+    height: 2px;
+    border-radius: 1px;
+}
+
+QSlider#progressSlider::handle:horizontal {
+    background: transparent;
+    border: none;
+    width: 1px;
+    margin: -3px 0px;
 }
 
 #volumeMeter {
