@@ -8,10 +8,13 @@
 #include <QStyle>
 #include <QResizeEvent>
 #include <QFontMetrics>
+#include <QEvent>
+#include <QColor>
 
 #include "volumemeter.h"
 #include "player_window.h"
 #include "playlist_window.h"
+#include "spectrum_widget.h"
 #include "playback_controller.h"
 
 player_window::player_window(playback_controller* controller, playlist_window* main_wnd)
@@ -24,6 +27,16 @@ player_window::player_window(playback_controller* controller, playlist_window* m
 }
 
 player_window::~player_window() = default;
+
+bool player_window::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == main_container_ && event->type() == QEvent::Resize)
+    {
+        update_spectrum_background_geometry();
+    }
+
+    return QWidget::eventFilter(watched, event);
+}
 
 void player_window::set_playback_mode(playback_mode mode)
 {
@@ -69,6 +82,13 @@ void player_window::setup_ui()
 {
     main_container_ = new QWidget(this);
     main_container_->setObjectName("playerPanel");
+    main_container_->installEventFilter(this);
+
+    spectrum_widget_ = new spectrum_widget(main_container_);
+    spectrum_widget_->setObjectName("spectrumBackground");
+    spectrum_widget_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    spectrum_widget_->setBarColor(QColor(185, 255, 149, 95));
+
     auto* root_layout = new QVBoxLayout(this);
     root_layout->setContentsMargins(0, 0, 0, 0);
     root_layout->setSpacing(3);
@@ -149,6 +169,8 @@ void player_window::setup_ui()
     left_panel_layout_->addLayout(title_layout);
     left_panel_layout_->addLayout(progress_layout);
     root_layout->addWidget(controls_container);
+
+    update_spectrum_background_geometry();
 }
 
 void player_window::setup_connections()
@@ -167,6 +189,7 @@ void player_window::setup_connections()
     {
         connect(this, &player_window::playback_mode_changed, controller_, &playback_controller::set_playback_mode);
 
+        controller_->set_spectrum_widget(spectrum_widget_);
         connect(controller_, &playback_controller::track_info_ready, this, &player_window::update_track_info);
         connect(controller_, &playback_controller::playback_started, this, &player_window::on_playback_started);
         connect(controller_, &playback_controller::progress_updated, this, &player_window::update_progress);
@@ -433,6 +456,17 @@ void player_window::refresh_track_title_elision()
 
     const QFontMetrics metrics(track_title_label_->font());
     track_title_label_->setText(metrics.elidedText(full_track_title_, Qt::ElideRight, available_width));
+}
+
+void player_window::update_spectrum_background_geometry()
+{
+    if (main_container_ == nullptr || spectrum_widget_ == nullptr)
+    {
+        return;
+    }
+
+    spectrum_widget_->setGeometry(main_container_->rect().adjusted(1, 1, -1, -1));
+    spectrum_widget_->lower();
 }
 
 void player_window::on_seek_requested()

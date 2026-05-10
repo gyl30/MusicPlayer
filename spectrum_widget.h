@@ -21,7 +21,11 @@ class spectrum_widget : public QWidget
     ~spectrum_widget() override;
 
     QColor getBarColor() const { return bar_color_; }
-    void setBarColor(const QColor& color) { bar_color_ = color; }
+    void setBarColor(const QColor& color)
+    {
+        bar_color_ = color;
+        update();
+    }
 
    public slots:
     void enqueue_packet(const std::shared_ptr<audio_packet>& packet);

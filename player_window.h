@@ -11,7 +11,9 @@ class QVBoxLayout;
 class QSlider;
 class QLabel;
 class QPushButton;
+class QEvent;
 class volume_meter;
+class spectrum_widget;
 class playback_controller;
 class playlist_window;
 
@@ -54,6 +56,7 @@ class player_window : public QWidget
     void on_playback_paused(bool is_paused);
 
    protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
    private slots:
@@ -74,6 +77,7 @@ class player_window : public QWidget
     void set_track_title(const QString& title);
     void refresh_time_label_width();
     void refresh_track_title_elision();
+    void update_spectrum_background_geometry();
     [[nodiscard]] QString lyric_at_time(qint64 time_ms) const;
 
    private:
@@ -85,6 +89,7 @@ class player_window : public QWidget
 
     QSlider* progress_slider_ = nullptr;
     volume_meter* volume_meter_ = nullptr;
+    spectrum_widget* spectrum_widget_ = nullptr;
 
     QPushButton* prev_button_ = nullptr;
     QPushButton* play_pause_button_ = nullptr;

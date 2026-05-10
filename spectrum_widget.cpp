@@ -21,6 +21,7 @@ spectrum_widget::spectrum_widget(QWidget* parent) : QWidget(parent), bar_color_(
     qRegisterMetaType<std::shared_ptr<audio_packet>>("std::shared_ptr<audio_packet>");
     qRegisterMetaType<std::vector<double>>("std::vector<double>");
     setAutoFillBackground(false);
+    setAttribute(Qt::WA_NoSystemBackground);
 
     spectrum_thread_ = new QThread(this);
     processor_ = new spectrum_processor();
@@ -53,12 +54,20 @@ void spectrum_widget::reset_and_start(qint64 session_id, qint64 start_offset_ms)
     last_paint_time_ms_ = 0;
 
     smoothed_bar_heights_.clear();
+    display_magnitudes_.clear();
+    update();
 
     QMetaObject::invokeMethod(processor_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, start_offset_ms));
     emit playback_started(session_id_);
 }
 
-void spectrum_widget::stop_playback() { QMetaObject::invokeMethod(processor_, "stop_playback", Qt::QueuedConnection); }
+void spectrum_widget::stop_playback()
+{
+    QMetaObject::invokeMethod(processor_, "stop_playback", Qt::QueuedConnection);
+    display_magnitudes_.clear();
+    smoothed_bar_heights_.clear();
+    update();
+}
 
 void spectrum_widget::update_display(const std::vector<double>& magnitudes)
 {
@@ -143,7 +152,7 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
 
     painter.setPen(Qt::NoPen);
     QColor current_bar_color = bar_color_;
-    current_bar_color.setAlphaF(0.7F);
+    current_bar_color.setAlphaF(current_bar_color.alphaF() * 0.7F);
     painter.setBrush(current_bar_color);
     double bar_width = static_cast<double>(width()) / kNumBars;
 
