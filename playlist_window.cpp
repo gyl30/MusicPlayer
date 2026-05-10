@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QWindow>
+#include <QSize>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -211,7 +212,8 @@ void playlist_window::setup_ui()
     song_tree_widget_->setColumnCount(1);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    song_tree_widget_->setIndentation(10);
+    song_tree_widget_->setIndentation(0);
+    song_tree_widget_->setIconSize(QSize(14, 14));
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     song_tree_widget_->setFrameShape(QFrame::NoFrame);
