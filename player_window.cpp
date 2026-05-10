@@ -88,7 +88,7 @@ void player_window::setup_ui()
     spectrum_widget_ = new spectrum_widget(main_container_);
     spectrum_widget_->setObjectName("spectrumBackground");
     spectrum_widget_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    spectrum_widget_->setBarColor(QColor(185, 255, 149, 95));
+    spectrum_widget_->setBarColor(QColor(169, 255, 76, 230));
 
     auto* root_layout = new QVBoxLayout(this);
     root_layout->setContentsMargins(0, 0, 0, 0);

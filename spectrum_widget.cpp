@@ -152,8 +152,9 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
 
     painter.setPen(Qt::NoPen);
     QColor current_bar_color = bar_color_;
-    current_bar_color.setAlphaF(current_bar_color.alphaF() * 0.7F);
-    painter.setBrush(current_bar_color);
+    current_bar_color.setAlphaF(current_bar_color.alphaF() * 0.88F);
+    QColor glow_bar_color = current_bar_color;
+    glow_bar_color.setAlphaF(current_bar_color.alphaF() * 0.28F);
     double bar_width = static_cast<double>(width()) / kNumBars;
 
     for (size_t i = 0; i < kNumBars; ++i)
@@ -164,6 +165,9 @@ void spectrum_widget::paintEvent(QPaintEvent* /*event*/)
         {
             double x = static_cast<double>(i) * bar_width;
             QRectF bar_rect(x, height() - bar_height, bar_width, bar_height);
+            painter.setBrush(glow_bar_color);
+            painter.drawRect(bar_rect.adjusted(-1.0, 0.0, 1.0, 0.0));
+            painter.setBrush(current_bar_color);
             painter.drawRect(bar_rect);
         }
     }
