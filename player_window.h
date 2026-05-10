@@ -14,6 +14,7 @@ class QPushButton;
 class QEvent;
 class volume_meter;
 class spectrum_widget;
+class scrolling_text_label;
 class playback_controller;
 class playlist_window;
 
@@ -98,7 +99,7 @@ class player_window : public QWidget
     QPushButton* shuffle_button_ = nullptr;
 
     QLabel* time_label_ = nullptr;
-    QLabel* track_title_label_ = nullptr;
+    scrolling_text_label* track_title_label_ = nullptr;
     QString full_track_title_ = "欢迎使用";
 
     bool is_paused_ = false;

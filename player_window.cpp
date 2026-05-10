@@ -15,6 +15,8 @@
 #include "player_window.h"
 #include "playlist_window.h"
 #include "spectrum_widget.h"
+#include "digital_time_label.h"
+#include "scrolling_text_label.h"
 #include "playback_controller.h"
 
 player_window::player_window(playback_controller* controller, playlist_window* main_wnd)
@@ -99,22 +101,24 @@ void player_window::setup_ui()
 
     auto* title_layout = new QHBoxLayout();
     title_layout->setContentsMargins(0, 0, 0, 0);
-    title_layout->setSpacing(8);
+    title_layout->setSpacing(10);
 
-    track_title_label_ = new QLabel("欢迎使用", this);
+    track_title_label_ = new scrolling_text_label(this);
+    track_title_label_->setText("欢迎使用");
     track_title_label_->setObjectName("trackTitleLabel");
     track_title_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     track_title_label_->setMinimumWidth(0);
     track_title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     title_layout->addWidget(track_title_label_, 1);
 
-    time_label_ = new QLabel("00:00", this);
+    time_label_ = new digital_time_label(this);
     time_label_->setObjectName("timeLabel");
     time_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     time_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    time_label_->setFixedHeight(24);
     refresh_time_label_width();
     title_layout->addWidget(time_label_);
+    title_layout->setStretch(0, 1);
+    title_layout->setStretch(1, 0);
 
     progress_slider_ = new QSlider(Qt::Horizontal);
     progress_slider_->setObjectName("progressSlider");
@@ -410,7 +414,7 @@ void player_window::set_track_title(const QString& title)
 {
     full_track_title_ = title;
     track_title_label_->setToolTip(title);
-    refresh_track_title_elision();
+    track_title_label_->setText(full_track_title_);
 }
 
 void player_window::set_time_text(const QString& text)
@@ -437,9 +441,7 @@ void player_window::refresh_time_label_width()
         return;
     }
 
-    const QFontMetrics metrics(time_label_->font());
-    const QString width_sample = time_label_->text().size() > 5 ? "88:88:88" : "88:88";
-    time_label_->setFixedWidth(metrics.horizontalAdvance(width_sample) + 12);
+    time_label_->setFixedWidth(time_label_->sizeHint().width());
 }
 
 void player_window::refresh_track_title_elision()
@@ -449,15 +451,7 @@ void player_window::refresh_track_title_elision()
         return;
     }
 
-    const int available_width = track_title_label_->width();
-    if (available_width <= 0)
-    {
-        track_title_label_->setText(full_track_title_);
-        return;
-    }
-
-    const QFontMetrics metrics(track_title_label_->font());
-    track_title_label_->setText(metrics.elidedText(full_track_title_, Qt::ElideRight, available_width));
+    track_title_label_->update();
 }
 
 void player_window::update_spectrum_background_geometry()

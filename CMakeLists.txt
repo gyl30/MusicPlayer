@@ -108,6 +108,8 @@ add_executable(MusicPlayer
     playlist_window.cpp
     spectrum_widget.cpp
     player_window.cpp
+    digital_time_label.cpp
+    scrolling_text_label.cpp
     audio_decoder.cpp
     lyrics_parser.cpp
     audio_player.cpp
