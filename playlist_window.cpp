@@ -1,7 +1,6 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QFileDialog>
-#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QStackedWidget>
@@ -58,35 +57,6 @@ static QString normalize_display_text(const QString& text)
     return display_text;
 }
 
-static QString song_title_text(const QString& file_name)
-{
-    const QString full_text = normalize_display_text(file_name);
-    QString base_name = QFileInfo(full_text).completeBaseName();
-    if (base_name.isEmpty())
-    {
-        return full_text;
-    }
-
-    const QStringList separators = {QStringLiteral(" - "), QStringLiteral("-")};
-    for (const QString& separator : separators)
-    {
-        const int separator_index = base_name.indexOf(separator);
-        if (separator_index <= 0)
-        {
-            continue;
-        }
-
-        const QString left = base_name.left(separator_index).trimmed();
-        const QString right = base_name.mid(separator_index + separator.size()).trimmed();
-        if (!left.isEmpty() && !right.isEmpty())
-        {
-            return left;
-        }
-    }
-
-    return base_name;
-}
-
 static void set_item_text_with_tooltip(QTreeWidgetItem* item, const QString& text)
 {
     if (item == nullptr)
@@ -106,8 +76,9 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
         return;
     }
 
-    item->setText(0, song_title_text(file_name));
-    item->setToolTip(0, normalize_display_text(file_name));
+    const QString display_text = normalize_display_text(file_name);
+    item->setText(0, display_text);
+    item->setToolTip(0, display_text);
 }
 
 constexpr int kPlaybackPageIndex = 0;
