@@ -83,6 +83,16 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
     item->setToolTip(0, display_text);
 }
 
+static QString song_item_path(QTreeWidgetItem* item)
+{
+    if (item == nullptr || item->parent() == nullptr)
+    {
+        return {};
+    }
+
+    return item->data(0, Qt::UserRole).toString();
+}
+
 constexpr int kPlaybackPageIndex = 0;
 constexpr int kManagementPageIndex = 1;
 
@@ -617,6 +627,15 @@ void playlist_window::on_manage_playlists_action()
 
 void playlist_window::populate_playlists_on_startup()
 {
+    const QString current_file_path = current_playing_file_path_;
+    const QString restored_file_path = song_item_path(restored_song_item_);
+    const bool had_restored_item = !restored_file_path.isEmpty();
+
+    clear_playing_indicator();
+    context_menu_item_ = nullptr;
+    clicked_song_item_ = nullptr;
+    restored_song_item_ = nullptr;
+
     song_tree_widget_->blockSignals(true);
     song_tree_widget_->clear();
     QList<Playlist> playlists = playlist_manager_->get_all_playlists();
@@ -638,6 +657,33 @@ void playlist_window::populate_playlists_on_startup()
         }
     }
     song_tree_widget_->blockSignals(false);
+
+    if (current_file_path.isEmpty())
+    {
+        return;
+    }
+
+    QTreeWidgetItem* current_item = find_song_item_by_path(current_file_path);
+    if (current_item == nullptr)
+    {
+        shuffled_indices_.clear();
+        current_shuffle_index_ = -1;
+        return;
+    }
+
+    clicked_song_item_ = current_item;
+    if (had_restored_item && restored_file_path == current_file_path)
+    {
+        restored_song_item_ = current_item;
+    }
+    mark_restored_song_item(current_item);
+
+    if (current_mode_ == playback_mode::Shuffle && current_item->parent() != nullptr)
+    {
+        const int current_song_index = current_item->parent()->indexOfChild(current_item);
+        generate_shuffled_list(current_item->parent(), current_song_index);
+        current_shuffle_index_ = 0;
+    }
 }
 
 void playlist_window::on_playlist_added(const Playlist& new_playlist)
