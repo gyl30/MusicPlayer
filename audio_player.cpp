@@ -19,7 +19,7 @@ void audio_player::audio_callback(void* userdata, Uint8* stream, int len)
 
 audio_player::audio_player(QObject* parent) : QObject(parent)
 {
-    if (SDL_Init(SDL_INIT_AUDIO) < 0)
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
     {
         LOG_ERROR("无法初始化 sdl 音频 {}", SDL_GetError());
     }
@@ -36,8 +36,8 @@ audio_player::audio_player(QObject* parent) : QObject(parent)
 audio_player::~audio_player()
 {
     stop_playback();
-    SDL_Quit();
-    LOG_DEBUG("音频播放器已销毁 sdl 已退出");
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    LOG_DEBUG("音频播放器已销毁 sdl 音频子系统已退出");
 }
 
 void audio_player::clear_queue()
