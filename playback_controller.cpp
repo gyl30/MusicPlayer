@@ -84,7 +84,7 @@ void playback_controller::play_file(const QString& file_path, qint64 start_posit
 
 void playback_controller::stop()
 {
-    if (!is_media_loaded_ && !is_playing_)
+    if (!is_media_loaded_ && !is_playing_ && current_session_id_ == 0 && player_thread_ == nullptr)
     {
         return;
     }
