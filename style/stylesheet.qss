@@ -157,36 +157,37 @@ QPushButton:pressed {
 
 QSlider#progressSlider {
     background: transparent;
-    min-height: 8px;
-    max-height: 8px;
+    min-height: 14px;
+    max-height: 14px;
 }
 
 QSlider#progressSlider::groove:horizontal {
     background: rgba(7, 83, 119, 165);
     border: none;
-    height: 2px;
-    border-radius: 1px;
+    height: 4px;
+    border-radius: 2px;
 }
 
 QSlider#progressSlider::sub-page:horizontal {
     background: #B9FF95;
     border: none;
-    height: 2px;
-    border-radius: 1px;
+    height: 4px;
+    border-radius: 2px;
 }
 
 QSlider#progressSlider::add-page:horizontal {
     background: rgba(7, 83, 119, 165);
     border: none;
-    height: 2px;
-    border-radius: 1px;
+    height: 4px;
+    border-radius: 2px;
 }
 
 QSlider#progressSlider::handle:horizontal {
-    background: transparent;
-    border: none;
-    width: 1px;
-    margin: -3px 0px;
+    background: #F6FFE8;
+    border: 1px solid #3AAA2C;
+    border-radius: 3px;
+    width: 6px;
+    margin: -1px 0px;
 }
 
 #volumeMeter {

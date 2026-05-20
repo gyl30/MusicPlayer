@@ -138,7 +138,7 @@ void player_window::setup_ui()
     progress_slider_->setObjectName("progressSlider");
     progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
-    progress_slider_->setFixedHeight(8);
+    progress_slider_->setFixedHeight(14);
 
     auto* progress_layout = new QHBoxLayout();
     progress_layout->setContentsMargins(0, 0, 0, 0);
