@@ -20,7 +20,7 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     decoder_->moveToThread(decoder_thread_);
 
     connect(decoder_, &audio_decoder::duration_ready, this, &playback_controller::on_duration_ready, Qt::QueuedConnection);
-    connect(decoder_, &audio_decoder::packet_ready, this, &playback_controller::on_packet_from_decoder, Qt::QueuedConnection);
+    connect(decoder_, &audio_decoder::packet_ready, this, &playback_controller::on_packet_from_decoder, Qt::BlockingQueuedConnection);
     connect(decoder_, &audio_decoder::seek_finished, this, &playback_controller::on_decoder_seek_finished, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::decoding_error, this, &playback_controller::on_decoding_error, Qt::QueuedConnection);
     connect(decoder_, &audio_decoder::metadata_ready, this, &playback_controller::on_metadata_ready, Qt::QueuedConnection);
@@ -275,7 +275,7 @@ void playback_controller::on_packet_from_decoder(qint64 session_id, const std::s
     }
 
     QMetaObject::invokeMethod(
-        player_, "enqueue_packet", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
+        player_, "enqueue_packet", Qt::BlockingQueuedConnection, Q_ARG(qint64, session_id), Q_ARG(std::shared_ptr<audio_packet>, packet));
 }
 
 void playback_controller::on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet)

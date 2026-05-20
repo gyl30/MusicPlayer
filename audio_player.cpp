@@ -5,6 +5,8 @@
 #include "audio_player.h"
 
 constexpr int kProgressUpdateIntervalMs = 50;
+constexpr int kPacketEnqueueRetryDelayMs = 2;
+constexpr int kPacketEnqueueMaxWaitMs = 2000;
 constexpr auto kBufferLowWatermarkSeconds = 2L;
 constexpr auto kBufferHighWatermarkSeconds = 5L;
 
@@ -175,7 +177,26 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
         return;
     }
 
-    if (packet_queue_.push(packet))
+    bool queued = false;
+    int waited_ms = 0;
+    while (session_id == session_id_ && is_playing_.load(std::memory_order_acquire) && waited_ms <= kPacketEnqueueMaxWaitMs)
+    {
+        if (packet_queue_.push(packet))
+        {
+            queued = true;
+            break;
+        }
+        SDL_Delay(kPacketEnqueueRetryDelayMs);
+        waited_ms += kPacketEnqueueRetryDelayMs;
+    }
+
+    if (!queued)
+    {
+        LOG_WARN("sdl 播放队列已满，等待 {}ms 后仍无法入队，丢弃当前音频包", waited_ms);
+        return;
+    }
+
+    if (queued)
     {
         approx_buffered_bytes_.fetch_add(packet->data.size(), std::memory_order_relaxed);
         low_water_mark_triggered_.store(false, std::memory_order_relaxed);
