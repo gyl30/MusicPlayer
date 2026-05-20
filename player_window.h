@@ -76,7 +76,7 @@ class player_window : public QWidget
     void reset_ui();
     void set_time_text(const QString& text);
     void set_track_title(const QString& title);
-    void set_default_cover_art();
+    void clear_cover_art();
     void refresh_time_label_width();
     void refresh_track_title_elision();
     void update_spectrum_background_geometry();

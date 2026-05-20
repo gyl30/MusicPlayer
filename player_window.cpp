@@ -105,13 +105,13 @@ void player_window::setup_ui()
     cover_art_label_->setAlignment(Qt::AlignCenter);
     cover_art_label_->setFixedSize(54, 54);
     cover_art_label_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    cover_art_label_->hide();
     panel_layout->addWidget(cover_art_label_);
 
     left_panel_layout_ = new QVBoxLayout();
     left_panel_layout_->setContentsMargins(0, 0, 0, 0);
     left_panel_layout_->setSpacing(7);
     panel_layout->addLayout(left_panel_layout_, 1);
-    set_default_cover_art();
 
     auto* title_layout = new QHBoxLayout();
     title_layout->setContentsMargins(0, 0, 0, 0);
@@ -229,7 +229,7 @@ void player_window::reset_ui()
 {
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
-    set_default_cover_art();
+    clear_cover_art();
     set_track_title("欢迎使用");
     set_time_text("00:00");
     progress_slider_->setRange(0, 100);
@@ -294,18 +294,26 @@ void player_window::on_playback_started(const QString& file_path, const QString&
 
 void player_window::on_cover_art_updated(const QByteArray& image_data)
 {
-    if (cover_art_label_ == nullptr || image_data.isEmpty())
+    if (cover_art_label_ == nullptr)
     {
+        return;
+    }
+
+    if (image_data.isEmpty())
+    {
+        clear_cover_art();
         return;
     }
 
     QPixmap cover;
     if (!cover.loadFromData(image_data))
     {
+        clear_cover_art();
         return;
     }
 
     cover_art_label_->setPixmap(cover.scaled(cover_art_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    cover_art_label_->show();
 }
 
 void player_window::on_lyrics_updated(const QList<LyricLine>& lyrics)
@@ -446,14 +454,15 @@ void player_window::set_track_title(const QString& title)
     track_title_label_->setText(full_track_title_);
 }
 
-void player_window::set_default_cover_art()
+void player_window::clear_cover_art()
 {
     if (cover_art_label_ == nullptr)
     {
         return;
     }
 
-    cover_art_label_->setPixmap(QIcon(":/icons/app_icon.svg").pixmap(cover_art_label_->size()));
+    cover_art_label_->clear();
+    cover_art_label_->hide();
 }
 
 void player_window::set_time_text(const QString& text)
