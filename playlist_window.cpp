@@ -648,6 +648,12 @@ void playlist_window::on_manage_playlists_action()
 {
     if (main_stack_ != nullptr && main_stack_->currentIndex() == kManagementPageIndex)
     {
+        if (management_page_ != nullptr && management_page_->has_pending_changes())
+        {
+            QMessageBox::information(this, "未应用更改", "请先点击“应用并返回”保存播放列表更改。");
+            return;
+        }
+
         switch_to_page(kPlaybackPageIndex);
         return;
     }

@@ -32,6 +32,7 @@ void music_management_dialog::reload()
 void music_management_dialog::load_initial_data()
 {
     temp_playlists_.clear();
+    has_pending_changes_ = false;
     const auto all_playlists = playlist_manager_->get_all_playlists();
     for (const auto& p : all_playlists)
     {
@@ -242,6 +243,7 @@ void music_management_dialog::on_copy_button_clicked()
     }
 
     dest_playlist_ref.songs.append(songs_to_add);
+    has_pending_changes_ = true;
 
     populate_playlist_widgets();
 }
@@ -305,6 +307,7 @@ void music_management_dialog::on_move_button_clicked()
         source_playlist_ref.songs.removeAt(index);
     }
 
+    has_pending_changes_ = true;
     populate_playlist_widgets();
 }
 
@@ -341,11 +344,13 @@ void music_management_dialog::on_delete_button_clicked()
         }
     }
 
+    has_pending_changes_ = true;
     populate_playlist_widgets();
 }
 
 void music_management_dialog::on_done_button_clicked()
 {
     playlist_manager_->apply_changes_from_dialog(temp_playlists_);
+    has_pending_changes_ = false;
     emit changes_applied();
 }

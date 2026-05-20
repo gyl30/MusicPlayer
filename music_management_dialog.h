@@ -16,6 +16,7 @@ class music_management_dialog : public QWidget
    public:
     explicit music_management_dialog(playlist_manager* manager, QWidget* parent = nullptr);
     ~music_management_dialog() override = default;
+    [[nodiscard]] bool has_pending_changes() const { return has_pending_changes_; }
 
    public slots:
     void reload();
@@ -50,6 +51,8 @@ class music_management_dialog : public QWidget
     QPushButton* move_button_ = nullptr;
     QPushButton* delete_button_ = nullptr;
     QPushButton* done_button_ = nullptr;
+
+    bool has_pending_changes_ = false;
 };
 
 #endif
