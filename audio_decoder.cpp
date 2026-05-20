@@ -190,6 +190,7 @@ void audio_decoder::decoding_loop()
                 else
                 {
                     accumulated_ms_ = target_ms;
+                    seek_target_exact_ms_ = target_ms;
                 }
 
                 emit seek_finished(target_sess, actual_ms);
@@ -391,6 +392,10 @@ void audio_decoder::process_frame(AVFrame* frame)
     }
 
     int buffer_size = av_samples_get_buffer_size(&swr_data_linesize_, target_format_.channelCount(), converted_samples, target_ffmpeg_fmt_, 1);
+    if (buffer_size <= 0)
+    {
+        return;
+    }
 
     qint64 timestamp_ms = 0;
     if (frame->pts != AV_NOPTS_VALUE)
@@ -407,13 +412,47 @@ void audio_decoder::process_frame(AVFrame* frame)
     accumulated_ms_ = timestamp_ms;
     timestamp_ms = std::max<qint64>(timestamp_ms, 0);
 
-    if (buffer_size > 0)
+    const uint8_t* packet_data = swr_data_;
+    int packet_size = buffer_size;
+
+    if (seek_target_exact_ms_ >= 0)
     {
-        auto packet = std::make_shared<audio_packet>();
-        packet->data.assign(swr_data_, swr_data_ + buffer_size);
-        packet->ms = timestamp_ms;
-        emit packet_ready(session_id_, packet);
+        const qint64 frame_duration_ms = (static_cast<qint64>(converted_samples) * 1000) / target_format_.sampleRate();
+        const qint64 packet_end_ms = timestamp_ms + frame_duration_ms;
+        if (packet_end_ms <= seek_target_exact_ms_)
+        {
+            return;
+        }
+
+        if (timestamp_ms < seek_target_exact_ms_)
+        {
+            const int bytes_per_sample = av_get_bytes_per_sample(target_ffmpeg_fmt_);
+            const int bytes_per_frame = bytes_per_sample * target_format_.channelCount();
+            if (bytes_per_frame <= 0)
+            {
+                return;
+            }
+
+            qint64 samples_to_skip = ((seek_target_exact_ms_ - timestamp_ms) * target_format_.sampleRate()) / 1000;
+            samples_to_skip = qBound<qint64>(0, samples_to_skip, static_cast<qint64>(converted_samples));
+            const qint64 bytes_to_skip = samples_to_skip * bytes_per_frame;
+            if (bytes_to_skip >= packet_size)
+            {
+                return;
+            }
+
+            packet_data += bytes_to_skip;
+            packet_size -= static_cast<int>(bytes_to_skip);
+            timestamp_ms = seek_target_exact_ms_;
+        }
+
+        seek_target_exact_ms_ = -1;
     }
+
+    auto packet = std::make_shared<audio_packet>();
+    packet->data.assign(packet_data, packet_data + packet_size);
+    packet->ms = timestamp_ms;
+    emit packet_ready(session_id_, packet);
 }
 
 void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata, AVDictionary* stream_metadata)
