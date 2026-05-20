@@ -5,7 +5,6 @@
 #include <QVBoxLayout>
 #include <QStackedWidget>
 #include <QMessageBox>
-#include <QStatusBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QHeaderView>
@@ -170,14 +169,6 @@ void playlist_window::setup_ui()
     auto* central_widget = new QWidget(this);
     central_widget->setObjectName("appFrame");
     setCentralWidget(central_widget);
-    statusBar()->setSizeGripEnabled(false);
-    lyric_status_label_ = new QLabel(statusBar());
-    lyric_status_label_->setObjectName("lyricStatusLabel");
-    lyric_status_label_->setAlignment(Qt::AlignCenter);
-    lyric_status_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    statusBar()->addWidget(lyric_status_label_, 1);
-    lyric_status_label_->hide();
-    statusBar()->hide();
 
     auto* main_layout = new QVBoxLayout(central_widget);
     main_layout->setContentsMargins(1, 1, 1, 1);
@@ -315,29 +306,6 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
     connect(player_window_, &player_window::play_requested, this, &playlist_window::on_play_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
-    connect(player_window_,
-            &player_window::lyric_status_changed,
-            this,
-            [this](const QString& text)
-            {
-                if (text.isEmpty())
-                {
-                    if (lyric_status_label_ != nullptr)
-                    {
-                        lyric_status_label_->clear();
-                        lyric_status_label_->hide();
-                    }
-                    statusBar()->hide();
-                    return;
-                }
-
-                if (lyric_status_label_ != nullptr)
-                {
-                    lyric_status_label_->setText(text);
-                    lyric_status_label_->show();
-                }
-                statusBar()->show();
-            });
 
     connect(management_page_,
             &music_management_dialog::changes_applied,

@@ -257,23 +257,6 @@ QTreeWidget::branch {
     min-width: 64px;
 }
 
-QStatusBar {
-    background-color: #E7FFE7;
-    border-top: 1px solid #7CD77A;
-    color: #0C7140;
-    font-weight: 600;
-}
-
-QStatusBar::item {
-    border: none;
-}
-
-#lyricStatusLabel {
-    background-color: transparent;
-    color: #0C7140;
-    font-weight: 600;
-}
-
 QMenu {
     background-color: #F7FDFF;
     border: 1px solid #5DB8D8;

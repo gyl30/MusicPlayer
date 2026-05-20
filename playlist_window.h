@@ -13,7 +13,6 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
 class QStackedWidget;
-class QLabel;
 
 class playback_controller;
 class playlist_manager;
@@ -90,7 +89,6 @@ class playlist_window : public QMainWindow
 
     QTreeWidget* song_tree_widget_ = nullptr;
     QStackedWidget* main_stack_ = nullptr;
-    QLabel* lyric_status_label_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
