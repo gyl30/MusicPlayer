@@ -65,8 +65,8 @@ class audio_player : public QObject
 
     qint64 buffer_low_water_mark_ = 0;
     qint64 buffer_high_water_mark_ = 0;
-    bool low_water_mark_triggered_ = false;
-    bool high_water_mark_triggered_ = false;
+    std::atomic<bool> low_water_mark_triggered_{false};
+    std::atomic<bool> high_water_mark_triggered_{false};
 
     QAudioFormat last_format_;
 

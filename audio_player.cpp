@@ -122,8 +122,8 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     buffer_low_water_mark_ = bytes_per_second * kBufferLowWatermarkSeconds;
     buffer_high_water_mark_ = bytes_per_second * kBufferHighWatermarkSeconds;
 
-    low_water_mark_triggered_ = true;
-    high_water_mark_triggered_ = false;
+    low_water_mark_triggered_.store(true, std::memory_order_relaxed);
+    high_water_mark_triggered_.store(false, std::memory_order_relaxed);
     LOG_DEBUG("sdl 缓冲区低水位线设置为 {} 字节 {} 秒 高水位线设置为 {} 字节 {} 秒",
               buffer_low_water_mark_,
               kBufferLowWatermarkSeconds,
@@ -178,15 +178,15 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
     if (packet_queue_.push(packet))
     {
         approx_buffered_bytes_.fetch_add(packet->data.size(), std::memory_order_relaxed);
-        low_water_mark_triggered_ = false;
+        low_water_mark_triggered_.store(false, std::memory_order_relaxed);
     }
 
     qint64 current_buffer_size = approx_buffered_bytes_.load(std::memory_order_relaxed);
 
-    if (!high_water_mark_triggered_ && current_buffer_size >= buffer_high_water_mark_)
+    if (!high_water_mark_triggered_.load(std::memory_order_relaxed) && current_buffer_size >= buffer_high_water_mark_)
     {
         LOG_TRACE("sdl 缓冲区水位高 {} 字节，发出高水位信号", current_buffer_size);
-        high_water_mark_triggered_ = true;
+        high_water_mark_triggered_.store(true, std::memory_order_relaxed);
         QMetaObject::invokeMethod(this, "buffer_level_high", Qt::QueuedConnection, Q_ARG(qint64, session_id_));
     }
 }
@@ -210,8 +210,8 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
         bytes_processed_by_device_ = 0;
         decoder_finished_ = false;
 
-        low_water_mark_triggered_ = true;
-        high_water_mark_triggered_ = false;
+        low_water_mark_triggered_.store(true, std::memory_order_relaxed);
+        high_water_mark_triggered_.store(false, std::memory_order_relaxed);
 
         SDL_UnlockAudioDevice(device_id_);
 
@@ -269,8 +269,8 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     playback_start_offset_ms_ = actual_seek_ms;
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
-    low_water_mark_triggered_ = true;
-    high_water_mark_triggered_ = false;
+    low_water_mark_triggered_.store(true, std::memory_order_relaxed);
+    high_water_mark_triggered_.store(false, std::memory_order_relaxed);
     is_playing_ = true;
 
     if (!progress_timer_->isActive())
@@ -368,14 +368,14 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
         return;
     }
 
-    if (!low_water_mark_triggered_)
+    if (!low_water_mark_triggered_.load(std::memory_order_relaxed))
     {
         qint64 remaining_bytes = approx_buffered_bytes_.load(std::memory_order_relaxed);
         if (remaining_bytes < buffer_low_water_mark_)
         {
             LOG_TRACE("sdl 缓冲区水位低 {} 字节 请求更多数据", remaining_bytes);
-            low_water_mark_triggered_ = true;
-            high_water_mark_triggered_ = false;
+            low_water_mark_triggered_.store(true, std::memory_order_relaxed);
+            high_water_mark_triggered_.store(false, std::memory_order_relaxed);
             QMetaObject::invokeMethod(this, "buffer_level_low", Qt::QueuedConnection, Q_ARG(qint64, session_id_));
         }
     }
