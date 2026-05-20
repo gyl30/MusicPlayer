@@ -366,9 +366,12 @@ void playlist_window::on_playback_mode_changed(playback_mode new_mode)
     if (current_mode_ == playback_mode::Shuffle && currently_playing_item_ != nullptr)
     {
         QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
-        int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
-        generate_shuffled_list(playlist_item, current_song_index);
-        current_shuffle_index_ = 0;
+        if (playlist_item != nullptr)
+        {
+            int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
+            generate_shuffled_list(playlist_item, current_song_index);
+            current_shuffle_index_ = 0;
+        }
     }
     else if (current_mode_ != playback_mode::Shuffle)
     {
@@ -1009,13 +1012,24 @@ void playlist_window::on_next_requested()
         return;
     }
 
+    QTreeWidgetItem* parent_playlist = currently_playing_item_->parent();
+    if (parent_playlist == nullptr)
+    {
+        return;
+    }
+
     QTreeWidgetItem* next_item = song_tree_widget_->itemBelow(currently_playing_item_);
 
-    if (next_item == nullptr || next_item->parent() != currently_playing_item_->parent())
+    if (next_item == nullptr || next_item->parent() != parent_playlist)
     {
         if (current_mode_ == playback_mode::ListLoop)
         {
-            next_item = currently_playing_item_->parent()->child(0);
+            next_item = parent_playlist->child(0);
+        }
+        else if (current_mode_ == playback_mode::Sequential)
+        {
+            on_stop_requested();
+            return;
         }
         else
         {
@@ -1060,13 +1074,18 @@ void playlist_window::on_previous_requested()
         return;
     }
 
+    QTreeWidgetItem* parent_playlist = currently_playing_item_->parent();
+    if (parent_playlist == nullptr)
+    {
+        return;
+    }
+
     QTreeWidgetItem* prev_item = song_tree_widget_->itemAbove(currently_playing_item_);
 
-    if (prev_item == nullptr || prev_item->parent() != currently_playing_item_->parent())
+    if (prev_item == nullptr || prev_item->parent() != parent_playlist)
     {
         if (current_mode_ == playback_mode::ListLoop)
         {
-            auto* parent_playlist = currently_playing_item_->parent();
             prev_item = parent_playlist->child(parent_playlist->childCount() - 1);
         }
         else
