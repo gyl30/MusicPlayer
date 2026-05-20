@@ -23,6 +23,7 @@
 #include <QMouseEvent>
 #include <QWindow>
 #include <QSize>
+#include <QSet>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -851,7 +852,39 @@ void playlist_window::on_add_songs_action()
 
     if (!files.isEmpty())
     {
-        playlist_manager_->add_songs_to_playlist(playlist_id, files);
+        const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
+        QSet<QString> known_paths;
+        for (const auto& song : playlist.songs)
+        {
+            known_paths.insert(song.file_path);
+        }
+
+        QStringList files_to_add;
+        int duplicate_count = 0;
+        for (const QString& file : files)
+        {
+            if (known_paths.contains(file))
+            {
+                duplicate_count++;
+                continue;
+            }
+
+            known_paths.insert(file);
+            files_to_add.append(file);
+        }
+
+        if (files_to_add.isEmpty())
+        {
+            QMessageBox::information(this, "重复歌曲", "选择的歌曲已存在于当前播放列表。");
+            return;
+        }
+
+        playlist_manager_->add_songs_to_playlist(playlist_id, files_to_add);
+
+        if (duplicate_count > 0)
+        {
+            QMessageBox::information(this, "已跳过重复歌曲", QString("已添加 %1 首歌曲，跳过 %2 首已存在的歌曲。").arg(files_to_add.count()).arg(duplicate_count));
+        }
     }
 }
 
