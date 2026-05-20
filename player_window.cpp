@@ -10,6 +10,7 @@
 #include <QFontMetrics>
 #include <QEvent>
 #include <QColor>
+#include <QPixmap>
 
 #include "volumemeter.h"
 #include "player_window.h"
@@ -95,9 +96,22 @@ void player_window::setup_ui()
     root_layout->setSpacing(3);
     root_layout->addWidget(main_container_);
 
-    left_panel_layout_ = new QVBoxLayout(main_container_);
-    left_panel_layout_->setContentsMargins(8, 8, 8, 6);
+    auto* panel_layout = new QHBoxLayout(main_container_);
+    panel_layout->setContentsMargins(8, 8, 8, 6);
+    panel_layout->setSpacing(8);
+
+    cover_art_label_ = new QLabel(main_container_);
+    cover_art_label_->setObjectName("coverArtLabel");
+    cover_art_label_->setAlignment(Qt::AlignCenter);
+    cover_art_label_->setFixedSize(54, 54);
+    cover_art_label_->setAttribute(Qt::WA_TransparentForMouseEvents);
+    panel_layout->addWidget(cover_art_label_);
+
+    left_panel_layout_ = new QVBoxLayout();
+    left_panel_layout_->setContentsMargins(0, 0, 0, 0);
     left_panel_layout_->setSpacing(7);
+    panel_layout->addLayout(left_panel_layout_, 1);
+    set_default_cover_art();
 
     auto* title_layout = new QHBoxLayout();
     title_layout->setContentsMargins(0, 0, 0, 0);
@@ -215,6 +229,7 @@ void player_window::reset_ui()
 {
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
+    set_default_cover_art();
     set_track_title("欢迎使用");
     set_time_text("00:00");
     progress_slider_->setRange(0, 100);
@@ -277,7 +292,21 @@ void player_window::on_playback_started(const QString& file_path, const QString&
     setWindowTitle(file_name);
 }
 
-void player_window::on_cover_art_updated(const QByteArray& image_data) { (void)image_data; }
+void player_window::on_cover_art_updated(const QByteArray& image_data)
+{
+    if (cover_art_label_ == nullptr || image_data.isEmpty())
+    {
+        return;
+    }
+
+    QPixmap cover;
+    if (!cover.loadFromData(image_data))
+    {
+        return;
+    }
+
+    cover_art_label_->setPixmap(cover.scaled(cover_art_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+}
 
 void player_window::on_lyrics_updated(const QList<LyricLine>& lyrics)
 {
@@ -415,6 +444,16 @@ void player_window::set_track_title(const QString& title)
     full_track_title_ = title;
     track_title_label_->setToolTip(title);
     track_title_label_->setText(full_track_title_);
+}
+
+void player_window::set_default_cover_art()
+{
+    if (cover_art_label_ == nullptr)
+    {
+        return;
+    }
+
+    cover_art_label_->setPixmap(QIcon(":/icons/app_icon.svg").pixmap(cover_art_label_->size()));
 }
 
 void player_window::set_time_text(const QString& text)

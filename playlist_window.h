@@ -21,6 +21,7 @@ class quick_editor;
 class tray_icon;
 class player_window;
 class music_management_dialog;
+class lyrics_widget;
 
 class playlist_window : public QMainWindow
 {
@@ -84,6 +85,7 @@ class playlist_window : public QMainWindow
     playlist_manager* playlist_manager_ = nullptr;
     player_window* player_window_ = nullptr;
     music_management_dialog* management_page_ = nullptr;
+    lyrics_widget* lyrics_view_ = nullptr;
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;

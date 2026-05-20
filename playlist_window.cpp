@@ -32,6 +32,7 @@
 #include "playlist_manager.h"
 #include "playback_controller.h"
 #include "music_management_dialog.h"
+#include "lyrics_widget.h"
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 {
@@ -237,6 +238,11 @@ void playlist_window::setup_ui()
     playback_layout->setContentsMargins(0, 0, 0, 0);
     playback_layout->setSpacing(4);
     playback_layout->addWidget(player_window_);
+    lyrics_view_ = new lyrics_widget(playback_page);
+    lyrics_view_->setObjectName("lyricsView");
+    lyrics_view_->setFixedHeight(84);
+    lyrics_view_->hide();
+    playback_layout->addWidget(lyrics_view_);
     playback_layout->addWidget(song_tree_widget_, 1);
 
     main_stack_ = new QStackedWidget(this);
@@ -285,6 +291,23 @@ void playlist_window::setup_connections()
             {
                 (void)total_ms;
                 current_progress_ms_ = current_ms;
+                if (lyrics_view_ != nullptr && lyrics_view_->isVisible())
+                {
+                    lyrics_view_->set_current_time(current_ms);
+                }
+            });
+    connect(controller_,
+            &playback_controller::lyrics_updated,
+            this,
+            [this](const QList<LyricLine>& lyrics)
+            {
+                if (lyrics_view_ == nullptr)
+                {
+                    return;
+                }
+
+                lyrics_view_->set_lyrics(lyrics);
+                lyrics_view_->setVisible(!lyrics.isEmpty());
             });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
@@ -367,6 +390,11 @@ void playlist_window::on_stop_requested()
     current_shuffle_index_ = -1;
     clear_saved_playback_state();
     player_window_->on_playback_stopped();
+    if (lyrics_view_ != nullptr)
+    {
+        lyrics_view_->clear();
+        lyrics_view_->hide();
+    }
 }
 
 void playlist_window::on_play_requested()
@@ -399,6 +427,11 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     pending_restore_seek_ms_ = -1;
 
     clear_playing_indicator();
+    if (lyrics_view_ != nullptr)
+    {
+        lyrics_view_->clear();
+        lyrics_view_->hide();
+    }
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)
     {

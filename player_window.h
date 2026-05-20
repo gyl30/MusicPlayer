@@ -76,6 +76,7 @@ class player_window : public QWidget
     void reset_ui();
     void set_time_text(const QString& text);
     void set_track_title(const QString& title);
+    void set_default_cover_art();
     void refresh_time_label_width();
     void refresh_track_title_elision();
     void update_spectrum_background_geometry();
@@ -99,6 +100,7 @@ class player_window : public QWidget
     QPushButton* shuffle_button_ = nullptr;
 
     QLabel* time_label_ = nullptr;
+    QLabel* cover_art_label_ = nullptr;
     scrolling_text_label* track_title_label_ = nullptr;
     QString full_track_title_ = "欢迎使用";
 

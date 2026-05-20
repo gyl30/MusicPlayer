@@ -100,6 +100,12 @@ QPushButton:pressed {
     border-radius: 3px;
 }
 
+#coverArtLabel {
+    background-color: rgba(4, 56, 88, 120);
+    border: 1px solid rgba(217, 252, 255, 180);
+    border-radius: 2px;
+}
+
 #trackTitleLabel {
     color: #ECFBFF;
     font-weight: 600;
@@ -224,6 +230,12 @@ QListWidget::item:hover {
 
 QTreeWidget::branch {
     background-color: transparent;
+}
+
+#lyricsView {
+    background-color: rgba(244, 253, 255, 170);
+    border: 1px solid #62BBD9;
+    border-radius: 2px;
 }
 
 #managementPanel {
