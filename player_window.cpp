@@ -13,6 +13,7 @@
 #include <QColor>
 #include <QMouseEvent>
 #include <QPixmap>
+#include <limits>
 
 #include "volumemeter.h"
 #include "player_window.h"
@@ -85,15 +86,25 @@ void player_window::set_playback_mode(playback_mode mode)
     emit playback_mode_changed(current_mode_);
 }
 
-void player_window::restore_idle_state(const QString& title, qint64 position_ms)
+void player_window::restore_idle_state(const QString& title, qint64 position_ms, qint64 duration_ms)
 {
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
     set_track_title(title);
 
     const qint64 safe_position_ms = qMax<qint64>(0, position_ms);
-    progress_slider_->setRange(0, 100);
-    progress_slider_->setValue(0);
+    const qint64 safe_duration_ms = qMax<qint64>(0, duration_ms);
+    if (safe_duration_ms > 0)
+    {
+        progress_slider_->setRange(0, static_cast<int>(qMin<qint64>(safe_duration_ms, std::numeric_limits<int>::max())));
+        const qint64 slider_max = static_cast<qint64>(progress_slider_->maximum());
+        progress_slider_->setValue(static_cast<int>(qBound<qint64>(qint64{0}, safe_position_ms, slider_max)));
+    }
+    else
+    {
+        progress_slider_->setRange(0, 100);
+        progress_slider_->setValue(0);
+    }
 
     const QTime restored_time = QTime(0, 0).addMSecs(static_cast<int>(safe_position_ms));
     const QString format = safe_position_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
@@ -246,6 +257,20 @@ void player_window::setup_connections()
         connect(controller_, &playback_controller::track_info_ready, this, &player_window::update_track_info);
         connect(controller_, &playback_controller::playback_started, this, &player_window::on_playback_started);
         connect(controller_, &playback_controller::progress_updated, this, &player_window::update_progress);
+        connect(controller_,
+                &playback_controller::seek_completed,
+                this,
+                [this](qint64 actual_ms)
+                {
+                    const qint64 safe_actual_ms = qMax<qint64>(0, actual_ms);
+                    const qint64 slider_min = static_cast<qint64>(progress_slider_->minimum());
+                    const qint64 slider_max = static_cast<qint64>(progress_slider_->maximum());
+                    progress_slider_->setValue(static_cast<int>(qBound<qint64>(slider_min, safe_actual_ms, slider_max)));
+                    const qint64 total_ms = progress_slider_->maximum();
+                    const QTime current_time = QTime(0, 0).addMSecs(static_cast<int>(safe_actual_ms));
+                    const QString format = total_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
+                    set_time_text(current_time.toString(format));
+                });
         connect(controller_, &playback_controller::playback_error, this, &player_window::handle_playback_error);
         connect(controller_, &playback_controller::metadata_ready, this, &player_window::on_metadata_updated);
         connect(controller_, &playback_controller::cover_art_ready, this, &player_window::on_cover_art_updated);

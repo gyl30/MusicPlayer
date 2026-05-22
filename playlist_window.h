@@ -72,7 +72,6 @@ class playlist_window : public QMainWindow
     void populate_playlists_on_startup();
     void restore_playback_state();
     void save_playback_state() const;
-    void clear_saved_playback_state() const;
     void generate_shuffled_list(QTreeWidgetItem* playlist_item, int start_song_index = -1);
     QTreeWidgetItem* find_song_item_by_path(const QString& file_path) const;
     void mark_restored_song_item(QTreeWidgetItem* item);
@@ -97,7 +96,9 @@ class playlist_window : public QMainWindow
     QString current_playing_file_path_;
     bool is_creating_playlist_ = false;
     qint64 current_progress_ms_ = 0;
+    qint64 current_duration_ms_ = 0;
     qint64 pending_restore_seek_ms_ = -1;
+    qint64 last_logged_progress_ms_ = -1;
 
     playback_mode current_mode_ = playback_mode::ListLoop;
     QList<int> shuffled_indices_;

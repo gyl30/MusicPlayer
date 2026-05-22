@@ -63,6 +63,13 @@ void playback_controller::play_file(const QString& file_path, qint64 start_posit
     stop();
     is_paused_ = false;
     playback_start_position_ms_ = qMax<qint64>(0, start_position_ms);
+    startup_seek_pending_ = playback_start_position_ms_ > 0;
+    startup_player_ready_ = false;
+    startup_seek_completed_ = false;
+    startup_seek_result_ms_ = -1;
+    LOG_INFO("播放状态调试 控制器准备播放 start_position {}ms startup_seek_pending {}",
+             playback_start_position_ms_,
+             startup_seek_pending_);
     LOG_INFO("重置暂停状态");
     current_session_id_ = ++session_id_counter_;
     LOG_INFO("生成新会话id {}", current_session_id_);
@@ -74,6 +81,7 @@ void playback_controller::play_file(const QString& file_path, qint64 start_posit
 
     LOG_INFO("播放流程三 通知解码器开始处理文件");
     const qint64 decoder_start_position_ms = playback_start_position_ms_ > 0 ? playback_start_position_ms_ : -1;
+    LOG_INFO("播放状态调试 通知解码器启动 decoder_start_position {}ms", decoder_start_position_ms);
     QMetaObject::invokeMethod(decoder_,
                               "start_decoding",
                               Qt::QueuedConnection,
@@ -109,6 +117,10 @@ void playback_controller::stop()
     is_seeking_ = false;
     pending_seek_ms_ = -1;
     playback_start_position_ms_ = 0;
+    startup_seek_pending_ = false;
+    startup_player_ready_ = false;
+    startup_seek_completed_ = false;
+    startup_seek_result_ms_ = -1;
     current_session_id_ = 0;
 }
 
@@ -212,24 +224,41 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
     const qint64 player_start_position_ms = qBound<qint64>(0, playback_start_position_ms_, duration_ms);
 
     LOG_INFO("播放流程八 通知播放器准备启动");
+    LOG_INFO("播放状态调试 通知播放器启动 player_start_position {}ms duration {}ms startup_seek_pending {}",
+             player_start_position_ms,
+             duration_ms,
+             startup_seek_pending_);
     QMetaObject::invokeMethod(
         player_, "start_playback", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(QAudioFormat, format), Q_ARG(qint64, player_start_position_ms));
 }
 
 void playback_controller::on_player_ready_for_spectrum(qint64 session_id)
 {
-    if (session_id != current_session_id_ || spectrum_widget_ == nullptr)
+    if (session_id != current_session_id_)
     {
-        if (session_id == current_session_id_)
+        return;
+    }
+
+    if (startup_seek_pending_)
+    {
+        LOG_INFO("播放流程十 收到播放器的就绪信号 等待初始跳转完成 completed {} result {}ms",
+                 startup_seek_completed_,
+                 startup_seek_result_ms_);
+        startup_player_ready_ = true;
+        if (startup_seek_completed_)
         {
-            LOG_INFO("播放流程十 收到播放器的就绪信号 (无频谱)");
-            on_spectrum_ready_for_decoding(session_id);
+            LOG_INFO("播放状态调试 播放器ready后应用已完成的初始跳转 {}ms", startup_seek_result_ms_);
+            QMetaObject::invokeMethod(player_,
+                                      "handle_seek",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(qint64, session_id),
+                                      Q_ARG(qint64, startup_seek_result_ms_));
         }
         return;
     }
+
     LOG_INFO("播放流程十 收到播放器的就绪信号");
-    LOG_INFO("播放流程十一 通知频谱部件准备");
-    QMetaObject::invokeMethod(spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, 0));
+    start_spectrum_or_decoding(session_id, 0);
 }
 
 void playback_controller::on_spectrum_ready_for_decoding(qint64 session_id)
@@ -342,11 +371,27 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
     }
     LOG_INFO("跳转流程五 从解码器收到跳转结果实际位置 {}ms", actual_seek_ms);
 
+    if (startup_seek_pending_)
+    {
+        startup_seek_completed_ = true;
+        startup_seek_result_ms_ = actual_seek_ms;
+        LOG_INFO("播放状态调试 初始跳转完成 player_ready {} actual {}ms", startup_player_ready_, actual_seek_ms);
+    }
+
     if (actual_seek_ms < 0)
     {
         LOG_WARN("跳转流程六 跳转失败恢复播放");
+        const bool was_startup_seek = startup_seek_pending_;
+        startup_seek_pending_ = false;
+        startup_seek_completed_ = false;
+        startup_seek_result_ms_ = -1;
         is_seeking_ = false;
         pending_seek_ms_ = -1;
+        if (was_startup_seek && startup_player_ready_)
+        {
+            startup_player_ready_ = false;
+            start_spectrum_or_decoding(session_id, 0);
+        }
         if (is_playing_ && player_ != nullptr)
         {
             QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, session_id));
@@ -372,8 +417,15 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
     LOG_INFO("跳转流程七 通知播放器处理跳转");
     seek_result_ms_ = actual_seek_ms;
 
+    if (startup_seek_pending_ && !startup_player_ready_)
+    {
+        LOG_INFO("播放状态调试 初始跳转结果已就绪 等待播放器准备完成 actual {}ms", actual_seek_ms);
+        return;
+    }
+
     if (player_ != nullptr)
     {
+        LOG_INFO("播放状态调试 通知播放器处理跳转 actual {}ms startup_seek_pending {}", actual_seek_ms, startup_seek_pending_);
         QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
     }
 }
@@ -385,6 +437,14 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
         return;
     }
     LOG_INFO("跳转流程八 收到播放器已处理跳转的信号");
+    LOG_INFO("播放状态调试 播放器跳转已处理 seek_result {}ms startup_pending {} startup_completed {}",
+             seek_result_ms_,
+             startup_seek_pending_,
+             startup_seek_completed_);
+    startup_seek_pending_ = false;
+    startup_player_ready_ = false;
+    startup_seek_completed_ = false;
+    startup_seek_result_ms_ = -1;
 
     if (player_ != nullptr)
     {
@@ -392,15 +452,7 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
     }
     LOG_INFO("跳转流程九 通知频谱部件为跳转重置");
 
-    if (spectrum_widget_ != nullptr)
-    {
-        QMetaObject::invokeMethod(
-            spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, seek_result_ms_));
-    }
-    else
-    {
-        on_spectrum_ready_for_decoding(session_id);
-    }
+    start_spectrum_or_decoding(session_id, seek_result_ms_);
     emit seek_finished(true);
 
     if (pending_seek_ms_ != -1)
@@ -414,6 +466,27 @@ void playback_controller::on_player_seek_handled(qint64 session_id)
 
     is_seeking_ = false;
 }
+
+void playback_controller::start_spectrum_or_decoding(qint64 session_id, qint64 start_offset_ms)
+{
+    if (session_id != current_session_id_)
+    {
+        return;
+    }
+
+    if (spectrum_widget_ == nullptr)
+    {
+        LOG_INFO("播放流程十一 通知频谱部件准备 (无频谱)");
+        on_spectrum_ready_for_decoding(session_id);
+        return;
+    }
+
+    LOG_INFO("播放流程十一 通知频谱部件准备");
+    LOG_INFO("播放状态调试 启动频谱或解码 session {} start_offset {}ms", session_id, start_offset_ms);
+    QMetaObject::invokeMethod(
+        spectrum_widget_, "reset_and_start", Qt::QueuedConnection, Q_ARG(qint64, session_id), Q_ARG(qint64, start_offset_ms));
+}
+
 void playback_controller::on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata)
 {
     if (session_id != current_session_id_)

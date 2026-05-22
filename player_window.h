@@ -34,7 +34,7 @@ class player_window : public QWidget
     explicit player_window(playback_controller* controller, playlist_window* main_wnd);
     ~player_window() override;
     void set_playback_mode(playback_mode mode);
-    void restore_idle_state(const QString& title, qint64 position_ms);
+    void restore_idle_state(const QString& title, qint64 position_ms, qint64 duration_ms = 0);
 
    signals:
     void next_requested();

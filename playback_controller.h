@@ -69,6 +69,7 @@ class playback_controller : public QObject
 
    private:
     void cleanup_player();
+    void start_spectrum_or_decoding(qint64 session_id, qint64 start_offset_ms);
 
     QThread* decoder_thread_ = nullptr;
     audio_decoder* decoder_ = nullptr;
@@ -87,6 +88,10 @@ class playback_controller : public QObject
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
     qint64 playback_start_position_ms_ = 0;
+    bool startup_seek_pending_ = false;
+    bool startup_player_ready_ = false;
+    bool startup_seek_completed_ = false;
+    qint64 startup_seek_result_ms_ = -1;
     playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
 };

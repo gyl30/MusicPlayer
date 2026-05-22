@@ -66,6 +66,7 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
 
     session_id_ = session_id;
     file_path_ = file;
+    LOG_INFO("播放状态调试 解码器启动 session {} file {} offset {}ms", session_id_, file_path_.toStdString(), offset);
 
     is_running_ = true;
     abort_request_ = false;
@@ -76,14 +77,17 @@ void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint6
         seek_requested_ = true;
         seek_position_ms_ = offset;
         seek_session_id_ = session_id;
-        is_paused_ = false;
+        is_paused_ = true;
+        LOG_INFO("播放状态调试 解码器启动后等待初始跳转 position {}ms", seek_position_ms_);
     }
     else
     {
-        is_paused_ = false;
+        is_paused_ = true;
+        LOG_INFO("播放状态调试 解码器启动后等待播放链路就绪");
     }
 
     accumulated_ms_ = 0;
+    start_time_offset_ms_ = 0;
     first_frame_processed_ = false;
 
     worker_thread_ = std::thread(&audio_decoder::decoding_loop, this);
@@ -172,6 +176,18 @@ void audio_decoder::decoding_loop()
 
                 avcodec_flush_buffers(codec_ctx_);
 
+                if (!first_frame_processed_)
+                {
+                    AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
+                    start_time_offset_ms_ = 0;
+                    if (audio_stream->start_time != AV_NOPTS_VALUE)
+                    {
+                        start_time_offset_ms_ = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(audio_stream->start_time));
+                    }
+                    first_frame_processed_ = true;
+                    LOG_INFO("播放状态调试 初始跳转固定时间基准 offset {}ms", start_time_offset_ms_);
+                }
+
                 int ret = avformat_seek_file(format_ctx_, audio_stream_index_, INT64_MIN, seek_target_ts, seek_target_ts, 0);
 
                 if (ret < 0)
@@ -193,6 +209,7 @@ void audio_decoder::decoding_loop()
                     seek_target_exact_ms_ = target_ms;
                 }
 
+                LOG_INFO("播放状态调试 解码器跳转结束 target {}ms actual {}ms ret {}", target_ms, actual_ms, ret);
                 emit seek_finished(target_sess, actual_ms);
             }
             continue;
