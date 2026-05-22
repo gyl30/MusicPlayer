@@ -6,10 +6,12 @@
 #include <QTime>
 #include <QSettings>
 #include <QStyle>
+#include <QStyleOptionSlider>
 #include <QResizeEvent>
 #include <QFontMetrics>
 #include <QEvent>
 #include <QColor>
+#include <QMouseEvent>
 #include <QPixmap>
 
 #include "volumemeter.h"
@@ -36,6 +38,35 @@ bool player_window::eventFilter(QObject* watched, QEvent* event)
     if (watched == main_container_ && event->type() == QEvent::Resize)
     {
         update_spectrum_background_geometry();
+    }
+    else if (watched == progress_slider_ && event->type() == QEvent::MouseButtonPress)
+    {
+        auto* mouse_event = static_cast<QMouseEvent*>(event);
+        if (mouse_event->button() == Qt::LeftButton)
+        {
+            QStyleOptionSlider option;
+            option.initFrom(progress_slider_);
+            option.orientation = progress_slider_->orientation();
+            option.minimum = progress_slider_->minimum();
+            option.maximum = progress_slider_->maximum();
+            option.sliderPosition = progress_slider_->sliderPosition();
+            option.sliderValue = progress_slider_->value();
+
+            const QRect handle_rect =
+                progress_slider_->style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, progress_slider_);
+            if (!handle_rect.contains(mouse_event->pos()))
+            {
+                const int x = qBound(0, mouse_event->pos().x(), qMax(0, progress_slider_->width() - 1));
+                const int target_value = QStyle::sliderValueFromPosition(progress_slider_->minimum(),
+                                                                         progress_slider_->maximum(),
+                                                                         x,
+                                                                         qMax(1, progress_slider_->width() - 1),
+                                                                         progress_slider_->invertedAppearance());
+                progress_slider_->setValue(target_value);
+                on_seek_requested();
+                return true;
+            }
+        }
     }
 
     return QWidget::eventFilter(watched, event);
@@ -139,6 +170,7 @@ void player_window::setup_ui()
     progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
     progress_slider_->setFixedHeight(14);
+    progress_slider_->installEventFilter(this);
 
     auto* progress_layout = new QHBoxLayout();
     progress_layout->setContentsMargins(0, 0, 0, 0);
