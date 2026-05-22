@@ -382,7 +382,10 @@ void playlist_window::on_play_requested()
         return;
     }
 
-    play_first_song_in_list();
+    if (!play_first_song_in_list())
+    {
+        QMessageBox::information(this, "没有可播放歌曲", "请先在播放列表中添加歌曲。");
+    }
 }
 
 void playlist_window::on_playback_started(const QString& file_path, const QString& file_name)
@@ -1127,14 +1130,16 @@ void playlist_window::clear_playing_indicator()
     }
 }
 
-void playlist_window::play_first_song_in_list()
+bool playlist_window::play_first_song_in_list()
 {
-    if (song_tree_widget_->topLevelItemCount() > 0)
+    for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
     {
-        auto* first_playlist = song_tree_widget_->topLevelItem(0);
-        if (first_playlist->childCount() > 0)
+        auto* playlist_item = song_tree_widget_->topLevelItem(i);
+        if (playlist_item != nullptr && playlist_item->childCount() > 0)
         {
-            on_tree_item_double_clicked(first_playlist->child(0), 0);
+            on_tree_item_double_clicked(playlist_item->child(0), 0);
+            return true;
         }
     }
+    return false;
 }

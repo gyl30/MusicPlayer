@@ -77,7 +77,7 @@ class playlist_window : public QMainWindow
     QTreeWidgetItem* find_song_item_by_path(const QString& file_path) const;
     void mark_restored_song_item(QTreeWidgetItem* item);
     void play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms = -1);
-    void play_first_song_in_list();
+    bool play_first_song_in_list();
 
    private:
     playback_controller* controller_ = nullptr;
