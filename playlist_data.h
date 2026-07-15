@@ -8,6 +8,7 @@ struct Song
 {
     QString file_path;
     QString file_name;
+    qint64 duration_ms = 0;
 };
 
 inline bool operator==(const Song& left, const Song& right) { return left.file_path == right.file_path && left.file_name == right.file_name; }

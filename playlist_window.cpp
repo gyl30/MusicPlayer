@@ -1,5 +1,4 @@
 #include <QApplication>
-#include <QByteArray>
 #include <QCloseEvent>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -24,12 +23,7 @@
 #include <QWindow>
 #include <QSize>
 #include <QSet>
-
-extern "C"
-{
-#include <libavformat/avformat.h>
-#include <libavutil/avutil.h>
-}
+#include <QFontMetrics>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -91,30 +85,104 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
     item->setToolTip(0, display_text);
 }
 
-static qint64 probe_audio_duration_ms(const QString& file_path)
+static QString format_duration_ms(qint64 duration_ms)
 {
-    AVFormatContext* format_ctx = nullptr;
-    const QByteArray path_bytes = file_path.toUtf8();
-    const int open_result = avformat_open_input(&format_ctx, path_bytes.constData(), nullptr, nullptr);
-    if (open_result < 0)
+    if (duration_ms <= 0)
     {
-        LOG_WARN("播放状态调试 恢复状态探测时长失败 file {} error {}", file_path.toStdString(), open_result);
-        return 0;
+        return QStringLiteral("--:--");
     }
 
-    const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
-    if (stream_result < 0)
+    const qint64 total_seconds = duration_ms / 1000;
+    const qint64 hours = total_seconds / 3600;
+    const qint64 minutes = (total_seconds % 3600) / 60;
+    const qint64 seconds = total_seconds % 60;
+    if (hours > 0)
     {
-        LOG_WARN("播放状态调试 恢复状态读取流信息失败 file {} error {}", file_path.toStdString(), stream_result);
+        return QString("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'));
     }
 
-    qint64 duration_ms = 0;
-    if (format_ctx->duration != AV_NOPTS_VALUE)
+    return QString("%1:%2").arg(minutes).arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+static void set_song_duration_text(QTreeWidgetItem* item, qint64 duration_ms)
+{
+    if (item == nullptr)
     {
-        duration_ms = qMax<qint64>(0, static_cast<qint64>(format_ctx->duration / (AV_TIME_BASE / 1000)));
+        return;
     }
-    avformat_close_input(&format_ctx);
-    return duration_ms;
+
+    const QString duration_text = format_duration_ms(duration_ms);
+    item->setText(1, duration_text);
+    item->setToolTip(1, duration_text);
+    item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
+    item->setData(1, Qt::UserRole, duration_ms);
+}
+
+static void update_duration_column_width(QTreeWidget* tree)
+{
+    if (tree == nullptr)
+    {
+        return;
+    }
+
+    const QFontMetrics metrics(tree->font());
+    int text_width = metrics.horizontalAdvance(QStringLiteral("--:--"));
+    for (int i = 0; i < tree->topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem* playlist_item = tree->topLevelItem(i);
+        if (playlist_item == nullptr)
+        {
+            continue;
+        }
+
+        for (int j = 0; j < playlist_item->childCount(); ++j)
+        {
+            QTreeWidgetItem* song_item = playlist_item->child(j);
+            if (song_item != nullptr)
+            {
+                text_width = qMax(text_width, metrics.horizontalAdvance(song_item->text(1)));
+            }
+        }
+    }
+
+    int column_width = text_width + 8;
+    column_width = qMax(column_width, 40);
+    column_width = qMin(column_width, 64);
+    tree->setColumnWidth(1, column_width);
+}
+
+static void apply_playing_item_visual_state(QTreeWidgetItem* item)
+{
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    for (int column = 0; column < item->columnCount(); ++column)
+    {
+        QFont font = item->font(column);
+        font.setBold(true);
+        item->setFont(column, font);
+        item->setForeground(column, QBrush(QColor("#3498DB")));
+        item->setBackground(column, QBrush(QColor("#A6E4FF")));
+    }
+}
+
+static void clear_playing_item_visual_state(QTreeWidgetItem* item, const QPalette& palette)
+{
+    if (item == nullptr)
+    {
+        return;
+    }
+
+    for (int column = 0; column < item->columnCount(); ++column)
+    {
+        QFont font = item->font(column);
+        font.setBold(false);
+        item->setFont(column, font);
+        item->setForeground(column, QBrush(palette.text()));
+        item->setBackground(column, QBrush());
+    }
 }
 
 static QString song_item_path(QTreeWidgetItem* item)
@@ -262,9 +330,11 @@ void playlist_window::setup_ui()
 
     song_tree_widget_ = new QTreeWidget();
     song_tree_widget_->setObjectName("songTreeWidget");
-    song_tree_widget_->setColumnCount(1);
+    song_tree_widget_->setColumnCount(2);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
+    song_tree_widget_->setColumnWidth(1, 40);
     song_tree_widget_->setIndentation(0);
     song_tree_widget_->setIconSize(QSize(14, 14));
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -505,11 +575,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)
     {
         currently_playing_item_ = clicked_song_item_;
-        QFont font = currently_playing_item_->font(0);
-        font.setBold(true);
-        currently_playing_item_->setFont(0, font);
-        currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
-        currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
+        apply_playing_item_visual_state(currently_playing_item_);
         if (currently_playing_item_->parent() != nullptr)
         {
             current_playing_playlist_id_ = currently_playing_item_->parent()->data(0, Qt::UserRole).toLongLong();
@@ -611,8 +677,8 @@ void playlist_window::restore_playback_state()
 
     if (duration_ms <= 0)
     {
-        duration_ms = probe_audio_duration_ms(file_path);
-        LOG_INFO("播放状态调试 恢复状态补充时长 file {} duration {}ms", file_path.toStdString(), duration_ms);
+        duration_ms = qMax<qint64>(0, song_item->data(1, Qt::UserRole).toLongLong());
+        LOG_INFO("播放状态调试 从播放列表补充恢复时长 file {} duration {}ms", file_path.toStdString(), duration_ms);
     }
 
     current_playing_file_path_ = file_path;
@@ -693,12 +759,7 @@ void playlist_window::mark_restored_song_item(QTreeWidgetItem* item)
     clear_playing_indicator();
     currently_playing_item_ = item;
     current_playing_playlist_id_ = item->parent()->data(0, Qt::UserRole).toLongLong();
-
-    QFont font = currently_playing_item_->font(0);
-    font.setBold(true);
-    currently_playing_item_->setFont(0, font);
-    currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
-    currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
+    apply_playing_item_visual_state(currently_playing_item_);
     currently_playing_item_->parent()->setExpanded(true);
     song_tree_widget_->clearSelection();
     song_tree_widget_->setCurrentItem(currently_playing_item_);
@@ -793,10 +854,12 @@ void playlist_window::populate_playlists_on_startup()
             auto* song_item = new QTreeWidgetItem(playlist_item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
             set_song_item_text_with_tooltip(song_item, song.file_name);
+            set_song_duration_text(song_item, song.duration_ms);
             song_item->setData(0, Qt::UserRole, song.file_path);
         }
     }
     song_tree_widget_->blockSignals(false);
+    update_duration_column_width(song_tree_widget_);
 
     if (current_file_path.isEmpty())
     {
@@ -842,6 +905,7 @@ void playlist_window::on_playlist_removed(qint64 playlist_id)
 {
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
     delete item;
+    update_duration_column_width(song_tree_widget_);
 }
 
 void playlist_window::on_playlist_renamed(qint64 playlist_id) { on_songs_changed(playlist_id); }
@@ -861,9 +925,11 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
             auto* song_item = new QTreeWidgetItem(item);
             song_item->setIcon(0, QIcon(":/icons/song.svg"));
             set_song_item_text_with_tooltip(song_item, song.file_name);
+            set_song_duration_text(song_item, song.duration_ms);
             song_item->setData(0, Qt::UserRole, song.file_path);
         }
         set_item_text_with_tooltip(item, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+        update_duration_column_width(song_tree_widget_);
 
         if (refreshes_playing_playlist)
         {
@@ -877,11 +943,7 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
                 }
                 currently_playing_item_ = current_item;
                 current_playing_playlist_id_ = item->data(0, Qt::UserRole).toLongLong();
-                QFont font = currently_playing_item_->font(0);
-                font.setBold(true);
-                currently_playing_item_->setFont(0, font);
-                currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
-                currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
+                apply_playing_item_visual_state(currently_playing_item_);
                 if (current_mode_ == playback_mode::Shuffle)
                 {
                     const int current_song_index = item->indexOfChild(current_item);
@@ -1296,11 +1358,7 @@ void playlist_window::clear_playing_indicator()
 {
     if (currently_playing_item_ != nullptr)
     {
-        QFont font = currently_playing_item_->font(0);
-        font.setBold(false);
-        currently_playing_item_->setFont(0, font);
-        currently_playing_item_->setForeground(0, QBrush(palette().text()));
-        currently_playing_item_->setBackground(0, QBrush());
+        clear_playing_item_visual_state(currently_playing_item_, palette());
         currently_playing_item_ = nullptr;
     }
 }
