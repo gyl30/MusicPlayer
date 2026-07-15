@@ -272,7 +272,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->setFrameShape(QFrame::NoFrame);
     song_tree_widget_->setTextElideMode(Qt::ElideRight);
     song_tree_widget_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    song_tree_widget_->setAlternatingRowColors(true);
+    song_tree_widget_->setAlternatingRowColors(false);
 
     auto* playback_page = new QWidget(this);
     auto* playback_layout = new QVBoxLayout(playback_page);
@@ -509,6 +509,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         font.setBold(true);
         currently_playing_item_->setFont(0, font);
         currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+        currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
         if (currently_playing_item_->parent() != nullptr)
         {
             current_playing_playlist_id_ = currently_playing_item_->parent()->data(0, Qt::UserRole).toLongLong();
@@ -697,6 +698,7 @@ void playlist_window::mark_restored_song_item(QTreeWidgetItem* item)
     font.setBold(true);
     currently_playing_item_->setFont(0, font);
     currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+    currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
     currently_playing_item_->parent()->setExpanded(true);
     song_tree_widget_->clearSelection();
     song_tree_widget_->setCurrentItem(currently_playing_item_);
@@ -879,6 +881,7 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
                 font.setBold(true);
                 currently_playing_item_->setFont(0, font);
                 currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+                currently_playing_item_->setBackground(0, QBrush(QColor("#A6E4FF")));
                 if (current_mode_ == playback_mode::Shuffle)
                 {
                     const int current_song_index = item->indexOfChild(current_item);
@@ -1287,6 +1290,7 @@ void playlist_window::clear_playing_indicator()
         font.setBold(false);
         currently_playing_item_->setFont(0, font);
         currently_playing_item_->setForeground(0, QBrush(palette().text()));
+        currently_playing_item_->setBackground(0, QBrush());
         currently_playing_item_ = nullptr;
     }
 }
