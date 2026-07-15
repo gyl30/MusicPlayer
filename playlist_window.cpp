@@ -518,7 +518,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         song_tree_widget_->clearSelection();
         song_tree_widget_->setCurrentItem(currently_playing_item_);
         currently_playing_item_->setSelected(true);
-        song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
+        song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::EnsureVisible);
     }
 }
 
@@ -703,7 +703,7 @@ void playlist_window::mark_restored_song_item(QTreeWidgetItem* item)
     song_tree_widget_->clearSelection();
     song_tree_widget_->setCurrentItem(currently_playing_item_);
     currently_playing_item_->setSelected(true);
-    song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::PositionAtCenter);
+    song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::EnsureVisible);
 }
 
 void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms)
