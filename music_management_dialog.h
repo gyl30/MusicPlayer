@@ -27,6 +27,7 @@ class music_management_dialog : public QWidget
    private slots:
     void on_source_playlist_selected();
     void on_dest_playlist_selected();
+    void on_source_select_all_clicked();
     void on_copy_button_clicked();
     void on_move_button_clicked();
     void on_delete_button_clicked();
@@ -37,6 +38,7 @@ class music_management_dialog : public QWidget
     void setup_connections();
     void populate_playlist_widgets();
     void update_songs_list(QListWidget* songs_list_widget, QListWidget* playlists_list_widget, bool is_source_list);
+    void update_source_select_all_button_state();
     void load_initial_data();
 
     playlist_manager* playlist_manager_ = nullptr;
@@ -47,6 +49,7 @@ class music_management_dialog : public QWidget
     QListWidget* dest_playlists_list_ = nullptr;
     QListWidget* dest_songs_list_ = nullptr;
 
+    QPushButton* source_select_all_button_ = nullptr;
     QPushButton* copy_button_ = nullptr;
     QPushButton* move_button_ = nullptr;
     QPushButton* delete_button_ = nullptr;

@@ -55,7 +55,14 @@ void music_management_dialog::setup_ui()
     source_playlists_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     source_playlists_list_->setAlternatingRowColors(true);
     source_layout->addWidget(source_playlists_list_);
-    source_layout->addWidget(new QLabel("源歌曲列表"));
+    auto* source_songs_header_layout = new QHBoxLayout();
+    source_songs_header_layout->addWidget(new QLabel("源歌曲列表"));
+    source_songs_header_layout->addStretch();
+    source_select_all_button_ = new QPushButton("全选");
+    source_select_all_button_->setToolTip("勾选当前源歌曲列表中的所有歌曲");
+    source_select_all_button_->setEnabled(false);
+    source_songs_header_layout->addWidget(source_select_all_button_);
+    source_layout->addLayout(source_songs_header_layout);
     source_songs_list_ = new QListWidget();
     source_songs_list_->setTextElideMode(Qt::ElideRight);
     source_songs_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -109,7 +116,9 @@ void music_management_dialog::setup_connections()
 {
     connect(source_playlists_list_, &QListWidget::currentItemChanged, this, &music_management_dialog::on_source_playlist_selected);
     connect(dest_playlists_list_, &QListWidget::currentItemChanged, this, &music_management_dialog::on_dest_playlist_selected);
+    connect(source_songs_list_, &QListWidget::itemChanged, this, [this](QListWidgetItem*) { update_source_select_all_button_state(); });
 
+    connect(source_select_all_button_, &QPushButton::clicked, this, &music_management_dialog::on_source_select_all_clicked);
     connect(copy_button_, &QPushButton::clicked, this, &music_management_dialog::on_copy_button_clicked);
     connect(move_button_, &QPushButton::clicked, this, &music_management_dialog::on_move_button_clicked);
     connect(delete_button_, &QPushButton::clicked, this, &music_management_dialog::on_delete_button_clicked);
@@ -174,6 +183,10 @@ void music_management_dialog::update_songs_list(QListWidget* songs_list_widget, 
     QListWidgetItem* current_playlist_item = playlists_list_widget->currentItem();
     if (current_playlist_item == nullptr)
     {
+        if (is_source_list)
+        {
+            update_source_select_all_button_state();
+        }
         return;
     }
 
@@ -195,10 +208,52 @@ void music_management_dialog::update_songs_list(QListWidget* songs_list_widget, 
         }
         songs_list_widget->addItem(song_item);
     }
+
+    if (is_source_list)
+    {
+        update_source_select_all_button_state();
+    }
 }
 
 void music_management_dialog::on_source_playlist_selected() { update_songs_list(source_songs_list_, source_playlists_list_, true); }
 void music_management_dialog::on_dest_playlist_selected() { update_songs_list(dest_songs_list_, dest_playlists_list_, false); }
+
+void music_management_dialog::update_source_select_all_button_state()
+{
+    const int song_count = source_songs_list_->count();
+    bool all_checked = song_count > 0;
+    for (int i = 0; i < song_count; ++i)
+    {
+        if (source_songs_list_->item(i)->checkState() != Qt::Checked)
+        {
+            all_checked = false;
+            break;
+        }
+    }
+
+    source_select_all_button_->setEnabled(song_count > 0);
+    source_select_all_button_->setText(all_checked ? "取消全选" : "全选");
+    source_select_all_button_->setToolTip(all_checked ? "取消勾选当前源歌曲列表中的所有歌曲" : "勾选当前源歌曲列表中的所有歌曲");
+}
+
+void music_management_dialog::on_source_select_all_clicked()
+{
+    bool all_checked = source_songs_list_->count() > 0;
+    for (int i = 0; i < source_songs_list_->count(); ++i)
+    {
+        if (source_songs_list_->item(i)->checkState() != Qt::Checked)
+        {
+            all_checked = false;
+            break;
+        }
+    }
+
+    for (int i = 0; i < source_songs_list_->count(); ++i)
+    {
+        source_songs_list_->item(i)->setCheckState(all_checked ? Qt::Unchecked : Qt::Checked);
+    }
+    update_source_select_all_button_state();
+}
 
 void music_management_dialog::on_copy_button_clicked()
 {
