@@ -1126,11 +1126,21 @@ void playlist_window::on_next_requested()
     if (current_mode_ == playback_mode::Shuffle)
     {
         QTreeWidgetItem* playlist_item = currently_playing_item_->parent();
-        if (playlist_item == nullptr || shuffled_indices_.isEmpty())
+        if (playlist_item == nullptr)
         {
             return;
         }
 
+        if (shuffled_indices_.isEmpty() || current_shuffle_index_ < 0)
+        {
+            const int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
+            generate_shuffled_list(playlist_item, current_song_index);
+            current_shuffle_index_ = 0;
+        }
+        if (shuffled_indices_.isEmpty())
+        {
+            return;
+        }
         current_shuffle_index_++;
         if (current_shuffle_index_ >= shuffled_indices_.size())
         {
