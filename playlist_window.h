@@ -94,6 +94,7 @@ class playlist_window : public QMainWindow
     QTreeWidgetItem* clicked_song_item_ = nullptr;
     QTreeWidgetItem* restored_song_item_ = nullptr;
     QString current_playing_file_path_;
+    qint64 current_playing_playlist_id_ = -1;
     bool is_creating_playlist_ = false;
     qint64 current_progress_ms_ = 0;
     qint64 current_duration_ms_ = 0;

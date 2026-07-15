@@ -127,6 +127,25 @@ static QString song_item_path(QTreeWidgetItem* item)
     return item->data(0, Qt::UserRole).toString();
 }
 
+static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, const QString& file_path)
+{
+    if (playlist_item == nullptr || file_path.isEmpty())
+    {
+        return nullptr;
+    }
+
+    for (int i = 0; i < playlist_item->childCount(); ++i)
+    {
+        QTreeWidgetItem* song_item = playlist_item->child(i);
+        if (song_item != nullptr && song_item->data(0, Qt::UserRole).toString() == file_path)
+        {
+            return song_item;
+        }
+    }
+
+    return nullptr;
+}
+
 constexpr int kPlaybackPageIndex = 0;
 constexpr int kManagementPageIndex = 1;
 
@@ -414,6 +433,7 @@ void playlist_window::on_stop_requested()
     clear_playing_indicator();
     restored_song_item_ = nullptr;
     current_playing_file_path_.clear();
+    current_playing_playlist_id_ = -1;
     current_progress_ms_ = 0;
     current_duration_ms_ = 0;
     pending_restore_seek_ms_ = -1;
@@ -491,6 +511,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
         if (currently_playing_item_->parent() != nullptr)
         {
+            current_playing_playlist_id_ = currently_playing_item_->parent()->data(0, Qt::UserRole).toLongLong();
             currently_playing_item_->parent()->setExpanded(true);
         }
         song_tree_widget_->clearSelection();
@@ -670,6 +691,7 @@ void playlist_window::mark_restored_song_item(QTreeWidgetItem* item)
 
     clear_playing_indicator();
     currently_playing_item_ = item;
+    current_playing_playlist_id_ = item->parent()->data(0, Qt::UserRole).toLongLong();
 
     QFont font = currently_playing_item_->font(0);
     font.setBold(true);
@@ -690,6 +712,7 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
     }
 
     current_playing_file_path_ = item->data(0, Qt::UserRole).toString();
+    current_playing_playlist_id_ = item->parent()->data(0, Qt::UserRole).toLongLong();
     clicked_song_item_ = item;
     restored_song_item_ = nullptr;
     current_progress_ms_ = restore_position_ms > 0 ? restore_position_ms : 0;
@@ -783,6 +806,7 @@ void playlist_window::populate_playlists_on_startup()
     {
         shuffled_indices_.clear();
         current_shuffle_index_ = -1;
+        current_playing_playlist_id_ = -1;
         return;
     }
 
@@ -825,6 +849,9 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
     if (item != nullptr)
     {
+        const bool refreshes_playing_playlist = playlist_id == current_playing_playlist_id_ && !current_playing_file_path_.isEmpty();
+        const bool refreshed_restored_item = restored_song_item_ != nullptr && restored_song_item_->parent() == item &&
+                                             restored_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_;
         const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
         item->takeChildren();
         for (const auto& song : playlist.songs)
@@ -835,6 +862,39 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
             song_item->setData(0, Qt::UserRole, song.file_path);
         }
         set_item_text_with_tooltip(item, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
+
+        if (refreshes_playing_playlist)
+        {
+            QTreeWidgetItem* current_item = find_song_child_by_path(item, current_playing_file_path_);
+            if (current_item != nullptr)
+            {
+                clicked_song_item_ = current_item;
+                if (refreshed_restored_item)
+                {
+                    restored_song_item_ = current_item;
+                }
+                currently_playing_item_ = current_item;
+                current_playing_playlist_id_ = item->data(0, Qt::UserRole).toLongLong();
+                QFont font = currently_playing_item_->font(0);
+                font.setBold(true);
+                currently_playing_item_->setFont(0, font);
+                currently_playing_item_->setForeground(0, QBrush(QColor("#3498DB")));
+                if (current_mode_ == playback_mode::Shuffle)
+                {
+                    const int current_song_index = item->indexOfChild(current_item);
+                    generate_shuffled_list(item, current_song_index);
+                    current_shuffle_index_ = 0;
+                }
+            }
+            else
+            {
+                currently_playing_item_ = nullptr;
+                clicked_song_item_ = nullptr;
+                restored_song_item_ = nullptr;
+                shuffled_indices_.clear();
+                current_shuffle_index_ = -1;
+            }
+        }
     }
 }
 
