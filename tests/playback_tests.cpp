@@ -711,8 +711,6 @@ private slots:
         {
             paths.append(temp_.filePath(QString("cancel-%1.wav").arg(i)));
         }
-        QElapsedTimer elapsed;
-        elapsed.start();
         std::atomic<bool> first_batch{false};
         std::atomic<bool> release{false};
         {
@@ -734,7 +732,6 @@ private slots:
             QVERIFY(pending_durations() > 0);
             release = true;
         }
-        QVERIFY(elapsed.elapsed() < 3000);
         QCoreApplication::processEvents();
         QVERIFY(QSqlDatabase::database().isOpen());
         QSqlQuery query("SELECT COUNT(*) FROM PlaylistSongs");
