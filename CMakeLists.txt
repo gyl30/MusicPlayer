@@ -98,8 +98,7 @@ find_package(PkgConfig REQUIRED)
 find_package(Boost REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
 
-add_executable(MusicPlayer
-    main.cpp
+set(MUSICPLAYER_SOURCES
     log.cpp
     playback_controller.cpp
     spectrum_processor.cpp
@@ -120,6 +119,8 @@ add_executable(MusicPlayer
     music_management_dialog.cpp
     lyrics_widget.cpp
 )
+
+add_executable(MusicPlayer main.cpp ${MUSICPLAYER_SOURCES})
 
 target_compile_options(MusicPlayer PRIVATE
     ${HARDENING_FLAGS_COMMON}
@@ -158,4 +159,23 @@ if(WIN32)
 endif()
 if(APPLE)
     set_target_properties(MusicPlayer PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
+
+option(BUILD_TESTING "Build playback regression tests" OFF)
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    find_program(FFMPEG_EXECUTABLE ffmpeg REQUIRED)
+    add_executable(playback_tests tests/playback_tests.cpp ${MUSICPLAYER_SOURCES})
+    target_include_directories(playback_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(playback_tests SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS} third/spdlog/include)
+    target_link_directories(playback_tests PRIVATE ${FFMPEG_LIBRARY_DIRS})
+    target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql SDL2::SDL2 Boost::boost ${FFMPEG_LIBRARIES})
+    target_compile_definitions(playback_tests PRIVATE FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}")
+    target_compile_options(playback_tests PRIVATE ${HARDENING_FLAGS_COMMON} ${SANITIZER_COMPILE_FLAGS})
+    target_link_options(playback_tests PRIVATE ${SANITIZER_LINK_FLAGS})
+    foreach(case unknown_duration latest_seek paused_seek exit_while_decoding rapid_switch formats invalid_files startup_seek callback_ownership stale_errors short_packets shuffle_history mode_boundaries remove_playlist remove_song refresh_nodes)
+        add_test(NAME ${case} COMMAND playback_tests ${case})
+        set_tests_properties(${case} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SDL_AUDIODRIVER=dummy")
+    endforeach()
 endif()

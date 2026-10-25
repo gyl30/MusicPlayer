@@ -19,18 +19,21 @@ class audio_player : public QObject
     explicit audio_player(QObject* parent = nullptr);
     ~audio_player() override;
 
+    // 取消可能正在等待空位的入队，允许控制线程随后等待解码线程退出。
+    void request_stop() { is_playing_.store(false); }
+
    signals:
     void progress_update(qint64 session_id, qint64 current_ms);
     void playback_finished(qint64 session_id);
     void playback_ready(qint64 session_id);
-    void playback_error(const QString& error_message);
+    void playback_error(qint64 session_id, const QString& error_message);
     void packet_played(const std::shared_ptr<audio_packet>& packet);
     void seek_handled(qint64 session_id);
     void buffer_level_low(qint64 session_id);
     void buffer_level_high(qint64 session_id);
 
    public slots:
-    void start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms = 0);
+    void start_playback(qint64 session_id, const QAudioFormat& format);
     void stop_playback();
     void enqueue_packet(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
     void handle_seek(qint64 session_id, qint64 actual_seek_ms);
@@ -48,16 +51,19 @@ class audio_player : public QObject
     void on_playback_completed_internal();
 
    private:
+    static constexpr size_t kPacketCapacity = 1024;
     SDL_AudioDeviceID device_id_ = 0;
     SDL_AudioSpec audio_spec_;
 
-    boost::lockfree::spsc_queue<std::shared_ptr<audio_packet>, boost::lockfree::capacity<1024>> packet_queue_;
+    boost::lockfree::spsc_queue<std::shared_ptr<audio_packet>, boost::lockfree::capacity<kPacketCapacity>> packet_queue_;
+    boost::lockfree::spsc_queue<std::shared_ptr<audio_packet>, boost::lockfree::capacity<kPacketCapacity>> played_packets_;
     std::shared_ptr<audio_packet> current_packet_ = nullptr;
     std::atomic<int64_t> approx_buffered_bytes_{0};
 
     qint64 session_id_ = 0;
     std::atomic<bool> is_playing_{false};
     std::atomic<bool> decoder_finished_{false};
+    std::atomic<bool> playback_drained_{false};
     qint64 playback_start_offset_ms_ = 0;
     std::atomic<qint64> bytes_processed_by_device_{0};
 
@@ -66,9 +72,6 @@ class audio_player : public QObject
     qint64 buffer_low_water_mark_ = 0;
     qint64 buffer_high_water_mark_ = 0;
     std::atomic<bool> low_water_mark_triggered_{false};
-    std::atomic<bool> high_water_mark_triggered_{false};
-
-    QAudioFormat last_format_;
 
     std::atomic<int> volume_{128};
 };

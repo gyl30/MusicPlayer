@@ -34,7 +34,7 @@ class audio_decoder : public QObject
     bool is_aborted() const { return abort_request_.load(); }
 
    public slots:
-    void start_decoding(qint64 session_id, const QString& file, qint64 offset = -1);
+    void start_decoding(qint64 session_id, const QString& file);
     void resume_decoding();
     void pause_decoding();
     void shutdown();
@@ -45,7 +45,7 @@ class audio_decoder : public QObject
     void packet_ready(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
     void decoding_finished();
     void seek_finished(qint64 session_id, qint64 actual_seek_ms);
-    void decoding_error(const QString& error_message);
+    void decoding_error(qint64 session_id, const QString& error_message);
     void metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void cover_art_ready(qint64 session_id, const QByteArray& image_data);
     void lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);

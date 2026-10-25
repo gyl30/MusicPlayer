@@ -60,31 +60,17 @@ void audio_decoder::shutdown()
     close_audio_context();
 }
 
-void audio_decoder::start_decoding(qint64 session_id, const QString& file, qint64 offset)
+void audio_decoder::start_decoding(qint64 session_id, const QString& file)
 {
     shutdown();
 
     session_id_ = session_id;
     file_path_ = file;
-    LOG_INFO("播放状态调试 解码器启动 session {} file {} offset {}ms", session_id_, file_path_.toStdString(), offset);
-
     is_running_ = true;
     abort_request_ = false;
-
-    if (offset >= 0)
-    {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        seek_requested_ = true;
-        seek_position_ms_ = offset;
-        seek_session_id_ = session_id;
-        is_paused_ = true;
-        LOG_INFO("播放状态调试 解码器启动后等待初始跳转 position {}ms", seek_position_ms_);
-    }
-    else
-    {
-        is_paused_ = true;
-        LOG_INFO("播放状态调试 解码器启动后等待播放链路就绪");
-    }
+    is_paused_ = true;
+    seek_requested_ = false;
+    seek_target_exact_ms_ = -1;
 
     accumulated_ms_ = 0;
     start_time_offset_ms_ = 0;
@@ -125,10 +111,14 @@ void audio_decoder::seek(qint64 session_id, qint64 position_ms)
 {
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
+        if (!is_running_ || session_id != session_id_)
+        {
+            return;
+        }
         seek_session_id_ = session_id;
         seek_position_ms_ = position_ms;
         seek_requested_ = true;
-        is_paused_ = false;
+        is_paused_ = true;
     }
     wait_cv_.notify_one();
 }
@@ -137,7 +127,7 @@ void audio_decoder::decoding_loop()
 {
     if (!open_audio_context(file_path_))
     {
-        emit decoding_error("Failed to open audio file");
+        emit decoding_error(session_id_, "Failed to open audio file");
         return;
     }
 
@@ -172,10 +162,6 @@ void audio_decoder::decoding_loop()
         {
             if (format_ctx_ != nullptr)
             {
-                qint64 seek_target_ts = av_rescale_q(target_ms, {1, 1000}, time_base_);
-
-                avcodec_flush_buffers(codec_ctx_);
-
                 if (!first_frame_processed_)
                 {
                     AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
@@ -188,6 +174,7 @@ void audio_decoder::decoding_loop()
                     LOG_INFO("播放状态调试 初始跳转固定时间基准 offset {}ms", start_time_offset_ms_);
                 }
 
+                const qint64 seek_target_ts = av_rescale_q(target_ms + start_time_offset_ms_, {1, 1000}, time_base_);
                 int ret = avformat_seek_file(format_ctx_, audio_stream_index_, INT64_MIN, seek_target_ts, seek_target_ts, 0);
 
                 if (ret < 0)
@@ -205,6 +192,7 @@ void audio_decoder::decoding_loop()
                 }
                 else
                 {
+                    avcodec_flush_buffers(codec_ctx_);
                     accumulated_ms_ = target_ms;
                     seek_target_exact_ms_ = target_ms;
                 }
@@ -236,7 +224,7 @@ void audio_decoder::decoding_loop()
 
         if (receive_ret != AVERROR(EAGAIN))
         {
-            emit decoding_error(QString::fromStdString(ffmpeg_error_string(receive_ret)));
+            emit decoding_error(session_id_, QString::fromStdString(ffmpeg_error_string(receive_ret)));
             break;
         }
 
@@ -252,8 +240,8 @@ void audio_decoder::decoding_loop()
             {
                 break;
             }
-            avcodec_send_packet(codec_ctx_, nullptr);
-            continue;
+            emit decoding_error(session_id_, QString::fromStdString(ffmpeg_error_string(read_ret)));
+            break;
         }
 
         DEFER(av_packet_unref(packet_));
@@ -281,7 +269,6 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 
     format_ctx_->interrupt_callback.callback = decode_interrupt_cb;
     format_ctx_->interrupt_callback.opaque = this;
-    abort_request_ = false;
 
     int ret = avformat_open_input(&format_ctx_, file_path.toUtf8().constData(), nullptr, nullptr);
     if (ret != 0)
@@ -384,11 +371,16 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         return false;
     }
 
-    if (format_ctx_->duration != AV_NOPTS_VALUE)
+    qint64 duration_ms = 0;
+    if (format_ctx_->duration != AV_NOPTS_VALUE && format_ctx_->duration > 0)
     {
-        qint64 duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
-        emit duration_ready(session_id_, duration_ms, target_format_);
+        duration_ms = format_ctx_->duration / (AV_TIME_BASE / 1000);
     }
+    else if (audio_stream->duration != AV_NOPTS_VALUE && audio_stream->duration > 0)
+    {
+        duration_ms = av_rescale_q(audio_stream->duration, time_base_, {1, 1000});
+    }
+    emit duration_ready(session_id_, duration_ms, target_format_);
 
     guard.cancel();
     return true;

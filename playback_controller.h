@@ -51,18 +51,16 @@ class playback_controller : public QObject
 
    private slots:
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
-    void on_packet_from_decoder(qint64 session_id, const std::shared_ptr<audio_packet>& packet);
     void on_decoder_seek_finished(qint64 session_id, qint64 actual_seek_ms);
-    void on_decoding_error(const QString& error_message);
+    void on_decoding_error(qint64 session_id, const QString& error_message);
     void on_player_ready_for_spectrum(qint64 session_id);
     void on_player_seek_handled(qint64 session_id);
     void on_spectrum_ready_for_decoding(qint64 session_id);
-    void on_player_error(const QString& error_message);
+    void on_player_error(qint64 session_id, const QString& error_message);
     void on_progress_update(qint64 session_id, qint64 current_ms);
     void on_playback_completed(qint64 session_id);
     void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
     void on_buffer_level_low(qint64 session_id);
-    void on_buffer_level_high(qint64 session_id);
     void on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void on_cover_art_ready(qint64 session_id, const QByteArray& image_data);
     void on_lyrics_ready(qint64 session_id, const QList<LyricLine>& lyrics);
@@ -83,15 +81,10 @@ class playback_controller : public QObject
     std::atomic<qint64> session_id_counter_{0};
     qint64 current_session_id_ = 0;
     bool is_paused_ = false;
-    std::atomic<qint64> buffered_bytes_{0};
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 seek_result_ms_ = -1;
     qint64 playback_start_position_ms_ = 0;
-    bool startup_seek_pending_ = false;
-    bool startup_player_ready_ = false;
-    bool startup_seek_completed_ = false;
-    qint64 startup_seek_result_ms_ = -1;
     playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
 };

@@ -787,14 +787,6 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
         playlist_manager_->increment_play_count(current_playing_file_path_);
     }
 
-    if (current_mode_ == playback_mode::Shuffle)
-    {
-        QTreeWidgetItem* playlist_item = item->parent();
-        const int clicked_song_index = playlist_item->indexOfChild(item);
-        generate_shuffled_list(playlist_item, clicked_song_index);
-        current_shuffle_index_ = 0;
-    }
-
     const qint64 start_position_ms = restore_position_ms > 0 ? restore_position_ms : 0;
     LOG_INFO("播放状态调试 准备播放歌曲 title {} file {} restore_position {}ms start_position {}ms pending_restore {}ms",
              item->text(0).toStdString(),
@@ -869,9 +861,7 @@ void playlist_window::populate_playlists_on_startup()
     QTreeWidgetItem* current_item = find_song_item_by_path(current_file_path);
     if (current_item == nullptr)
     {
-        shuffled_indices_.clear();
-        current_shuffle_index_ = -1;
-        current_playing_playlist_id_ = -1;
+        on_stop_requested();
         return;
     }
 
@@ -904,6 +894,22 @@ void playlist_window::on_playlist_added(const Playlist& new_playlist)
 void playlist_window::on_playlist_removed(qint64 playlist_id)
 {
     QTreeWidgetItem* item = find_item_by_id(song_tree_widget_, playlist_id);
+    if (item == nullptr)
+    {
+        return;
+    }
+    if (playlist_id == current_playing_playlist_id_)
+    {
+        on_stop_requested();
+    }
+    if (clicked_song_item_ != nullptr && clicked_song_item_->parent() == item)
+    {
+        clicked_song_item_ = nullptr;
+    }
+    if (context_menu_item_ == item || (context_menu_item_ != nullptr && context_menu_item_->parent() == item))
+    {
+        context_menu_item_ = nullptr;
+    }
     delete item;
     update_duration_column_width(song_tree_widget_);
 }
@@ -919,7 +925,23 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
         const bool refreshed_restored_item = restored_song_item_ != nullptr && restored_song_item_->parent() == item &&
                                              restored_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_;
         const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
-        item->takeChildren();
+        if (currently_playing_item_ != nullptr && currently_playing_item_->parent() == item)
+        {
+            currently_playing_item_ = nullptr;
+        }
+        if (clicked_song_item_ != nullptr && clicked_song_item_->parent() == item)
+        {
+            clicked_song_item_ = nullptr;
+        }
+        if (restored_song_item_ != nullptr && restored_song_item_->parent() == item)
+        {
+            restored_song_item_ = nullptr;
+        }
+        if (context_menu_item_ != nullptr && context_menu_item_->parent() == item)
+        {
+            context_menu_item_ = nullptr;
+        }
+        qDeleteAll(item->takeChildren());
         for (const auto& song : playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(item);
@@ -953,11 +975,7 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
             }
             else
             {
-                currently_playing_item_ = nullptr;
-                clicked_song_item_ = nullptr;
-                restored_song_item_ = nullptr;
-                shuffled_indices_.clear();
-                current_shuffle_index_ = -1;
+                on_stop_requested();
             }
         }
     }
@@ -1174,6 +1192,11 @@ void playlist_window::on_sort_playlist_action()
 void playlist_window::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
 {
     (void)column;
+    if (current_mode_ == playback_mode::Shuffle && item != nullptr && item->parent() != nullptr)
+    {
+        generate_shuffled_list(item->parent(), item->parent()->indexOfChild(item));
+        current_shuffle_index_ = 0;
+    }
     play_song_item(item, true);
 }
 
@@ -1215,7 +1238,7 @@ void playlist_window::on_next_requested()
         }
         const int next_song_index = shuffled_indices_.at(current_shuffle_index_);
         QTreeWidgetItem* next_item = playlist_item->child(next_song_index);
-        on_tree_item_double_clicked(next_item, 0);
+        play_song_item(next_item, true);
         return;
     }
 
@@ -1225,7 +1248,7 @@ void playlist_window::on_next_requested()
         return;
     }
 
-    QTreeWidgetItem* next_item = song_tree_widget_->itemBelow(currently_playing_item_);
+    QTreeWidgetItem* next_item = parent_playlist->child(parent_playlist->indexOfChild(currently_playing_item_) + 1);
 
     if (next_item == nullptr || next_item->parent() != parent_playlist)
     {
@@ -1277,7 +1300,7 @@ void playlist_window::on_previous_requested()
         }
         const int prev_song_index = shuffled_indices_.at(current_shuffle_index_);
         QTreeWidgetItem* prev_item = playlist_item->child(prev_song_index);
-        on_tree_item_double_clicked(prev_item, 0);
+        play_song_item(prev_item, true);
         return;
     }
 
@@ -1287,7 +1310,7 @@ void playlist_window::on_previous_requested()
         return;
     }
 
-    QTreeWidgetItem* prev_item = song_tree_widget_->itemAbove(currently_playing_item_);
+    QTreeWidgetItem* prev_item = parent_playlist->child(parent_playlist->indexOfChild(currently_playing_item_) - 1);
 
     if (prev_item == nullptr || prev_item->parent() != parent_playlist)
     {

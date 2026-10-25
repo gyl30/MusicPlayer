@@ -1,6 +1,5 @@
 #include <cmath>
 #include <algorithm>
-#include <QMetaObject>
 #include "log.h"
 #include "audio_player.h"
 
@@ -46,6 +45,7 @@ void audio_player::clear_queue()
 {
     packet_queue_.consume_all([](const std::shared_ptr<audio_packet>&) {});
     current_packet_.reset();
+    played_packets_.consume_all([](const std::shared_ptr<audio_packet>&) {});
     approx_buffered_bytes_.store(0);
 }
 
@@ -79,14 +79,11 @@ void audio_player::on_playback_completed_internal()
     emit playback_finished(session_id_);
 }
 
-void audio_player::start_playback(qint64 session_id, const QAudioFormat& format, qint64 start_offset_ms)
+void audio_player::start_playback(qint64 session_id, const QAudioFormat& format)
 {
+    stop_playback();
     session_id_ = session_id;
     LOG_INFO("播放流程 8/14 sdl 播放器收到启动命令 会话id {}", session_id_);
-
-    stop_playback();
-
-    last_format_ = format;
 
     SDL_AudioSpec desired_spec;
     SDL_zero(desired_spec);
@@ -103,7 +100,7 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     if (device_id_ == 0)
     {
         LOG_ERROR("sdl 打开音频设备失败 {}", SDL_GetError());
-        emit playback_error(QString("打开音频设备失败 %1").arg(SDL_GetError()));
+        emit playback_error(session_id_, QString("打开音频设备失败 %1").arg(SDL_GetError()));
         return;
     }
     LOG_INFO("sdl 音频设备已打开 id {}", device_id_);
@@ -115,9 +112,10 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
 
     clear_queue();
 
-    playback_start_offset_ms_ = start_offset_ms;
+    playback_start_offset_ms_ = 0;
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
+    playback_drained_ = false;
     is_playing_ = true;
 
     qint64 bytes_per_second = static_cast<qint64>(audio_spec_.freq) * audio_spec_.channels * static_cast<qint64>(sizeof(qint16));
@@ -125,7 +123,6 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format,
     buffer_high_water_mark_ = bytes_per_second * kBufferHighWatermarkSeconds;
 
     low_water_mark_triggered_.store(true, std::memory_order_relaxed);
-    high_water_mark_triggered_.store(false, std::memory_order_relaxed);
     LOG_DEBUG("sdl 缓冲区低水位线设置为 {} 字节 {} 秒 高水位线设置为 {} 字节 {} 秒",
               buffer_low_water_mark_,
               kBufferLowWatermarkSeconds,
@@ -152,15 +149,11 @@ void audio_player::stop_playback()
 
     if (device_id_ != 0)
     {
-        SDL_LockAudioDevice(device_id_);
-        clear_queue();
-        SDL_UnlockAudioDevice(device_id_);
-
-        SDL_PauseAudioDevice(device_id_, 1);
         SDL_CloseAudioDevice(device_id_);
         device_id_ = 0;
         LOG_DEBUG("sdl 音频设备已关闭");
     }
+    clear_queue();
 }
 
 void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio_packet>& packet)
@@ -196,112 +189,34 @@ void audio_player::enqueue_packet(qint64 session_id, const std::shared_ptr<audio
         return;
     }
 
-    if (queued)
-    {
-        approx_buffered_bytes_.fetch_add(packet->data.size(), std::memory_order_relaxed);
-        low_water_mark_triggered_.store(false, std::memory_order_relaxed);
-    }
+    approx_buffered_bytes_.fetch_add(packet->data.size(), std::memory_order_relaxed);
+    low_water_mark_triggered_.store(false, std::memory_order_relaxed);
 
     qint64 current_buffer_size = approx_buffered_bytes_.load(std::memory_order_relaxed);
 
-    if (!high_water_mark_triggered_.load(std::memory_order_relaxed) && current_buffer_size >= buffer_high_water_mark_)
+    if (current_buffer_size >= buffer_high_water_mark_ || packet_queue_.write_available() <= kPacketCapacity / 2)
     {
         LOG_TRACE("sdl 缓冲区水位高 {} 字节，发出高水位信号", current_buffer_size);
-        high_water_mark_triggered_.store(true, std::memory_order_relaxed);
-        QMetaObject::invokeMethod(this, "buffer_level_high", Qt::QueuedConnection, Q_ARG(qint64, session_id_));
+        emit buffer_level_high(session_id_);
     }
 }
 
 void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
 {
-    if (session_id != session_id_)
+    if (session_id != session_id_ || device_id_ == 0)
     {
         return;
     }
 
-    LOG_INFO("跳转流程 7/10 sdl 播放器收到跳转处理请求");
-
-    if (device_id_ != 0)
-    {
-        SDL_LockAudioDevice(device_id_);
-
-        clear_queue();
-
-        playback_start_offset_ms_ = actual_seek_ms;
-        bytes_processed_by_device_ = 0;
-        decoder_finished_ = false;
-
-        low_water_mark_triggered_.store(true, std::memory_order_relaxed);
-        high_water_mark_triggered_.store(false, std::memory_order_relaxed);
-
-        SDL_UnlockAudioDevice(device_id_);
-
-        if (!is_playing_)
-        {
-            is_playing_ = true;
-            SDL_PauseAudioDevice(device_id_, 0);
-        }
-
-        if (!progress_timer_->isActive())
-        {
-            progress_timer_->start();
-        }
-
-        LOG_INFO("跳转流程 8/10 sdl 复用现有设备完成跳转");
-        emit seek_handled(session_id_);
-        return;
-    }
-
-    if (!last_format_.isValid())
-    {
-        LOG_ERROR("sdl 无法打开设备 最后一次使用的音频格式无效");
-        emit playback_error("无法在播放结束后跳转 音频格式信息已丢失");
-        return;
-    }
-
-    SDL_AudioSpec desired_spec;
-    SDL_zero(desired_spec);
-    desired_spec.freq = last_format_.sampleRate();
-    desired_spec.channels = static_cast<uint8_t>(last_format_.channelCount());
-    desired_spec.format = AUDIO_S16LSB;
-    desired_spec.silence = 0;
-    desired_spec.samples = 2048;
-    desired_spec.callback = audio_callback;
-    desired_spec.userdata = this;
-
-    SDL_AudioSpec obtained_spec;
-    SDL_zero(obtained_spec);
-
-    SDL_AudioDeviceID new_dev = SDL_OpenAudioDevice(nullptr, 0, &desired_spec, &obtained_spec, 0);
-
-    if (new_dev == 0)
-    {
-        LOG_ERROR("sdl 在 seek 期间打开音频设备失败 {}", SDL_GetError());
-        emit playback_error("为跳转操作打开音频设备失败");
-        return;
-    }
-
-    audio_spec_ = obtained_spec;
-    device_id_ = new_dev;
-    LOG_INFO("sdl 音频设备已为 seek 新建打开 id {}", new_dev);
-
+    SDL_LockAudioDevice(device_id_);
     clear_queue();
-
     playback_start_offset_ms_ = actual_seek_ms;
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
+    playback_drained_ = false;
     low_water_mark_triggered_.store(true, std::memory_order_relaxed);
-    high_water_mark_triggered_.store(false, std::memory_order_relaxed);
-    is_playing_ = true;
+    SDL_UnlockAudioDevice(device_id_);
 
-    if (!progress_timer_->isActive())
-    {
-        progress_timer_->start();
-    }
-
-    SDL_PauseAudioDevice(new_dev, 0);
-
-    LOG_INFO("跳转流程 8/10 sdl 跳转处理完毕 通知控制中心");
     emit seek_handled(session_id_);
 }
 
@@ -340,19 +255,9 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
 
     while (bytes_to_fill > 0)
     {
-        if (!current_packet_)
+        if (!current_packet_ && !packet_queue_.pop(current_packet_))
         {
-            if (packet_queue_.pop(current_packet_))
-            {
-                if (current_packet_->bytes_played == 0)
-                {
-                    emit packet_played(current_packet_);
-                }
-            }
-            else
-            {
-                break;
-            }
+            break;
         }
 
         size_t bytes_remaining = current_packet_->data.size() - current_packet_->bytes_played;
@@ -376,29 +281,20 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
 
         if (current_packet_->bytes_played >= current_packet_->data.size())
         {
+            // 回调只转移所有权；Qt 通知和最终释放由播放器线程处理。
+            if (!played_packets_.push(current_packet_))
+            {
+                break;
+            }
             current_packet_.reset();
         }
     }
 
     bool queue_empty = (packet_queue_.read_available() == 0) && (!current_packet_);
 
-    if (queue_empty && decoder_finished_.load(std::memory_order_acquire))
+    if (queue_empty && bytes_to_fill == len && decoder_finished_.load(std::memory_order_acquire))
     {
-        decoder_finished_ = false;
-        QMetaObject::invokeMethod(this, "on_playback_completed_internal", Qt::QueuedConnection);
-        return;
-    }
-
-    if (!low_water_mark_triggered_.load(std::memory_order_relaxed))
-    {
-        qint64 remaining_bytes = approx_buffered_bytes_.load(std::memory_order_relaxed);
-        if (remaining_bytes < buffer_low_water_mark_)
-        {
-            LOG_TRACE("sdl 缓冲区水位低 {} 字节 请求更多数据", remaining_bytes);
-            low_water_mark_triggered_.store(true, std::memory_order_relaxed);
-            high_water_mark_triggered_.store(false, std::memory_order_relaxed);
-            QMetaObject::invokeMethod(this, "buffer_level_low", Qt::QueuedConnection, Q_ARG(qint64, session_id_));
-        }
+        playback_drained_ = true;
     }
 }
 
@@ -407,6 +303,21 @@ void audio_player::update_progress_ui()
     if (!is_playing_ || device_id_ == 0)
     {
         return;
+    }
+
+    played_packets_.consume_all([this](const std::shared_ptr<audio_packet>& packet) { emit packet_played(packet); });
+    if (playback_drained_.exchange(false))
+    {
+        on_playback_completed_internal();
+        return;
+    }
+
+    if (!low_water_mark_triggered_.load(std::memory_order_relaxed) &&
+        approx_buffered_bytes_.load(std::memory_order_relaxed) < buffer_low_water_mark_ &&
+        packet_queue_.read_available() < kPacketCapacity / 4)
+    {
+        low_water_mark_triggered_.store(true, std::memory_order_relaxed);
+        emit buffer_level_low(session_id_);
     }
 
     qint64 bytes_per_second = static_cast<qint64>(audio_spec_.freq) * audio_spec_.channels * static_cast<qint64>(sizeof(qint16));
