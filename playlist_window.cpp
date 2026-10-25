@@ -408,6 +408,10 @@ void playlist_window::setup_connections()
             this,
             [this](qint64 current_ms, qint64 total_ms)
             {
+                if (current_ms > current_progress_ms_)
+                {
+                    consecutive_failures_ = 0;
+                }
                 current_progress_ms_ = current_ms;
                 current_duration_ms_ = qMax<qint64>(0, total_ms);
                 if (last_logged_progress_ms_ < 0 || current_ms < last_logged_progress_ms_ || current_ms - last_logged_progress_ms_ >= 5000)
@@ -557,7 +561,6 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     LOG_INFO("播放状态调试 UI收到播放开始 pending_restore_seek {}ms current_progress {}ms",
              pending_restore_seek_ms_,
              current_progress_ms_);
-    consecutive_failures_ = 0;
     if (pending_restore_seek_ms_ <= 0)
     {
         current_progress_ms_ = 0;

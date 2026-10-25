@@ -582,6 +582,97 @@ private slots:
         QCOMPARE(changed.count() + removed.count() + renamed.count(), 0);
     }
 
+    void playback_failure_limit_data()
+    {
+        QTest::addColumn<bool>("successful_track");
+        QTest::newRow("all_missing") << false;
+        QTest::newRow("reset_after_audio") << true;
+    }
+
+    void playback_failure_limit()
+    {
+        QFETCH(bool, successful_track);
+        constexpr int kFailureLimit = 5;
+        QTemporaryDir database_dir;
+        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        auto* controller = window.findChild<playback_controller*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        QStringList paths;
+        for (int i = 0; i < 4; ++i)
+        {
+            paths.append(temp_.filePath(QString("missing-before-%1.wav").arg(i)));
+        }
+        if (successful_track)
+        {
+            paths.append(tone_);
+        }
+        for (int i = 0; i < kFailureLimit; ++i)
+        {
+            paths.append(temp_.filePath(QString("missing-after-%1.wav").arg(i)));
+        }
+        QVERIFY(manager->add_songs_to_playlist(id, paths));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
+        auto* tree = window.findChild<QTreeWidget*>();
+        QSignalSpy errors(controller, &playback_controller::playback_error);
+        QSignalSpy progress(controller, &playback_controller::progress_updated);
+        bool stopped_dialog = false;
+        QTimer close_dialog;
+        connect(&close_dialog, &QTimer::timeout, &window, [&]
+        {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+            {
+                stopped_dialog = box->text().contains(QString("连续 %1 首").arg(kFailureLimit));
+                box->accept();
+            }
+        });
+        close_dialog.start(10);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
+                                          Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
+        if (successful_track)
+        {
+            QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty() && progress.last().first().toLongLong() > 0, 1800);
+            QCOMPARE(errors.count(), 4);
+            QVERIFY(!stopped_dialog);
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(stopped_dialog, 1800);
+        const int expected_errors = successful_track ? 4 + kFailureLimit : kFailureLimit;
+        QCOMPARE(errors.count(), expected_errors);
+        QVERIFY(!controller->is_media_loaded());
+        QTest::qWait(350);
+        QCOMPARE(errors.count(), expected_errors);
+    }
+
+    void shuffle_manual_selection()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        QStringList paths;
+        for (int i = 0; i < 6; ++i)
+        {
+            const QString path = temp_.filePath(QString("manual-%1.wav").arg(i));
+            QVERIFY(QFile::copy(tone_, path));
+            paths.append(path);
+        }
+        QVERIFY(manager->add_songs_to_playlist(id, paths));
+        auto* list = window.findChild<QTreeWidget*>()->topLevelItem(0);
+        auto* tree = window.findChild<QTreeWidget*>();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Shuffle)));
+        for (int selected : {0, 3, 1, 5})
+        {
+            auto* chosen = list->child(selected);
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, chosen), Q_ARG(int, 0)));
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+            QVERIFY(tree->currentItem() != chosen);
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_previous_requested"));
+            QCOMPARE(tree->currentItem(), chosen);
+        }
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+    }
+
     void mode_boundaries()
     {
         playlist_window window;

@@ -19,3 +19,11 @@
 独立复核：Standards 未发现确定违规，提示重复错误文案为轻微异味；Spec 未发现确定实现错误，指出的跨歌单 UI 用例已补充。重复路径受已有唯一关联约束保护，管理页本身防重；未增加通用输入验证层。
 
 API 核对：[Qt SQL 事务](https://doc.qt.io/qt-6/qsqldatabase.html#transaction)、[SQLite 触发器及 RAISE](https://www.sqlite.org/lang_createtrigger.html)。
+
+## 阶段 B：播放失败计数与 Shuffle 手动选择
+
+`on_playback_started()` 原在解码启动前清零连续失败计数。全缺失文件 ListLoop 回归实际观察到没有阈值停止；“先失败四次、正常播放、再失败五次”同样不能停止。修复仅删除该清零，并在已有进度通知实际向前推进时清零；seek 完成已有位置更新，单纯 seek 起始偏移不构成成功播放证据，不增加播放成功标志或历史管理器。
+
+手动依次双击 0、3、1、5 号不同歌曲，每次 next/previous 均回到所选歌曲。该回归在修改前就通过，故不修改 Shuffle 代码。
+
+常规及 ASan/UBSan 均 22/22 CTest 通过，包含原 16 项。失败计数测试含全缺失、成功音频后重计数两行；阈值停止后继续处理事件确认没有自动跳转。仅使用 offscreen/dummy 音频，不声称真实设备或 TSan 已验证。
