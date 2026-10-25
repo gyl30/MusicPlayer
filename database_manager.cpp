@@ -4,18 +4,11 @@
 #include <QSqlError>
 #include <QVariant>
 #include <QFileInfo>
-#include <QByteArray>
 #include <QtGlobal>
 #include <QSet>
 #include "scoped_exit.h"
 #include "log.h"
 #include "database_manager.h"
-
-extern "C"
-{
-#include <libavformat/avformat.h>
-#include <libavutil/avutil.h>
-}
 
 database_manager::database_manager(QObject* parent) : QObject(parent) {}
 
@@ -50,32 +43,6 @@ bool database_manager::open_database()
     return true;
 }
 
-static qint64 probe_audio_duration_ms(const QString& file_path)
-{
-    AVFormatContext* format_ctx = nullptr;
-    const QByteArray path_bytes = file_path.toUtf8();
-    const int open_result = avformat_open_input(&format_ctx, path_bytes.constData(), nullptr, nullptr);
-    if (open_result < 0)
-    {
-        LOG_WARN("读取歌曲时长失败 file {} error {}", file_path.toStdString(), open_result);
-        return 0;
-    }
-
-    const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
-    if (stream_result < 0)
-    {
-        LOG_WARN("读取歌曲流信息失败 file {} error {}", file_path.toStdString(), stream_result);
-    }
-
-    qint64 duration_ms = 0;
-    if (format_ctx->duration != AV_NOPTS_VALUE)
-    {
-        duration_ms = qMax<qint64>(0, static_cast<qint64>(format_ctx->duration / (AV_TIME_BASE / 1000)));
-    }
-    avformat_close_input(&format_ctx);
-    return duration_ms;
-}
-
 static bool ensure_songs_duration_column()
 {
     QSqlQuery query;
@@ -100,18 +67,6 @@ static bool ensure_songs_duration_column()
         return false;
     }
     return true;
-}
-
-static void update_song_duration(qint64 song_id, qint64 duration_ms)
-{
-    QSqlQuery query;
-    query.prepare("UPDATE Songs SET duration_ms = :duration WHERE song_id = :id");
-    query.bindValue(":duration", duration_ms);
-    query.bindValue(":id", song_id);
-    if (!query.exec())
-    {
-        LOG_WARN("更新歌曲时长失败 song_id {} {}", song_id, query.lastError().text().toStdString());
-    }
 }
 
 static bool create_tables()
@@ -294,14 +249,6 @@ Playlist database_manager::get_playlist_with_songs(qint64 playlist_id)
 
     if (query_songs.exec())
     {
-        struct MissingDuration
-        {
-            qsizetype song_index = -1;
-            qint64 song_id = -1;
-            QString file_path;
-        };
-        QList<MissingDuration> missing_durations;
-
         while (query_songs.next())
         {
             Song song;
@@ -309,18 +256,7 @@ Playlist database_manager::get_playlist_with_songs(qint64 playlist_id)
             song.file_name = query_songs.value(2).toString();
             const QVariant duration_value = query_songs.value(3);
             song.duration_ms = duration_value.isNull() ? 0 : qMax<qint64>(0, duration_value.toLongLong());
-            if (duration_value.isNull())
-            {
-                missing_durations.append({playlist.songs.count(), query_songs.value(0).toLongLong(), song.file_path});
-            }
             playlist.songs.append(song);
-        }
-
-        for (const auto& missing : missing_durations)
-        {
-            const qint64 duration_ms = probe_audio_duration_ms(missing.file_path);
-            playlist.songs[missing.song_index].duration_ms = duration_ms;
-            update_song_duration(missing.song_id, duration_ms);
         }
     }
     return playlist;
@@ -339,11 +275,9 @@ qint64 database_manager::get_or_create_song_id(const QString& file_path)
     }
 
     QFileInfo file_info(file_path);
-    const qint64 duration_ms = probe_audio_duration_ms(file_path);
-    query.prepare("INSERT INTO Songs (file_path, file_name, duration_ms) VALUES (:path, :name, :duration)");
+    query.prepare("INSERT INTO Songs (file_path, file_name) VALUES (:path, :name)");
     query.bindValue(":path", file_path);
     query.bindValue(":name", file_info.fileName());
-    query.bindValue(":duration", duration_ms);
 
     if (query.exec())
     {
@@ -513,6 +447,63 @@ bool database_manager::save_playlists(const QMap<qint64, Playlist>& playlists, Q
     if (!db_.commit())
     {
         LOG_ERROR("提交播放列表修改失败 {}", db_.lastError().text().toStdString());
+        return false;
+    }
+    rollback.cancel();
+    return true;
+}
+
+QStringList database_manager::pending_duration_paths()
+{
+    QSqlQuery query(db_);
+    if (!query.exec("SELECT DISTINCT s.file_path FROM PlaylistSongs ps JOIN Songs s ON s.song_id = ps.song_id "
+                    "WHERE s.duration_ms IS NULL"))
+    {
+        LOG_ERROR("读取待探测歌曲失败 {}", query.lastError().text().toStdString());
+        return {};
+    }
+    QStringList paths;
+    while (query.next())
+    {
+        paths.append(query.value(0).toString());
+    }
+    return paths;
+}
+
+bool database_manager::update_durations(const QMap<QString, qint64>& durations, QMap<QString, qint64>& updated)
+{
+    updated.clear();
+    if (!db_.transaction())
+    {
+        LOG_ERROR("开启时长更新事务失败 {}", db_.lastError().text().toStdString());
+        return false;
+    }
+    auto rollback = make_scoped_exit([&]
+    {
+        db_.rollback();
+        updated.clear();
+    });
+    QSqlQuery query(db_);
+    // 已移出所有歌单或已完成探测的记录，不再接受排队中的旧结果。
+    query.prepare("UPDATE Songs SET duration_ms = :duration WHERE file_path = :path AND duration_ms IS NULL "
+                  "AND EXISTS (SELECT 1 FROM PlaylistSongs ps WHERE ps.song_id = Songs.song_id)");
+    for (auto it = durations.constBegin(); it != durations.constEnd(); ++it)
+    {
+        query.bindValue(":path", it.key());
+        query.bindValue(":duration", it.value());
+        if (!query.exec())
+        {
+            LOG_ERROR("更新歌曲时长失败 {}", query.lastError().text().toStdString());
+            return false;
+        }
+        if (query.numRowsAffected() > 0)
+        {
+            updated.insert(it.key(), it.value());
+        }
+    }
+    if (!db_.commit())
+    {
+        LOG_ERROR("提交时长更新失败 {}", db_.lastError().text().toStdString());
         return false;
     }
     rollback.cancel();

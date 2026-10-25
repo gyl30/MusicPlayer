@@ -104,6 +104,7 @@ set(MUSICPLAYER_SOURCES
     spectrum_processor.cpp
     playlist_manager.cpp
     database_manager.cpp
+    duration_scanner.cpp
     playlist_window.cpp
     spectrum_widget.cpp
     player_window.cpp
@@ -174,7 +175,7 @@ if(BUILD_TESTING)
     target_compile_definitions(playback_tests PRIVATE FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}")
     target_compile_options(playback_tests PRIVATE ${HARDENING_FLAGS_COMMON} ${SANITIZER_COMPILE_FLAGS})
     target_link_options(playback_tests PRIVATE ${SANITIZER_LINK_FLAGS})
-    foreach(case unknown_duration latest_seek paused_seek exit_while_decoding rapid_switch formats invalid_files startup_seek callback_ownership stale_errors short_packets shuffle_history mode_boundaries remove_playlist remove_song refresh_nodes storage_atomicity storage_minimal_writes management_failure storage_write_failure playback_failure_limit shuffle_manual_selection)
+    foreach(case unknown_duration latest_seek paused_seek exit_while_decoding rapid_switch formats invalid_files startup_seek callback_ownership stale_errors short_packets shuffle_history mode_boundaries remove_playlist remove_song refresh_nodes storage_atomicity storage_minimal_writes management_failure storage_write_failure playback_failure_limit shuffle_manual_selection async_import metadata_removed metadata_update_failure metadata_scan_shutdown metadata_path_reuse)
         add_test(NAME ${case} COMMAND playback_tests ${case})
         set_tests_properties(${case} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SDL_AUDIODRIVER=dummy")
     endforeach()

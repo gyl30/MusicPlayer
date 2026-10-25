@@ -392,6 +392,24 @@ void playlist_window::setup_connections()
     connect(playlist_manager_, &playlist_manager::playlist_renamed, this, &playlist_window::on_playlist_renamed);
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &playlist_window::on_songs_changed);
 
+    connect(playlist_manager_, &playlist_manager::durations_updated, this, [this](const QMap<QString, qint64>& durations)
+    {
+        for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+        {
+            auto* playlist = song_tree_widget_->topLevelItem(i);
+            for (int j = 0; j < playlist->childCount(); ++j)
+            {
+                auto* item = playlist->child(j);
+                const auto duration = durations.constFind(item->data(0, Qt::UserRole).toString());
+                if (duration != durations.constEnd())
+                {
+                    set_song_duration_text(item, duration.value());
+                }
+            }
+        }
+        update_duration_column_width(song_tree_widget_);
+    });
+
     connect(controller_, &playback_controller::playback_started, this, &playlist_window::on_playback_started);
     connect(controller_, &playback_controller::playback_finished, this, &playlist_window::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &playlist_window::handle_playback_error_strategy);

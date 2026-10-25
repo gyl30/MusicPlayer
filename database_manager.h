@@ -27,6 +27,9 @@ class database_manager : public QObject
     bool add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
     bool save_playlists(const QMap<qint64, Playlist>& playlists, QList<qint64>& changed_ids);
 
+    QStringList pending_duration_paths();
+    bool update_durations(const QMap<QString, qint64>& durations, QMap<QString, qint64>& updated);
+
     void increment_play_count(const QString& file_path);
 
    private:

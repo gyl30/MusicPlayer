@@ -8,10 +8,24 @@
 #include "log.h"
 #include "playlist_manager.h"
 #include "database_manager.h"
+#include "duration_scanner.h"
 
-playlist_manager::playlist_manager(QObject* parent) : QObject(parent) { db_manager_ = new database_manager(this); }
+playlist_manager::playlist_manager(QObject* parent) : QObject(parent)
+{
+    db_manager_ = new database_manager(this);
+    scanner_ = new duration_scanner(this);
+    connect(scanner_, &duration_scanner::durations_ready, this, [this](const QMap<QString, qint64>& durations)
+    {
+        QMap<QString, qint64> updated;
+        if (db_manager_->update_durations(durations, updated) && !updated.isEmpty())
+        {
+            emit durations_updated(updated);
+        }
+        scanner_->acknowledge(durations.keys());
+    }, Qt::QueuedConnection);
+}
 
-playlist_manager::~playlist_manager() = default;
+playlist_manager::~playlist_manager() { scanner_->shutdown(); }
 
 void playlist_manager::initialize_and_load()
 {
@@ -21,6 +35,7 @@ void playlist_manager::initialize_and_load()
         return;
     }
     perform_migration();
+    scanner_->enqueue(db_manager_->pending_duration_paths());
 }
 
 void playlist_manager::perform_migration()
@@ -148,6 +163,7 @@ bool playlist_manager::add_songs_to_playlist(qint64 playlist_id, const QStringLi
     {
         return false;
     }
+    scanner_->enqueue(db_manager_->pending_duration_paths());
     emit songs_changed_in_playlist(playlist_id);
     return true;
 }
@@ -212,6 +228,7 @@ bool playlist_manager::apply_changes_from_dialog(const QMap<qint64, Playlist>& t
     {
         return false;
     }
+    scanner_->enqueue(db_manager_->pending_duration_paths());
     for (qint64 id : changed_ids)
     {
         emit songs_changed_in_playlist(id);

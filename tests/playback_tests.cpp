@@ -16,6 +16,8 @@
 #include "playlist_manager.h"
 #include "playlist_window.h"
 #include "music_management_dialog.h"
+#include "duration_scanner.h"
+#include "scoped_exit.h"
 #include "log.h"
 
 class playback_tests : public QObject
@@ -32,6 +34,18 @@ private:
         process.start(FFMPEG_EXECUTABLE, QStringList{"-v", "error", "-y"} + arguments);
         QVERIFY(process.waitForFinished(10000));
         QCOMPARE(process.exitCode(), 0);
+    }
+
+    int pending_durations()
+    {
+        QSqlQuery query("SELECT COUNT(DISTINCT s.song_id) FROM PlaylistSongs ps JOIN Songs s ON s.song_id = ps.song_id "
+                        "WHERE s.duration_ms IS NULL");
+        if (!query.next())
+        {
+            QTest::qFail("无法读取待探测歌曲数量", __FILE__, __LINE__);
+            return -1;
+        }
+        return query.value(0).toInt();
     }
 
     QList<QVariantList> database_snapshot()
@@ -389,6 +403,7 @@ private slots:
         {
             desired[target_id].songs.append({temp_.filePath("new-unrecorded.wav"), "new-unrecorded.wav"});
         }
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
         const auto before = database_snapshot();
         QSqlQuery query;
         QString condition;
@@ -516,6 +531,7 @@ private slots:
         lists[2]->setCurrentRow(1);
         QVERIFY(QMetaObject::invokeMethod(&page, move ? "on_move_button_clicked" : "on_delete_button_clicked"));
         QVERIFY(page.has_pending_changes());
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
         const auto before = database_snapshot();
         QSqlQuery query;
         const QString event = move ? "INSERT" : "DELETE";
@@ -558,6 +574,7 @@ private slots:
         manager.initialize_and_load();
         QVERIFY(manager.create_new_playlist("目标"));
         const qint64 id = manager.get_all_playlists().last().id;
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
         const auto before = database_snapshot();
         QSqlQuery query;
         const QString table = event == "INSERT" ? "Songs" : "Playlists";
@@ -580,6 +597,167 @@ private slots:
         }
         QCOMPARE(database_snapshot(), before);
         QCOMPARE(changed.count() + removed.count() + renamed.count(), 0);
+    }
+
+    void async_import()
+    {
+        const QString short_file = temp_.filePath("short-import.wav");
+        encode({"-i", tone_, "-t", "0.02", short_file});
+        QStringList paths;
+        for (int i = 0; i < 500; ++i)
+        {
+            const QString path = temp_.filePath(QString("import-%1.wav").arg(i));
+            QVERIFY(QFile::copy(short_file, path));
+            paths.append(path);
+        }
+        const QString corrupt = temp_.filePath("bad-import.wav");
+        QFile file(corrupt);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("not audio");
+        file.close();
+        paths.append(corrupt);
+        paths.append(temp_.filePath("missing-import.wav"));
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        int probes = 0;
+        connect(manager->findChild<duration_scanner*>(), &duration_scanner::durations_ready, manager,
+                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QVERIFY(manager->add_songs_to_playlist(id, paths));
+        QVERIFY(pending_durations() > 0);
+        auto* tree = window.findChild<QTreeWidget*>();
+        QVERIFY(manager->add_songs_to_playlist(id, paths));
+        auto* first = tree->topLevelItem(0)->child(0);
+        QSignalSpy removed(tree->model(), &QAbstractItemModel::rowsRemoved);
+        QCOMPARE(manager->get_playlist_by_id(id).songs.size(), paths.size());
+        QTimer heartbeat;
+        int ticks = 0;
+        connect(&heartbeat, &QTimer::timeout, this, [&] { ++ticks; });
+        heartbeat.start(1);
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(probes, paths.size(), 1000);
+        QTest::qWait(50);
+        QCOMPARE(probes, paths.size());
+        QVERIFY(ticks > 0);
+        QCOMPARE(tree->topLevelItem(0)->child(0), first);
+        QCOMPARE(removed.count(), 0);
+        const auto songs = manager->get_playlist_by_id(id).songs;
+        for (int i = 0; i < 500; ++i)
+        {
+            QCOMPARE(songs[i].duration_ms, 20);
+        }
+        QCOMPARE(songs[500].duration_ms, 0);
+        QCOMPARE(songs[501].duration_ms, 0);
+    }
+
+    void metadata_removed()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const qint64 id = manager.get_all_playlists().first().id;
+        int probes = 0;
+        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
+                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QSignalSpy updates(&manager, &playlist_manager::durations_updated);
+        QVERIFY(manager.add_songs_to_playlist(id, {tone_, temp_.filePath("removed-missing.wav")}));
+        QVERIFY(manager.remove_songs_from_playlist(id, {0, 1}));
+        QTRY_COMPARE_WITH_TIMEOUT(probes, 2, 1000);
+        QCOMPARE(updates.count(), 0);
+        QSqlQuery query("SELECT COUNT(*) FROM Songs WHERE duration_ms IS NOT NULL");
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toInt(), 0);
+        QVERIFY(manager.add_songs_to_playlist(id, {tone_}));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 1000);
+        QVERIFY(manager.get_playlist_by_id(id).songs.first().duration_ms > 0);
+    }
+
+    void metadata_update_failure()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const qint64 id = manager.get_all_playlists().first().id;
+        QStringList paths;
+        for (int i = 0; i < 4; ++i)
+        {
+            const QString path = temp_.filePath(QString("duration-%1.wav").arg(i));
+            QVERIFY(QFile::copy(tone_, path));
+            paths.append(path);
+        }
+        QSqlQuery query;
+        QVERIFY(query.exec("CREATE TRIGGER reject_duration BEFORE UPDATE OF duration_ms ON Songs "
+                           "WHEN NEW.file_path LIKE '%duration-2.wav' "
+                           "BEGIN SELECT RAISE(ABORT, 'injected duration failure'); END"));
+        int probes = 0;
+        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
+                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QSignalSpy updates(&manager, &playlist_manager::durations_updated);
+        QVERIFY(manager.add_songs_to_playlist(id, paths));
+        QTRY_COMPARE_WITH_TIMEOUT(probes, 4, 1000);
+        QCOMPARE(pending_durations(), 4);
+        QCOMPARE(updates.count(), 0);
+        QVERIFY(query.exec("DROP TRIGGER reject_duration"));
+        QVERIFY(manager.add_songs_to_playlist(id, paths));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 1000);
+        QCOMPARE(manager.get_playlist_by_id(id).songs.size(), 4);
+    }
+
+    void metadata_scan_shutdown()
+    {
+        const auto level = spdlog::get_level();
+        spdlog::set_level(spdlog::level::off);
+        DEFER(spdlog::set_level(level));
+        QStringList paths;
+        for (int i = 0; i < 5000; ++i)
+        {
+            paths.append(temp_.filePath(QString("cancel-%1.wav").arg(i)));
+        }
+        QElapsedTimer elapsed;
+        elapsed.start();
+        std::atomic<bool> first_batch{false};
+        std::atomic<bool> release{false};
+        {
+            playlist_manager manager;
+            manager.initialize_and_load();
+            auto* scanner = manager.findChild<duration_scanner*>();
+            connect(scanner, &duration_scanner::durations_ready, scanner, [&](const QMap<QString, qint64>&)
+            {
+                first_batch = true;
+                while (!release)
+                {
+                    QThread::msleep(1);
+                }
+            }, Qt::DirectConnection);
+            DEFER(release = true);
+            const qint64 id = manager.get_all_playlists().first().id;
+            QVERIFY(manager.add_songs_to_playlist(id, paths));
+            QTRY_VERIFY_WITH_TIMEOUT(first_batch.load(), 1000);
+            QVERIFY(pending_durations() > 0);
+            release = true;
+        }
+        QVERIFY(elapsed.elapsed() < 3000);
+        QCoreApplication::processEvents();
+        QVERIFY(QSqlDatabase::database().isOpen());
+        QSqlQuery query("SELECT COUNT(*) FROM PlaylistSongs");
+        QVERIFY(query.next());
+        QCOMPARE(query.value(0).toInt(), paths.size());
+        QVERIFY(pending_durations() > 0);
+    }
+
+    void metadata_path_reuse()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const qint64 id = manager.get_all_playlists().first().id;
+        int probes = 0;
+        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
+                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QVERIFY(manager.add_songs_to_playlist(id, {tone_}));
+        QVERIFY(manager.remove_songs_from_playlist(id, {0}));
+        QVERIFY(manager.add_songs_to_playlist(id, {tone_}));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(probes, 1, 1000);
+        QCOMPARE(manager.get_playlist_by_id(id).songs.size(), 1);
+        QVERIFY(manager.get_playlist_by_id(id).songs.first().duration_ms > 0);
     }
 
     void playback_failure_limit_data()
