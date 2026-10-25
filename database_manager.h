@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QList>
+#include <QMap>
 #include <QSqlDatabase>
 #include "playlist_data.h"
 
@@ -18,14 +19,13 @@ class database_manager : public QObject
     bool initialize();
 
     Playlist create_playlist(const QString& name);
-    void delete_playlist(qint64 playlist_id);
-    void rename_playlist(qint64 playlist_id, const QString& new_name);
+    bool delete_playlist(qint64 playlist_id);
+    bool rename_playlist(qint64 playlist_id, const QString& new_name);
     QList<Playlist> get_all_playlists_with_song_counts();
     Playlist get_playlist_with_songs(qint64 playlist_id);
 
-    void add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
-    void remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices);
-    void update_song_order_in_playlist(qint64 playlist_id, const QList<Song>& songs);
+    bool add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
+    bool save_playlists(const QMap<qint64, Playlist>& playlists, QList<qint64>& changed_ids);
 
     void increment_play_count(const QString& file_path);
 

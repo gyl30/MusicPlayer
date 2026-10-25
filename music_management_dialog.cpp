@@ -405,7 +405,11 @@ void music_management_dialog::on_delete_button_clicked()
 
 void music_management_dialog::on_done_button_clicked()
 {
-    playlist_manager_->apply_changes_from_dialog(temp_playlists_);
+    if (!playlist_manager_->apply_changes_from_dialog(temp_playlists_))
+    {
+        QMessageBox::warning(this, "保存失败", "歌单修改未能保存，更改仍保留在本页。请检查磁盘空间和文件访问权限后重试。");
+        return;
+    }
     has_pending_changes_ = false;
     emit changes_applied();
 }

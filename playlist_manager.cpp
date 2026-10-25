@@ -113,55 +113,83 @@ Playlist playlist_manager::get_playlist_by_id(qint64 id) const { return db_manag
 
 void playlist_manager::increment_play_count(const QString& file_path) { db_manager_->increment_play_count(file_path); }
 
-void playlist_manager::create_new_playlist(const QString& name)
+bool playlist_manager::create_new_playlist(const QString& name)
 {
     LOG_INFO("创建新播放列表 名称 {}", name.toStdString());
     Playlist new_playlist = db_manager_->create_playlist(name);
     if (new_playlist.id != -1)
     {
         emit playlist_added(new_playlist);
+        return true;
     }
+    return false;
 }
 
-void playlist_manager::delete_playlist(qint64 id)
+bool playlist_manager::delete_playlist(qint64 id)
 {
     LOG_INFO("删除播放列表 id {}", id);
     if (db_manager_->get_all_playlists_with_song_counts().count() <= 1)
     {
         LOG_WARN("试图删除最后一个播放列表 操作不允许");
-        return;
+        return false;
     }
-    db_manager_->delete_playlist(id);
+    if (!db_manager_->delete_playlist(id))
+    {
+        return false;
+    }
     emit playlist_removed(id);
+    return true;
 }
 
-void playlist_manager::add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths)
+bool playlist_manager::add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths)
 {
     LOG_INFO("向播放列表id {} 添加 {} 首歌曲", playlist_id, file_paths.count());
-    db_manager_->add_songs_to_playlist(playlist_id, file_paths);
+    if (!db_manager_->add_songs_to_playlist(playlist_id, file_paths))
+    {
+        return false;
+    }
     emit songs_changed_in_playlist(playlist_id);
+    return true;
 }
 
-void playlist_manager::remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices)
+bool playlist_manager::remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices)
 {
     LOG_INFO("从播放列表id {} 移除 {} 首歌曲", playlist_id, song_indices.count());
-    db_manager_->remove_songs_from_playlist(playlist_id, song_indices);
-    emit songs_changed_in_playlist(playlist_id);
+    Playlist playlist = get_playlist_by_id(playlist_id);
+    if (playlist.id == -1)
+    {
+        return false;
+    }
+    QList<int> indices = song_indices;
+    std::sort(indices.begin(), indices.end(), std::greater<>());
+    for (int index : indices)
+    {
+        if (index < 0 || index >= playlist.songs.size())
+        {
+            return false;
+        }
+        playlist.songs.removeAt(index);
+    }
+    return apply_changes_from_dialog({{playlist_id, playlist}});
 }
 
-void playlist_manager::rename_playlist(qint64 id, const QString& new_name)
+bool playlist_manager::rename_playlist(qint64 id, const QString& new_name)
 {
     if (new_name.isEmpty())
     {
         LOG_WARN("试图使用空名称重命名播放列表");
-        return;
+        return false;
     }
     LOG_INFO("将播放列表id {} 重命名为 {}", id, new_name.toStdString());
-    db_manager_->rename_playlist(id, new_name);
+    if (!db_manager_->rename_playlist(id, new_name))
+    {
+        return false;
+    }
     emit playlist_renamed(id);
+    return true;
 }
 
-void playlist_manager::sort_playlist(qint64 id)
+bool playlist_manager::sort_playlist(qint64 id)
 {
     LOG_INFO("排序播放列表 id {}", id);
     Playlist playlist = db_manager_->get_playlist_with_songs(id);
@@ -174,42 +202,19 @@ void playlist_manager::sort_playlist(qint64 id)
               playlist.songs.end(),
               [&collator](const Song& s1, const Song& s2) { return collator.compare(s1.file_name, s2.file_name) < 0; });
 
-    db_manager_->update_song_order_in_playlist(id, playlist.songs);
-    emit songs_changed_in_playlist(id);
+    return apply_changes_from_dialog({{id, playlist}});
 }
 
-void playlist_manager::apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists)
+bool playlist_manager::apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists)
 {
-    for (auto it = temp_playlists.constBegin(); it != temp_playlists.constEnd(); ++it)
+    QList<qint64> changed_ids;
+    if (!db_manager_->save_playlists(temp_playlists, changed_ids))
     {
-        qint64 playlist_id = it.key();
-        const Playlist& temp_playlist = it.value();
-
-        Playlist original_playlist = get_playlist_by_id(playlist_id);
-
-        if (original_playlist.songs == temp_playlist.songs)
-        {
-            continue;
-        }
-        LOG_DEBUG("检测到播放列表 {} 的歌曲已变更 正在应用更新", temp_playlist.name.toStdString());
-        QList<int> all_indices;
-        for (int i = 0; i < original_playlist.songs.count(); ++i)
-        {
-            all_indices.append(i);
-        }
-        if (!all_indices.isEmpty())
-        {
-            remove_songs_from_playlist(playlist_id, all_indices);
-        }
-
-        QStringList new_paths;
-        for (const auto& song : temp_playlist.songs)
-        {
-            new_paths.append(song.file_path);
-        }
-        if (!new_paths.isEmpty())
-        {
-            add_songs_to_playlist(playlist_id, new_paths);
-        }
+        return false;
     }
+    for (qint64 id : changed_ids)
+    {
+        emit songs_changed_in_playlist(id);
+    }
+    return true;
 }

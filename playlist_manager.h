@@ -22,13 +22,13 @@ class playlist_manager : public QObject
     void increment_play_count(const QString& file_path);
 
    public slots:
-    void create_new_playlist(const QString& name);
-    void delete_playlist(qint64 id);
-    void add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
-    void remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices);
-    void rename_playlist(qint64 id, const QString& new_name);
-    void sort_playlist(qint64 id);
-    void apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists);
+    bool create_new_playlist(const QString& name);
+    bool delete_playlist(qint64 id);
+    bool add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
+    bool remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices);
+    bool rename_playlist(qint64 id, const QString& new_name);
+    bool sort_playlist(qint64 id);
+    bool apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists);
 
    signals:
     void playlist_added(const Playlist& new_playlist);

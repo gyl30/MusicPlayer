@@ -6,7 +6,8 @@
 #include <QFileInfo>
 #include <QByteArray>
 #include <QtGlobal>
-#include <algorithm>
+#include <QSet>
+#include "scoped_exit.h"
 #include "log.h"
 #include "database_manager.h"
 
@@ -205,7 +206,7 @@ Playlist database_manager::create_playlist(const QString& name)
     return new_playlist;
 }
 
-void database_manager::delete_playlist(qint64 playlist_id)
+bool database_manager::delete_playlist(qint64 playlist_id)
 {
     (void)this;
     QSqlQuery query;
@@ -214,10 +215,12 @@ void database_manager::delete_playlist(qint64 playlist_id)
     if (!query.exec())
     {
         LOG_ERROR("删除播放列表 ID {} 失败 {}", playlist_id, query.lastError().text().toStdString());
+        return false;
     }
+    return query.numRowsAffected() == 1;
 }
 
-void database_manager::rename_playlist(qint64 playlist_id, const QString& new_name)
+bool database_manager::rename_playlist(qint64 playlist_id, const QString& new_name)
 {
     (void)this;
     QSqlQuery query;
@@ -227,7 +230,9 @@ void database_manager::rename_playlist(qint64 playlist_id, const QString& new_na
     if (!query.exec())
     {
         LOG_ERROR("重命名播放列表 ID {} 失败 {}", playlist_id, query.lastError().text().toStdString());
+        return false;
     }
+    return query.numRowsAffected() == 1;
 }
 
 QList<Playlist> database_manager::get_all_playlists_with_song_counts()
@@ -348,28 +353,25 @@ qint64 database_manager::get_or_create_song_id(const QString& file_path)
     return -1;
 }
 
-void database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths)
+bool database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths)
 {
     if (!db_.transaction())
     {
         LOG_ERROR("开启数据库事务失败");
-        return;
+        return false;
     }
 
     QSqlQuery query_max_pos;
     query_max_pos.prepare("SELECT MAX(position) FROM PlaylistSongs WHERE playlist_id = :id");
     query_max_pos.bindValue(":id", playlist_id);
 
-    int current_max_pos = -1;
-    if (query_max_pos.exec() && query_max_pos.next())
+    if (!query_max_pos.exec() || !query_max_pos.next())
     {
-        bool ok = false;
-        int val = query_max_pos.value(0).toInt(&ok);
-        if (ok)
-        {
-            current_max_pos = val;
-        }
+        LOG_ERROR("读取歌曲位置失败 {}", query_max_pos.lastError().text().toStdString());
+        db_.rollback();
+        return false;
     }
+    int current_max_pos = query_max_pos.value(0).isNull() ? -1 : query_max_pos.value(0).toInt();
 
     QSqlQuery query_insert;
     query_insert.prepare("INSERT OR IGNORE INTO PlaylistSongs (playlist_id, song_id, position) VALUES (:pid, :sid, :pos)");
@@ -377,131 +379,144 @@ void database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringLi
     for (const QString& path : file_paths)
     {
         qint64 song_id = get_or_create_song_id(path);
-        if (song_id != -1)
-        {
-            current_max_pos++;
-            query_insert.bindValue(":pid", playlist_id);
-            query_insert.bindValue(":sid", song_id);
-            query_insert.bindValue(":pos", current_max_pos);
-            if (!query_insert.exec())
-            {
-                LOG_ERROR("添加歌曲 {} 到播放列表 ID {} 失败 {}", path.toStdString(), playlist_id, query_insert.lastError().text().toStdString());
-                db_.rollback();
-                return;
-            }
-        }
-    }
-
-    if (!db_.commit())
-    {
-        LOG_ERROR("提交数据库事务失败");
-        db_.rollback();
-    }
-}
-
-void database_manager::remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices)
-{
-    if (!db_.transaction())
-    {
-        LOG_ERROR("开启数据库事务失败");
-        return;
-    }
-
-    QList<qint64> song_ids_to_keep;
-    QSqlQuery query_get;
-    query_get.prepare(R"(
-        SELECT song_id FROM PlaylistSongs
-        WHERE playlist_id = :id ORDER BY position
-    )");
-    query_get.bindValue(":id", playlist_id);
-    if (query_get.exec())
-    {
-        int current_pos = 0;
-        QList<int> sorted_indices = song_indices;
-        std::sort(sorted_indices.begin(), sorted_indices.end());
-
-        while (query_get.next())
-        {
-            if (!sorted_indices.contains(current_pos))
-            {
-                song_ids_to_keep.append(query_get.value(0).toLongLong());
-            }
-            current_pos++;
-        }
-    }
-    else
-    {
-        LOG_ERROR("获取播放列表歌曲失败 {}", query_get.lastError().text().toStdString());
-        db_.rollback();
-        return;
-    }
-
-    QSqlQuery query_delete;
-    query_delete.prepare("DELETE FROM PlaylistSongs WHERE playlist_id = :id");
-    query_delete.bindValue(":id", playlist_id);
-    if (!query_delete.exec())
-    {
-        LOG_ERROR("删除旧播放列表条目失败 {}", query_delete.lastError().text().toStdString());
-        db_.rollback();
-        return;
-    }
-
-    QSqlQuery query_reinsert;
-    query_reinsert.prepare("INSERT INTO PlaylistSongs (playlist_id, song_id, position) VALUES (:pid, :sid, :pos)");
-    for (int i = 0; i < song_ids_to_keep.size(); ++i)
-    {
-        query_reinsert.bindValue(":pid", playlist_id);
-        query_reinsert.bindValue(":sid", song_ids_to_keep[i]);
-        query_reinsert.bindValue(":pos", i);
-        if (!query_reinsert.exec())
-        {
-            LOG_ERROR("重新插入歌曲失败 {}", query_reinsert.lastError().text().toStdString());
-            db_.rollback();
-            return;
-        }
-    }
-
-    if (!db_.commit())
-    {
-        LOG_ERROR("提交数据库事务失败");
-        db_.rollback();
-    }
-}
-
-void database_manager::update_song_order_in_playlist(qint64 playlist_id, const QList<Song>& songs)
-{
-    if (!db_.transaction())
-    {
-        LOG_ERROR("开启数据库事务失败");
-        return;
-    }
-
-    QSqlQuery query_update;
-    query_update.prepare("UPDATE PlaylistSongs SET position = :pos WHERE playlist_id = :pid AND song_id = :sid");
-
-    for (int i = 0; i < songs.size(); ++i)
-    {
-        qint64 song_id = get_or_create_song_id(songs[i].file_path);
         if (song_id == -1)
         {
-            continue;
-        }
-        query_update.bindValue(":pos", i);
-        query_update.bindValue(":pid", playlist_id);
-        query_update.bindValue(":sid", song_id);
-        if (!query_update.exec())
-        {
-            LOG_ERROR("更新歌曲顺序失败 {}", query_update.lastError().text().toStdString());
             db_.rollback();
-            return;
+            return false;
         }
+        query_insert.bindValue(":pid", playlist_id);
+        query_insert.bindValue(":sid", song_id);
+        query_insert.bindValue(":pos", current_max_pos + 1);
+        if (!query_insert.exec())
+        {
+            LOG_ERROR("添加歌曲 {} 到播放列表 ID {} 失败 {}", path.toStdString(), playlist_id, query_insert.lastError().text().toStdString());
+            db_.rollback();
+            return false;
+        }
+        current_max_pos += query_insert.numRowsAffected();
     }
 
     if (!db_.commit())
     {
         LOG_ERROR("提交数据库事务失败");
         db_.rollback();
+        return false;
     }
+    return true;
+}
+
+bool database_manager::save_playlists(const QMap<qint64, Playlist>& playlists, QList<qint64>& changed_ids)
+{
+    changed_ids.clear();
+    if (!db_.transaction())
+    {
+        LOG_ERROR("开启数据库事务失败 {}", db_.lastError().text().toStdString());
+        return false;
+    }
+    auto rollback = make_scoped_exit([&]
+    {
+        db_.rollback();
+        changed_ids.clear();
+    });
+
+    for (auto it = playlists.constBegin(); it != playlists.constEnd(); ++it)
+    {
+        const qint64 playlist_id = it.key();
+        QSqlQuery query(db_);
+        query.prepare("SELECT playlist_id FROM Playlists WHERE playlist_id = :id");
+        query.bindValue(":id", playlist_id);
+        if (!query.exec() || !query.next())
+        {
+            LOG_ERROR("无法读取播放列表 {} {}", playlist_id, query.lastError().text().toStdString());
+            return false;
+        }
+
+        struct SongLink
+        {
+            qint64 song_id;
+            int position;
+        };
+        QMap<QString, SongLink> existing;
+        query.prepare("SELECT s.file_path, ps.song_id, ps.position FROM PlaylistSongs ps "
+                      "JOIN Songs s ON s.song_id = ps.song_id WHERE ps.playlist_id = :id");
+        query.bindValue(":id", playlist_id);
+        if (!query.exec())
+        {
+            LOG_ERROR("读取播放列表歌曲失败 {}", query.lastError().text().toStdString());
+            return false;
+        }
+        while (query.next())
+        {
+            existing.insert(query.value(0).toString(), {query.value(1).toLongLong(), query.value(2).toInt()});
+        }
+
+        QSet<QString> desired_paths;
+        for (const auto& song : it->songs)
+        {
+            desired_paths.insert(song.file_path);
+        }
+        bool changed = false;
+        for (auto link = existing.constBegin(); link != existing.constEnd(); ++link)
+        {
+            if (desired_paths.contains(link.key()))
+            {
+                continue;
+            }
+            query.prepare("DELETE FROM PlaylistSongs WHERE playlist_id = :pid AND song_id = :sid");
+            query.bindValue(":pid", playlist_id);
+            query.bindValue(":sid", link->song_id);
+            if (!query.exec())
+            {
+                LOG_ERROR("移除播放列表歌曲失败 {}", query.lastError().text().toStdString());
+                return false;
+            }
+            changed = true;
+        }
+
+        for (int position = 0; position < it->songs.size(); ++position)
+        {
+            const QString& path = it->songs[position].file_path;
+            const auto link = existing.constFind(path);
+            if (link != existing.constEnd() && link->position == position)
+            {
+                continue;
+            }
+            const qint64 song_id = link != existing.constEnd() ? link->song_id : get_or_create_song_id(path);
+            if (song_id == -1)
+            {
+                return false;
+            }
+            if (link == existing.constEnd())
+            {
+                query.prepare("INSERT INTO PlaylistSongs (playlist_id, song_id, position) VALUES (:pid, :sid, :pos)");
+            }
+            else
+            {
+                query.prepare("UPDATE PlaylistSongs SET position = :pos WHERE playlist_id = :pid AND song_id = :sid");
+            }
+            query.bindValue(":pid", playlist_id);
+            query.bindValue(":sid", song_id);
+            query.bindValue(":pos", position);
+            if (!query.exec())
+            {
+                LOG_ERROR("保存播放列表歌曲失败 {}", query.lastError().text().toStdString());
+                return false;
+            }
+            changed = true;
+        }
+        if (changed)
+        {
+            changed_ids.append(playlist_id);
+        }
+    }
+
+    if (!db_.commit())
+    {
+        LOG_ERROR("提交播放列表修改失败 {}", db_.lastError().text().toStdString());
+        return false;
+    }
+    rollback.cancel();
+    return true;
 }
 
 void database_manager::increment_play_count(const QString& file_path)

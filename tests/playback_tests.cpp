@@ -6,12 +6,16 @@
 #include <QTreeWidget>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QSqlRecord>
+#include <QListWidget>
+#include <QMessageBox>
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
 #include "playback_controller.h"
 #include "playlist_manager.h"
 #include "playlist_window.h"
+#include "music_management_dialog.h"
 #include "log.h"
 
 class playback_tests : public QObject
@@ -28,6 +32,31 @@ private:
         process.start(FFMPEG_EXECUTABLE, QStringList{"-v", "error", "-y"} + arguments);
         QVERIFY(process.waitForFinished(10000));
         QCOMPARE(process.exitCode(), 0);
+    }
+
+    QList<QVariantList> database_snapshot()
+    {
+        QList<QVariantList> rows;
+        for (const QString& table : {QString("Songs"), QString("Playlists"), QString("PlaylistSongs"), QString("sqlite_sequence")})
+        {
+            rows.append(QVariantList{table});
+            QSqlQuery query;
+            if (!query.exec("SELECT * FROM " + table + " ORDER BY 1, 2"))
+            {
+                QTest::qFail("无法读取数据库快照", __FILE__, __LINE__);
+                return {};
+            }
+            while (query.next())
+            {
+                QVariantList row;
+                for (int i = 0; i < query.record().count(); ++i)
+                {
+                    row.append(query.value(i));
+                }
+                rows.append(row);
+            }
+        }
+        return rows;
     }
 
 private slots:
@@ -296,6 +325,261 @@ private slots:
         manager.add_songs_to_playlist(id, files);
         qInfo() << "重复导入耗时(ms):" << timer.elapsed();
         QCOMPARE(manager.get_playlist_by_id(id).songs.size(), files.size());
+    }
+
+    void storage_atomicity_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<QString>("event");
+        QTest::newRow("sort_update") << "sort" << "UPDATE";
+        QTest::newRow("copy_insert") << "copy" << "INSERT";
+        QTest::newRow("delete_delete") << "delete" << "DELETE";
+        QTest::newRow("delete_update") << "delete" << "UPDATE";
+        QTest::newRow("move_insert") << "move" << "INSERT";
+        QTest::newRow("move_delete") << "move" << "DELETE";
+        QTest::newRow("move_update") << "move" << "UPDATE";
+        QTest::newRow("new_song_insert") << "new_song" << "INSERT";
+    }
+
+    void storage_atomicity()
+    {
+        QFETCH(QString, operation);
+        QFETCH(QString, event);
+        QTemporaryDir database_dir;
+        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
+        playlist_manager manager;
+        manager.initialize_and_load();
+        manager.create_new_playlist("目标");
+        manager.create_new_playlist("未修改");
+        const auto lists = manager.get_all_playlists();
+        const qint64 source_id = lists[0].id;
+        const qint64 target_id = lists[1].id;
+        QStringList paths;
+        for (int i = 0; i < 4; ++i)
+        {
+            const QString path = temp_.filePath(QString("%1-%2.wav").arg(QTest::currentDataTag()).arg(i));
+            QVERIFY(QFile::copy(tone_, path));
+            paths.append(path);
+        }
+        manager.add_songs_to_playlist(source_id, paths.mid(0, 3));
+        manager.add_songs_to_playlist(target_id, paths.mid(3));
+        QMap<qint64, Playlist> desired;
+        for (const auto& list : lists)
+        {
+            desired.insert(list.id, manager.get_playlist_by_id(list.id));
+        }
+        if (operation == "sort")
+        {
+            std::reverse(desired[source_id].songs.begin(), desired[source_id].songs.end());
+        }
+        else if (operation == "copy" || operation == "move")
+        {
+            desired[target_id].songs.append(desired[source_id].songs[0]);
+            desired[target_id].songs.append(desired[source_id].songs[2]);
+            if (operation == "move")
+            {
+                desired[source_id].songs = {desired[source_id].songs[1]};
+            }
+        }
+        else if (operation == "delete")
+        {
+            desired[source_id].songs = {desired[source_id].songs[1], desired[source_id].songs[2]};
+        }
+        else
+        {
+            desired[target_id].songs.append({temp_.filePath("new-unrecorded.wav"), "new-unrecorded.wav"});
+        }
+        const auto before = database_snapshot();
+        QSqlQuery query;
+        QString condition;
+        if (event == "INSERT")
+        {
+            condition = QString("NEW.song_id = %1").arg(3);
+        }
+        else if (event == "DELETE")
+        {
+            condition = QString("OLD.song_id = %1").arg(operation == "move" ? 3 : 1);
+        }
+        else
+        {
+            condition = QString("NEW.playlist_id = %1 AND NEW.position = 0").arg(source_id);
+        }
+        const QString table = operation == "new_song" ? "Songs" : "PlaylistSongs";
+        if (table == "Songs")
+        {
+            condition = "1";
+        }
+        QVERIFY(query.exec(QString("CREATE TRIGGER injected_failure BEFORE %1 ON %2 WHEN %3 "
+                                   "BEGIN SELECT RAISE(ABORT, 'injected failure'); END").arg(event, table, condition)));
+        QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
+        QVERIFY(!manager.apply_changes_from_dialog(desired));
+        QCOMPARE(database_snapshot(), before);
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(query.exec("DROP TRIGGER injected_failure"));
+        QVERIFY(manager.apply_changes_from_dialog(desired));
+        for (auto it = desired.constBegin(); it != desired.constEnd(); ++it)
+        {
+            QCOMPARE(manager.get_playlist_by_id(it.key()).songs, it->songs);
+        }
+    }
+
+    void storage_minimal_writes_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::newRow("sort") << "sort";
+        QTest::newRow("copy") << "copy";
+        QTest::newRow("delete") << "delete";
+    }
+
+    void storage_minimal_writes()
+    {
+        QFETCH(QString, operation);
+        QTemporaryDir database_dir;
+        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
+        playlist_manager manager;
+        manager.initialize_and_load();
+        manager.create_new_playlist("目标");
+        const auto lists = manager.get_all_playlists();
+        const qint64 source_id = lists[0].id;
+        const qint64 target_id = lists[1].id;
+        manager.add_songs_to_playlist(source_id, {tone_, temp_.filePath("missing.wav")});
+        manager.add_songs_to_playlist(target_id, {temp_.filePath("other.wav")});
+        QMap<qint64, Playlist> desired{{source_id, manager.get_playlist_by_id(source_id)},
+                                     {target_id, manager.get_playlist_by_id(target_id)}};
+        QStringList forbidden;
+        if (operation == "sort")
+        {
+            std::reverse(desired[source_id].songs.begin(), desired[source_id].songs.end());
+            forbidden = {"INSERT", "DELETE"};
+        }
+        else if (operation == "copy")
+        {
+            desired[target_id].songs.append(desired[source_id].songs);
+            forbidden = {"DELETE", "UPDATE"};
+        }
+        else
+        {
+            desired[source_id].songs.removeFirst();
+            forbidden = {"INSERT"};
+        }
+        QSqlQuery query;
+        for (const auto& event : forbidden)
+        {
+            QVERIFY(query.exec(QString("CREATE TRIGGER forbid_%1 BEFORE %1 ON PlaylistSongs "
+                                       "BEGIN SELECT RAISE(ABORT, 'unnecessary write'); END").arg(event)));
+        }
+        QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
+        QVERIFY(manager.apply_changes_from_dialog(desired));
+        for (auto it = desired.constBegin(); it != desired.constEnd(); ++it)
+        {
+            QCOMPARE(manager.get_playlist_by_id(it.key()).songs, it->songs);
+        }
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(query.exec("SELECT playlist_id, position FROM PlaylistSongs ORDER BY playlist_id, position"));
+        qint64 previous_id = -1;
+        int position = 0;
+        while (query.next())
+        {
+            if (query.value(0).toLongLong() != previous_id)
+            {
+                previous_id = query.value(0).toLongLong();
+                position = 0;
+            }
+            QCOMPARE(query.value(1).toInt(), position++);
+        }
+    }
+
+    void management_failure_data()
+    {
+        QTest::addColumn<bool>("move");
+        QTest::newRow("single_delete") << false;
+        QTest::newRow("cross_playlist_move") << true;
+    }
+
+    void management_failure()
+    {
+        QFETCH(bool, move);
+        QTemporaryDir database_dir;
+        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const qint64 id = manager.get_all_playlists().first().id;
+        manager.add_songs_to_playlist(id, {tone_});
+        QVERIFY(manager.create_new_playlist("目标"));
+        const qint64 target_id = manager.get_all_playlists().last().id;
+        music_management_dialog page(&manager);
+        page.reload();
+        const auto lists = page.findChildren<QListWidget*>();
+        QCOMPARE(lists.size(), 4);
+        lists[0]->setCurrentRow(0);
+        lists[1]->item(0)->setCheckState(Qt::Checked);
+        lists[2]->setCurrentRow(1);
+        QVERIFY(QMetaObject::invokeMethod(&page, move ? "on_move_button_clicked" : "on_delete_button_clicked"));
+        QVERIFY(page.has_pending_changes());
+        const auto before = database_snapshot();
+        QSqlQuery query;
+        const QString event = move ? "INSERT" : "DELETE";
+        QVERIFY(query.exec(QString("CREATE TRIGGER reject_apply BEFORE %1 ON PlaylistSongs "
+                                   "BEGIN SELECT RAISE(ABORT, 'injected apply failure'); END").arg(event)));
+        QSignalSpy applied(&page, &music_management_dialog::changes_applied);
+        QTimer::singleShot(0, &page, []
+        {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+            {
+                box->accept();
+            }
+        });
+        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
+        QCOMPARE(database_snapshot(), before);
+        QVERIFY(page.has_pending_changes());
+        QCOMPARE(applied.count(), 0);
+        QVERIFY(query.exec("DROP TRIGGER reject_apply"));
+        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
+        QVERIFY(!page.has_pending_changes());
+        QCOMPARE(applied.count(), 1);
+        QCOMPARE(manager.get_playlist_by_id(id).songs.size(), 0);
+        QCOMPARE(manager.get_playlist_by_id(target_id).songs.size(), move ? 1 : 0);
+    }
+
+    void storage_write_failure_data()
+    {
+        QTest::addColumn<QString>("event");
+        QTest::newRow("add") << "INSERT";
+        QTest::newRow("remove_playlist") << "DELETE";
+        QTest::newRow("rename") << "UPDATE";
+    }
+
+    void storage_write_failure()
+    {
+        QFETCH(QString, event);
+        QTemporaryDir database_dir;
+        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
+        playlist_manager manager;
+        manager.initialize_and_load();
+        QVERIFY(manager.create_new_playlist("目标"));
+        const qint64 id = manager.get_all_playlists().last().id;
+        const auto before = database_snapshot();
+        QSqlQuery query;
+        const QString table = event == "INSERT" ? "Songs" : "Playlists";
+        QVERIFY(query.exec(QString("CREATE TRIGGER reject_write BEFORE %1 ON %2 "
+                                   "BEGIN SELECT RAISE(ABORT, 'injected write failure'); END").arg(event, table)));
+        QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
+        QSignalSpy removed(&manager, &playlist_manager::playlist_removed);
+        QSignalSpy renamed(&manager, &playlist_manager::playlist_renamed);
+        if (event == "INSERT")
+        {
+            QVERIFY(!manager.add_songs_to_playlist(id, {tone_}));
+        }
+        else if (event == "DELETE")
+        {
+            QVERIFY(!manager.delete_playlist(id));
+        }
+        else
+        {
+            QVERIFY(!manager.rename_playlist(id, "新名称"));
+        }
+        QCOMPARE(database_snapshot(), before);
+        QCOMPARE(changed.count() + removed.count() + renamed.count(), 0);
     }
 
     void mode_boundaries()

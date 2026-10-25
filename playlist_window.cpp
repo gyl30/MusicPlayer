@@ -1065,14 +1065,21 @@ void playlist_window::on_editing_finished(bool accepted, const QString& text)
 
     if (is_creating_playlist_)
     {
-        playlist_manager_->create_new_playlist(new_name);
+        if (!playlist_manager_->create_new_playlist(new_name))
+        {
+            QMessageBox::warning(this, "保存失败", "无法创建歌单，请检查磁盘空间和文件访问权限后重试。");
+        }
     }
     else
     {
         if (context_menu_item_ != nullptr)
         {
             const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
-            playlist_manager_->rename_playlist(playlist_id, new_name);
+            if (!playlist_manager_->rename_playlist(playlist_id, new_name))
+            {
+                QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+                return;
+            }
         }
     }
 }
@@ -1092,7 +1099,11 @@ void playlist_window::on_delete_playlist_action()
 
     if (reply == QMessageBox::Yes)
     {
-        playlist_manager_->delete_playlist(playlist_id);
+        if (!playlist_manager_->delete_playlist(playlist_id))
+        {
+            QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+            return;
+        }
     }
 }
 
@@ -1136,7 +1147,11 @@ void playlist_window::on_add_songs_action()
             return;
         }
 
-        playlist_manager_->add_songs_to_playlist(playlist_id, files_to_add);
+        if (!playlist_manager_->add_songs_to_playlist(playlist_id, files_to_add))
+        {
+            QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+            return;
+        }
 
         if (duplicate_count > 0)
         {
@@ -1175,7 +1190,11 @@ void playlist_window::on_remove_songs_action()
     if (parent_playlist_item != nullptr && !indices_to_remove.isEmpty())
     {
         const qint64 playlist_id = parent_playlist_item->data(0, Qt::UserRole).toLongLong();
-        playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove);
+        if (!playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove))
+        {
+            QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+            return;
+        }
     }
 }
 
@@ -1186,7 +1205,11 @@ void playlist_window::on_sort_playlist_action()
         return;
     }
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
-    playlist_manager_->sort_playlist(playlist_id);
+    if (!playlist_manager_->sort_playlist(playlist_id))
+    {
+        QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+        return;
+    }
 }
 
 void playlist_window::on_tree_item_double_clicked(QTreeWidgetItem* item, int column)
