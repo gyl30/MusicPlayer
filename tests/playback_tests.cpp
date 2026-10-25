@@ -9,6 +9,7 @@
 #include <QSqlRecord>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QSystemTrayIcon>
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
@@ -738,6 +739,20 @@ private slots:
         QVERIFY(query.next());
         QCOMPARE(query.value(0).toInt(), paths.size());
         QVERIFY(pending_durations() > 0);
+    }
+
+    void close_without_tray()
+    {
+        if (QSystemTrayIcon::isSystemTrayAvailable())
+        {
+            QSKIP("该回归需要没有系统托盘服务的会话");
+        }
+        QApplication::setWindowIcon(QIcon(":/icons/app_icon.svg"));
+        playlist_window window;
+        window.show();
+        QTest::qWait(50);
+        QVERIFY(window.close());
+        QVERIFY(!window.isVisible());
     }
 
     void metadata_path_reuse()

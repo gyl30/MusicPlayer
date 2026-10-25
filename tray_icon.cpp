@@ -38,7 +38,7 @@ void tray_icon::setup_tray_icon()
 
 void tray_icon::show() { tray_icon_->show(); }
 
-bool tray_icon::isVisible() const { return tray_icon_->isVisible(); }
+bool tray_icon::isVisible() const { return tray_icon_->isVisible() && QSystemTrayIcon::isSystemTrayAvailable(); }
 
 void tray_icon::on_tray_icon_activated(QSystemTrayIcon::ActivationReason reason)
 {
