@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MusicPlayer
+Comment=Local audio player
+Comment[zh_CN]=本地音频播放器
+Exec=MusicPlayer
+Icon=MusicPlayer
+Terminal=false
+Categories=AudioVideo;Audio;Player;

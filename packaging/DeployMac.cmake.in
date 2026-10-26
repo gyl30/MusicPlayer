@@ -1,0 +1,5 @@
+execute_process(COMMAND "@MACDEPLOYQT_EXECUTABLE@" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/MusicPlayer.app" -always-overwrite
+                RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "macdeployqt 失败：${result}")
+endif()

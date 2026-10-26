@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
-project(MusicPlayer LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.21)
+project(MusicPlayer VERSION 0.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -188,8 +188,16 @@ if(WIN32)
     set_target_properties(MusicPlayer PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 if(APPLE)
-    set_target_properties(MusicPlayer PROPERTIES MACOSX_BUNDLE TRUE)
+    set_target_properties(MusicPlayer PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER io.github.gyl30.MusicPlayer
+        MACOSX_BUNDLE_BUNDLE_NAME MusicPlayer
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    )
 endif()
+
+include(packaging/Packaging.cmake)
 
 option(BUILD_TESTING "Build playback regression tests" OFF)
 include(CTest)
