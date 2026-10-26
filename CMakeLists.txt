@@ -107,9 +107,29 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg Sql)
 find_package(SDL2 REQUIRED)
-find_package(PkgConfig REQUIRED)
 find_package(Boost REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample)
+if(WIN32)
+    set(FFMPEG_ROOT "" CACHE PATH "FFmpeg 共享库安装目录（include、lib、bin）")
+    find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h PATHS "${FFMPEG_ROOT}/include" NO_DEFAULT_PATH)
+    if(NOT FFMPEG_INCLUDE_DIR)
+        message(FATAL_ERROR "请用 FFMPEG_ROOT 指定 FFmpeg 5.1 或更新版本的共享库安装目录。")
+    endif()
+    add_library(FFmpeg INTERFACE)
+    target_include_directories(FFmpeg SYSTEM INTERFACE "${FFMPEG_INCLUDE_DIR}")
+    foreach(component avformat avcodec avutil swresample)
+        find_library(FFMPEG_${component}_LIBRARY NAMES ${component} PATHS "${FFMPEG_ROOT}/lib" NO_DEFAULT_PATH)
+        if(NOT FFMPEG_${component}_LIBRARY)
+            message(FATAL_ERROR "FFMPEG_ROOT 中缺少 ${component} 导入库。")
+        endif()
+        target_link_libraries(FFmpeg INTERFACE "${FFMPEG_${component}_LIBRARY}")
+    endforeach()
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+        libavformat>=59.27.100 libavcodec>=59.37.100 libavutil>=57.28.100 libswresample>=4.7.100
+    )
+    add_library(FFmpeg ALIAS PkgConfig::FFMPEG)
+endif()
 
 set(MUSICPLAYER_SOURCES
     log.cpp
@@ -151,13 +171,9 @@ endif()
 
 target_include_directories(MusicPlayer SYSTEM PRIVATE
     ${SDL2_INCLUDE_DIRS}
-    ${FFMPEG_INCLUDE_DIRS}
     third/spdlog/include
 )
 
-target_link_directories(MusicPlayer PRIVATE
-    ${FFMPEG_LIBRARY_DIRS}
-)
 target_link_libraries(MusicPlayer PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
@@ -165,7 +181,7 @@ target_link_libraries(MusicPlayer PRIVATE
     Qt6::Sql
     SDL2::SDL2
     Boost::boost
-    ${FFMPEG_LIBRARIES}
+    FFmpeg
 )
 
 if(WIN32)
@@ -182,9 +198,8 @@ if(BUILD_TESTING)
     find_program(FFMPEG_EXECUTABLE ffmpeg REQUIRED)
     add_executable(playback_tests tests/playback_tests.cpp ${MUSICPLAYER_SOURCES})
     target_include_directories(playback_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_include_directories(playback_tests SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} ${FFMPEG_INCLUDE_DIRS} third/spdlog/include)
-    target_link_directories(playback_tests PRIVATE ${FFMPEG_LIBRARY_DIRS})
-    target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql SDL2::SDL2 Boost::boost ${FFMPEG_LIBRARIES})
+    target_include_directories(playback_tests SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} third/spdlog/include)
+    target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql SDL2::SDL2 Boost::boost FFmpeg)
     target_compile_definitions(playback_tests PRIVATE FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}")
     target_compile_options(playback_tests PRIVATE ${HARDENING_FLAGS_COMMON} ${SANITIZER_COMPILE_FLAGS})
     target_link_options(playback_tests PRIVATE ${SANITIZER_LINK_FLAGS})
