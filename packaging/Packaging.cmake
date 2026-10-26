@@ -53,7 +53,7 @@ else()
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     # 插件通过 Qt 动态加载，不能由 ELF 的 NEEDED 自动推导。
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "qt6-qpa-plugins, libqt6sql6-sqlite, libqt6svg6")
-    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS qt6-wayland)
+    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "qt6-wayland, fonts-noto-cjk | fonts-wqy-zenhei")
     set(notice_dir "${CMAKE_INSTALL_DATADIR}/doc/musicplayer")
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/packaging/THIRD_PARTY_NOTICES.md" copyright_text)
     foreach(license IN ITEMS third/spdlog/LICENSE packaging/licenses/fmt-LICENSE.txt
