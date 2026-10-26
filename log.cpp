@@ -7,12 +7,12 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
-static void init_default_log(const std::string& filename);
+static void init_default_log(const spdlog::filename_t& filename);
 static void set_log_level();
 static uint32_t get_log_file_size();
 static uint32_t get_log_file_count();
 
-void init_log(const std::string& filename)
+void init_log(const spdlog::filename_t& filename)
 {
     init_default_log(filename);
 
@@ -44,7 +44,7 @@ void shutdown_log()
     spdlog::shutdown();
 }
 
-static void init_default_log(const std::string& filename)
+static void init_default_log(const spdlog::filename_t& filename)
 {
     uint32_t file_size = get_log_file_size();
     uint32_t file_count = get_log_file_count();

@@ -1,17 +1,22 @@
 #include <QApplication>
 #include <QFile>
 #include <QIcon>
+#include <QStandardPaths>
 #include "log.h"
 #include "scoped_exit.h"
 #include "playlist_window.h"
 
 int main(int argc, char* argv[])
 {
-    std::string app_name(argv[0]);
-    init_log(app_name + ".log");
-    DEFER(shutdown_log());
-
     QApplication app(argc, argv);
+
+    const QString log_path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/MusicPlayer.log";
+#ifdef Q_OS_WIN
+    init_log(log_path.toStdWString());
+#else
+    init_log(QFile::encodeName(log_path).toStdString());
+#endif
+    DEFER(shutdown_log());
 
     QFile style_file(":/style/stylesheet.qss");
     if (style_file.open(QFile::ReadOnly))

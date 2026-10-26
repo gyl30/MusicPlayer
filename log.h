@@ -6,7 +6,7 @@
 #include <string>
 #include <spdlog/spdlog.h>
 
-void init_log(const std::string& filename);
+void init_log(const spdlog::filename_t& filename);
 void set_level(const std::string& level);
 void shutdown_log();
 

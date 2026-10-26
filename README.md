@@ -96,5 +96,13 @@ cpack --config build-macos/CPackConfig.cmake -G DragNDrop -B dist
 X11、原生 Wayland、Windows 和 macOS 分别记录实际结果。
 Windows 还需测试带空格与非 ASCII 字符的安装路径；macOS 需单独记录签名、公证状态。
 
+Linux 安装后，可用标准 Python 启动回归验证只读安装目录和用户目录写入：
+
+```sh
+python3 tests/check_installed_startup.py /usr/bin/MusicPlayer
+```
+
+该项只验证启动和文件位置，以普通用户运行；播放和正常退出仍需上述交互验收。
+
 没有目标平台的项目保留为待执行项。原有播放链路验收见
 [独立验收记录](docs/review-2026-10-26-acceptance.md)。
