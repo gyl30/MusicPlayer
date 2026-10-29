@@ -1,0 +1,17 @@
+{"event":"platform","logical_dpi":96,"plugin":"xcb","tray_available":false}
+[2026-10-29 22:10:51.826] [warning] [playlist_manager.cpp:52] 未找到播放列表，将创建一个默认列表
+{"buttons_outside":[],"dpr":2,"event":"empty","height":540,"min_width":328,"width":360}
+{"buttons_outside":[],"dpr":2,"event":"normal","height":540,"min_width":328,"width":360}
+{"buttons_outside":[],"dpr":2,"event":"short-title","height":540,"min_width":328,"width":360}
+{"buttons_outside":[],"dpr":2,"event":"playing","height":540,"min_width":328,"width":360}
+{"buttons_outside":[],"dpr":2,"event":"error","height":540,"min_width":328,"width":360}
+{"buttons_outside":[],"dpr":2,"event":"narrow","height":400,"min_width":328,"width":340}
+{"buttons_outside":[],"dpr":2,"event":"wide","height":650,"min_width":328,"width":500}
+{"buttons_outside":[],"dpr":2,"event":"management","height":540,"min_width":328,"width":800}
+{"buttons_outside":[],"dpr":2,"event":"management-small","height":460,"min_width":328,"width":720}
+{"event":"minimized","minimized":true}
+{"accepted":true,"event":"close","tray_available":false,"tray_requested_visible":true,"window_visible":false}
+{"event":"tray_hide","visible":false}
+{"event":"tray_show","visible":true}
+{"event":"before_save","position":3581,"volume":40}
+{"event":"saved","mode":2,"position":3581,"volume":40}

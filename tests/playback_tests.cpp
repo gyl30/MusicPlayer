@@ -10,6 +10,10 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QSystemTrayIcon>
+#include <QPushButton>
+#include <QSlider>
+#include "volumemeter.h"
+#include "lyrics_widget.h"
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
@@ -85,6 +89,96 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temp_.path());
         tone_ = temp_.filePath("tone.wav");
         encode({"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=12", tone_});
+    }
+
+    void management_cancel()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const auto id = manager->get_all_playlists().first().id;
+        QVERIFY(manager->add_songs_to_playlist(id, {tone_}));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
+        const auto before = database_snapshot();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        auto* page = window.findChild<music_management_dialog*>();
+        auto* remove = page->findChild<QPushButton*>("removeButton");
+        QVERIFY(remove != nullptr);
+        QVERIFY(!remove->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(page, "on_source_select_all_clicked"));
+        QVERIFY(remove->isEnabled());
+        remove->click();
+        QVERIFY(page->has_pending_changes());
+        auto* cancel = page->findChild<QPushButton*>("cancelChangesButton");
+        QVERIFY(cancel != nullptr);
+        cancel->click();
+        QVERIFY(!page->has_pending_changes());
+        QCOMPARE(database_snapshot(), before);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QVERIFY(!page->has_pending_changes());
+    }
+
+    void ui_controls()
+    {
+        const auto old_style = qApp->styleSheet();
+        DEFER(qApp->setStyleSheet(old_style));
+        QFile style(":/style/stylesheet.qss");
+        QVERIFY(style.open(QFile::ReadOnly));
+        qApp->setStyleSheet(QString::fromUtf8(style.readAll()));
+        playlist_window window;
+        window.show();
+        window.resize(340, 400);
+        QTest::qWait(50);
+        auto* play = window.findChild<QPushButton*>("playPauseButton");
+        QVERIFY(play != nullptr);
+        QVERIFY(play->width() >= 40 && play->height() >= 40);
+        for (auto* button : window.findChildren<QPushButton*>())
+        {
+            if (button->isVisible())
+                QVERIFY(window.rect().contains(QRect(button->mapTo(&window, QPoint()), button->size())));
+        }
+        auto* volume = window.findChild<volume_meter*>();
+        QVERIFY(volume != nullptr);
+        const QRect volume_rect(volume->mapTo(&window, QPoint()), volume->size());
+        const QRect play_rect(play->mapTo(&window, QPoint()), play->size());
+        QVERIFY(volume_rect.top() > play_rect.bottom());
+        QVERIFY(window.rect().contains(volume_rect));
+        volume->setValue(50);
+        QSignalSpy volume_changed(volume, &volume_meter::value_changed);
+        QTest::keyClick(volume, Qt::Key_Right);
+        QCOMPARE(volume->value(), 55);
+        QCOMPARE(volume_changed.count(), 1);
+        QTest::keyClick(volume, Qt::Key_End);
+        QCOMPARE(volume->value(), 100);
+        QTest::keyClick(volume, Qt::Key_Home);
+        QCOMPARE(volume->value(), 0);
+        auto* lyrics = window.findChild<lyrics_widget*>();
+        QVERIFY(lyrics != nullptr);
+        lyrics->set_lyrics({{0, "第一行中文歌词"}, {1000, "第二行中文歌词"}});
+        lyrics->show();
+        window.resize(340, 400);
+        QTest::qWait(50);
+        QVERIFY(volume->mapTo(&window, QPoint(0, volume->height())).y()
+                <= lyrics->mapTo(&window, QPoint()).y());
+        auto* mode = window.findChild<QPushButton*>("modeButton");
+        auto* player = window.findChild<player_window*>();
+        player->set_playback_mode(playback_mode::ListLoop);
+        QSignalSpy changed(player, &player_window::playback_mode_changed);
+        for (int i = 0; i < 4; ++i) QTest::mouseClick(mode, Qt::LeftButton);
+        QCOMPARE(changed.count(), 4);
+        QCOMPARE(mode->toolTip(), QString("列表循环"));
+        auto* manage = window.findChild<QPushButton*>("manageButton");
+        QVERIFY(manage != nullptr);
+        QTest::mouseClick(manage, Qt::LeftButton);
+        QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
+        auto* add = window.findChild<QPushButton*>("addMusicButton");
+        QVERIFY(add != nullptr);
+        QVERIFY(!add->isVisible());
+        QVERIFY(!manage->isVisible());
+        auto* cancel = window.findChild<QPushButton*>("cancelChangesButton");
+        QVERIFY(cancel != nullptr);
+        QTest::mouseClick(cancel, Qt::LeftButton);
+        QVERIFY(add->isVisible());
+        QVERIFY(manage->isVisible());
     }
 
     void unknown_duration()

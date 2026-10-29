@@ -24,6 +24,7 @@
 #include <QSize>
 #include <QSet>
 #include <QFontMetrics>
+#include <QSizeGrip>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -163,8 +164,8 @@ static void apply_playing_item_visual_state(QTreeWidgetItem* item)
         QFont font = item->font(column);
         font.setBold(true);
         item->setFont(column, font);
-        item->setForeground(column, QBrush(QColor("#3498DB")));
-        item->setBackground(column, QBrush(QColor("#A6E4FF")));
+        item->setForeground(column, QBrush(QColor("#176D58")));
+        item->setBackground(column, QBrush(QColor("#E2EEE7")));
     }
 }
 
@@ -233,7 +234,9 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     populate_playlists_on_startup();
     restore_playback_state();
     setWindowTitle("音乐播放器");
-    resize(298, 450);
+    centralWidget()->setMinimumWidth(340);
+    layout()->setSizeConstraint(QLayout::SetMinimumSize);
+    resize(360, 480);
 }
 
 playlist_window::~playlist_window()
@@ -294,25 +297,18 @@ void playlist_window::setup_ui()
 
     auto* title_bar = new QWidget(central_widget);
     title_bar->setObjectName("appTitleBar");
-    title_bar->setFixedHeight(22);
+    title_bar->setFixedHeight(36);
     title_bar->installEventFilter(this);
 
     auto* title_layout = new QHBoxLayout(title_bar);
-    title_layout->setContentsMargins(4, 0, 2, 0);
+    title_layout->setContentsMargins(12, 0, 6, 0);
     title_layout->setSpacing(3);
-
-    auto* icon_label = new QLabel(title_bar);
-    icon_label->setObjectName("appTitleIcon");
-    icon_label->setPixmap(QIcon(":/icons/app_icon.svg").pixmap(16, 16));
-    icon_label->setAttribute(Qt::WA_TransparentForMouseEvents);
-    title_layout->addWidget(icon_label);
 
     auto* title_label = new QLabel("音乐播放器", title_bar);
     title_label->setObjectName("appTitleText");
     title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(title_label);
     title_layout->addStretch();
-
     auto* minimize_button = new QPushButton("-", title_bar);
     minimize_button->setObjectName("windowMinButton");
     minimize_button->setFocusPolicy(Qt::NoFocus);
@@ -335,7 +331,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     song_tree_widget_->setColumnWidth(1, 40);
-    song_tree_widget_->setIndentation(0);
+    song_tree_widget_->setIndentation(16);
     song_tree_widget_->setIconSize(QSize(14, 14));
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -346,19 +342,50 @@ void playlist_window::setup_ui()
 
     auto* playback_page = new QWidget(this);
     auto* playback_layout = new QVBoxLayout(playback_page);
-    playback_layout->setContentsMargins(0, 0, 0, 0);
-    playback_layout->setSpacing(4);
+    playback_layout->setContentsMargins(10, 8, 10, 10);
+    playback_layout->setSpacing(10);
     playback_layout->addWidget(player_window_);
     lyrics_view_ = new lyrics_widget(playback_page);
     lyrics_view_->setObjectName("lyricsView");
     lyrics_view_->setFixedHeight(84);
     lyrics_view_->hide();
     playback_layout->addWidget(lyrics_view_);
+    auto* library_layout = new QHBoxLayout();
+    library_layout->setSpacing(6);
+    library_layout->addStretch();
+    auto* add_button = new QPushButton("添加音乐", playback_page);
+    add_button->setObjectName("addMusicButton");
+    add_button->setToolTip("添加到当前选中的歌单；未选择时添加到第一个歌单");
+    connect(add_button, &QPushButton::clicked, this, [this]
+    {
+        auto* item = song_tree_widget_->currentItem();
+        if (item == nullptr) item = song_tree_widget_->topLevelItem(0);
+        if (item == nullptr)
+        {
+            on_create_playlist_action();
+            return;
+        }
+        context_menu_item_ = item->parent() != nullptr ? item->parent() : item;
+        on_add_songs_action();
+    });
+    library_layout->addWidget(add_button);
+    auto* manage_button = new QPushButton("管理歌单", playback_page);
+    manage_button->setObjectName("manageButton");
+    manage_button->setToolTip("管理歌单（Ctrl+M）");
+    connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
+    library_layout->addWidget(manage_button);
+
+    playback_layout->addLayout(library_layout);
     playback_layout->addWidget(song_tree_widget_, 1);
+    auto* resize_layout = new QHBoxLayout();
+    resize_layout->addStretch();
+    resize_layout->addWidget(new QSizeGrip(playback_page));
+    playback_layout->addLayout(resize_layout);
 
     main_stack_ = new QStackedWidget(this);
     main_stack_->addWidget(playback_page);
     main_stack_->addWidget(management_page_);
+    management_page_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
 
     main_layout->addWidget(main_stack_, 1);
 
@@ -478,6 +505,10 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::play_requested, this, &playlist_window::on_play_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
 
+    connect(management_page_, &music_management_dialog::changes_discarded, this, [this]
+    {
+        switch_to_page(kPlaybackPageIndex);
+    });
     connect(management_page_,
             &music_management_dialog::changes_applied,
             this,
@@ -496,7 +527,8 @@ void playlist_window::switch_to_page(int page_index)
     }
 
     main_stack_->setCurrentIndex(page_index);
-    resize(page_index == kPlaybackPageIndex ? QSize(298, 450) : QSize(760, 450));
+    centralWidget()->setMinimumWidth(page_index == kPlaybackPageIndex ? 340 : 720);
+    resize(page_index == kPlaybackPageIndex ? QSize(360, 480) : QSize(800, 480));
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)

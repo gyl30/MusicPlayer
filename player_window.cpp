@@ -19,7 +19,6 @@
 #include "player_window.h"
 #include "playlist_window.h"
 #include "spectrum_widget.h"
-#include "digital_time_label.h"
 #include "scrolling_text_label.h"
 #include "playback_controller.h"
 
@@ -29,7 +28,6 @@ player_window::player_window(playback_controller* controller, playlist_window* m
     setup_ui();
     setup_connections();
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    setMinimumHeight(96);
 }
 
 player_window::~player_window() = default;
@@ -131,7 +129,7 @@ void player_window::setup_ui()
     spectrum_widget_ = new spectrum_widget(main_container_);
     spectrum_widget_->setObjectName("spectrumBackground");
     spectrum_widget_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    spectrum_widget_->setBarColor(QColor(169, 255, 76, 230));
+    spectrum_widget_->setBarColor(QColor(23, 109, 88, 100));
 
     auto* root_layout = new QVBoxLayout(this);
     root_layout->setContentsMargins(0, 0, 0, 0);
@@ -139,7 +137,7 @@ void player_window::setup_ui()
     root_layout->addWidget(main_container_);
 
     auto* panel_layout = new QHBoxLayout(main_container_);
-    panel_layout->setContentsMargins(8, 8, 8, 6);
+    panel_layout->setContentsMargins(14, 14, 14, 36);
     panel_layout->setSpacing(8);
 
     cover_art_label_ = new QLabel(main_container_);
@@ -167,7 +165,7 @@ void player_window::setup_ui()
     track_title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     title_layout->addWidget(track_title_label_, 1);
 
-    time_label_ = new digital_time_label(this);
+    time_label_ = new QLabel("00:00", this);
     time_label_->setObjectName("timeLabel");
     time_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     time_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
@@ -180,7 +178,7 @@ void player_window::setup_ui()
     progress_slider_->setObjectName("progressSlider");
     progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
-    progress_slider_->setFixedHeight(14);
+    progress_slider_->setFixedHeight(24);
     progress_slider_->installEventFilter(this);
 
     auto* progress_layout = new QHBoxLayout();
@@ -201,13 +199,19 @@ void player_window::setup_ui()
     play_pause_button_->setToolTip("播放/暂停");
     next_button_->setToolTip("下一首");
     shuffle_button_->setToolTip("列表循环");
+    for (auto* button : {stop_button_, prev_button_, play_pause_button_, next_button_, shuffle_button_})
+    {
+        button->setAccessibleName(button->toolTip());
+    }
+    progress_slider_->setAccessibleName("播放进度");
 
     auto* controls_container = new QWidget();
     controls_container->setObjectName("controlsContainer");
     auto* controls_layout = new QHBoxLayout(controls_container);
     controls_layout->setContentsMargins(0, 0, 0, 0);
-    controls_layout->setSpacing(4);
+    controls_layout->setSpacing(6);
 
+    controls_layout->addStretch();
     controls_layout->addWidget(shuffle_button_);
     controls_layout->addWidget(prev_button_);
     controls_layout->addWidget(play_pause_button_);
@@ -221,18 +225,24 @@ void player_window::setup_ui()
     QSettings settings("MusicPlayer", "MusicPlayer");
     const int saved_volume = qBound(0, settings.value("playback/volume", 80).toInt(), 100);
     volume_meter_->setValue(saved_volume);
-    volume_meter_->setFixedSize(68, 10);
+    volume_meter_->setFixedSize(64, 24);
     volume_meter_->setOrientation(Qt::Horizontal);
-    volume_meter_->setToolTip("音量");
+    volume_meter_->setToolTip("音量：方向键或滚轮调整，Home 静音，End 最大");
+    volume_meter_->setAccessibleName("音量");
 
     auto* volume_label = new QLabel("音量", this);
     volume_label->setObjectName("volumeLabel");
-    controls_layout->addWidget(volume_label);
-    controls_layout->addWidget(volume_meter_);
+    auto* volume_layout = new QHBoxLayout();
+    volume_layout->setContentsMargins(0, 0, 0, 0);
+    volume_layout->setSpacing(8);
+    volume_layout->addStretch();
+    volume_layout->addWidget(volume_label);
+    volume_layout->addWidget(volume_meter_);
 
     left_panel_layout_->addLayout(title_layout);
     left_panel_layout_->addLayout(progress_layout);
     root_layout->addWidget(controls_container);
+    root_layout->addLayout(volume_layout);
 
     update_spectrum_background_geometry();
 }
@@ -566,7 +576,7 @@ void player_window::update_spectrum_background_geometry()
         return;
     }
 
-    spectrum_widget_->setGeometry(main_container_->rect().adjusted(1, 1, -1, -1));
+    spectrum_widget_->setGeometry(14, main_container_->height() - 28, main_container_->width() - 28, 20);
     spectrum_widget_->lower();
 }
 

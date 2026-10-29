@@ -1,13 +1,14 @@
 #include <QColor>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QStylePainter>
-#include <QStyleOptionProgressBar>
 
 #include "volumemeter.h"
 
 volume_meter::volume_meter(QWidget* parent) : QProgressBar(parent), bar_color_(Qt::blue)
 {
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
     setAutoFillBackground(false);
 }
 
@@ -24,34 +25,24 @@ void volume_meter::mouseMoveEvent(QMouseEvent* event)
 void volume_meter::paintEvent(QPaintEvent* /*event*/)
 {
     QStylePainter painter(this);
-    QStyleOptionProgressBar option;
-    initStyleOption(&option);
-
-    painter.setPen(QColor("#53B6D4"));
-    painter.setBrush(QColor("#0F75A8"));
-    painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 2, 2);
-
-    const int numBlocks = 10;
-    const int litBlocks = static_cast<int>((static_cast<double>(value()) / maximum()) * numBlocks);
-
-    if (orientation() == Qt::Horizontal)
+    painter.setRenderHint(QPainter::Antialiasing);
+    const bool horizontal = orientation() == Qt::Horizontal;
+    QRectF track = horizontal ? QRectF(1, height() / 2.0 - 2, width() - 2, 4)
+                              : QRectF(width() / 2.0 - 2, 1, 4, height() - 2);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#DCE3DE"));
+    painter.drawRoundedRect(track, 2, 2);
+    const double fraction = maximum() > minimum()
+                                ? qBound(0.0, double(value() - minimum()) / (maximum() - minimum()), 1.0) : 0.0;
+    if (horizontal) track.setWidth(track.width() * fraction);
+    else track.setTop(track.bottom() - track.height() * fraction);
+    painter.setBrush(bar_color_);
+    painter.drawRoundedRect(track, 2, 2);
+    if (hasFocus())
     {
-        const double blockWidth = static_cast<double>(width()) / numBlocks;
-        for (int i = 0; i < litBlocks; ++i)
-        {
-            const QRectF blockRect(i * blockWidth, 0, blockWidth, height());
-            painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
-        }
-    }
-    else
-    {
-        const double blockHeight = static_cast<double>(height()) / numBlocks;
-        for (int i = 0; i < litBlocks; ++i)
-        {
-            const double y = height() - ((i + 1) * blockHeight);
-            const QRectF blockRect(0, y, width(), blockHeight);
-            painter.fillRect(blockRect.adjusted(1, 1, -1, -1), bar_color_);
-        }
+        painter.setPen(bar_color_);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 3, 3);
     }
 }
 
@@ -78,6 +69,28 @@ void volume_meter::wheelEvent(QWheelEvent* event)
         emit value_changed(newValue);
     }
 
+    event->accept();
+}
+
+void volume_meter::keyPressEvent(QKeyEvent* event)
+{
+    int target = value();
+    switch (event->key())
+    {
+        case Qt::Key_Right:
+        case Qt::Key_Up: target += 5; break;
+        case Qt::Key_Left:
+        case Qt::Key_Down: target -= 5; break;
+        case Qt::Key_Home: target = minimum(); break;
+        case Qt::Key_End: target = maximum(); break;
+        default: QProgressBar::keyPressEvent(event); return;
+    }
+    target = qBound(minimum(), target, maximum());
+    if (target != value())
+    {
+        setValue(target);
+        emit value_changed(target);
+    }
     event->accept();
 }
 

@@ -1,0 +1,34 @@
+{
+  "before": {
+    "idle": {
+      "cpu_one_core_percent": 0.4,
+      "rss_peak_mib": 132.05,
+      "seconds": 5
+    },
+    "playing": {
+      "cpu_one_core_percent": 2.8,
+      "rss_peak_mib": 138.49,
+      "seconds": 5
+    },
+    "geometry": [
+      386,
+      450
+    ]
+  },
+  "after": {
+    "idle": {
+      "cpu_one_core_percent": 0.2,
+      "rss_peak_mib": 125.48,
+      "seconds": 5
+    },
+    "playing": {
+      "cpu_one_core_percent": 2.0,
+      "rss_peak_mib": 132.41,
+      "seconds": 5
+    },
+    "geometry": [
+      360,
+      540
+    ]
+  }
+}

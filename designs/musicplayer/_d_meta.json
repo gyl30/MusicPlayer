@@ -1,0 +1,42 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "index": {
+      "versions": [
+        {
+          "path": "index.html",
+          "createdAt": "2026-10-29T09:30:26.597Z",
+          "status": "needs-review"
+        },
+        {
+          "path": "index-v1.html",
+          "createdAt": "2026-10-29T14:25:48.406Z",
+          "status": "needs-review"
+        },
+        {
+          "path": "index-v2.html",
+          "createdAt": "2026-10-29T14:35:26.104Z",
+          "status": "needs-review"
+        }
+      ]
+    },
+    "comparison": {
+      "versions": [
+        {
+          "path": "comparison.html",
+          "createdAt": "2026-10-29T14:15:13.868Z",
+          "status": "needs-review"
+        },
+        {
+          "path": "comparison-v2.html",
+          "createdAt": "2026-10-29T14:44:07.821Z",
+          "status": "needs-review"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-10-29T09:30:26.597Z",
+  "updatedAt": "2026-10-29T14:44:07.851Z"
+}

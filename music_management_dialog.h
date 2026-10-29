@@ -23,6 +23,7 @@ class music_management_dialog : public QWidget
 
    signals:
     void changes_applied();
+    void changes_discarded();
 
    private slots:
     void on_source_playlist_selected();

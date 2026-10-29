@@ -1,0 +1,26 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-build
+Test project /tmp/musicplayer-round2-build
+    Start 29: management_cancel
+1/2 Test #29: management_cancel ................***Failed    0.22 sec
+********* Start testing of playback_tests *********
+Config: Using QtTest library 6.2.4, Qt 6.2.4 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 11.3.0), ubuntu 22.04
+PASS   : playback_tests::initTestCase()
+QWARN  : playback_tests::management_cancel() QSystemTrayIcon::setVisible: No Icon set
+QWARN  : playback_tests::management_cancel() qt.core.qobject.connect: QObject::connect: No such signal QPlatformNativeInterface::systemTrayWindowChanged(QScreen*)
+[2026-10-29 17:34:00.072] [warning] [playlist_manager.cpp:52] 未找到播放列表，将创建一个默认列表
+FAIL!  : playback_tests::management_cancel() 'cancel != nullptr' returned FALSE. ()
+   Loc: [/home/gyl/example/MusicPlayer/tests/playback_tests.cpp(106)]
+PASS   : playback_tests::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 197ms
+********* Finished testing of playback_tests *********
+
+    Start 30: ui_controls
+2/2 Test #30: ui_controls ......................   Passed    0.20 sec
+
+50% tests passed, 1 tests failed out of 2
+
+Total Test time (real) =   0.43 sec
+
+The following tests FAILED:
+	 29 - management_cancel (Failed)
+Errors while running CTest

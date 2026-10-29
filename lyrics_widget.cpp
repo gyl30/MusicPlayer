@@ -19,8 +19,8 @@ lyrics_widget::lyrics_widget(QWidget* parent) : QWidget(parent)
     font_active_.setPointSize(14);
     font_active_.setBold(true);
 
-    color_normal_ = QColor(128, 128, 128, 180);
-    color_active_ = QColor(52, 152, 219, 255);
+    color_normal_ = QColor("#65746E");
+    color_active_ = QColor("#176D58");
 
     animation_timer_ = new QTimer(this);
     animation_timer_->setInterval(kAnimationFrameInterval);
@@ -152,6 +152,7 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
+    painter.setClipRect(rect());
 
     if (lyrics_.isEmpty())
     {
@@ -166,7 +167,6 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
         update_layout();
     }
 
-    int center_y = height() / 2;
     int width_padding = 20;
 
     painter.translate(width_padding, current_scroll_y_);
@@ -183,9 +183,6 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
 
         bool is_active = (i == current_index_);
 
-        double dist_from_center = std::abs((screen_y + line_rect.height() / 2.0) - center_y);
-        int alpha = 255;
-
         if (is_active)
         {
             painter.setFont(font_active_);
@@ -195,12 +192,7 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
         {
             painter.setFont(font_normal_);
 
-            double alpha_ratio = 1.0 - std::min(dist_from_center / (height() / 2.0), 1.0);
-            alpha = static_cast<int>(100 + (155 * alpha_ratio * 0.5));
-
-            QColor c = color_normal_;
-            c.setAlpha(alpha);
-            painter.setPen(c);
+            painter.setPen(color_normal_);
         }
 
         painter.drawText(line_rect, Qt::TextWordWrap | Qt::AlignCenter, lyrics_[i].text);

@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-build
+Test project /tmp/musicplayer-round2-build
+    Start 30: ui_controls
+1/1 Test #30: ui_controls ......................   Passed    0.33 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.33 sec

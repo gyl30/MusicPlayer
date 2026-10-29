@@ -1,0 +1,26 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-build
+Test project /tmp/musicplayer-round2-build
+    Start 30: ui_controls
+1/1 Test #30: ui_controls ......................***Failed    0.27 sec
+********* Start testing of playback_tests *********
+Config: Using QtTest library 6.2.4, Qt 6.2.4 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 11.3.0), ubuntu 22.04
+PASS   : playback_tests::initTestCase()
+QWARN  : playback_tests::ui_controls() QSystemTrayIcon::setVisible: No Icon set
+QWARN  : playback_tests::ui_controls() qt.core.qobject.connect: QObject::connect: No such signal QPlatformNativeInterface::systemTrayWindowChanged(QScreen*)
+[2026-10-29 22:08:02.567] [warning] [playlist_manager.cpp:52] 未找到播放列表，将创建一个默认列表
+FAIL!  : playback_tests::ui_controls() Compared values are not the same
+   Actual   (volume->value()): 50
+   Expected (55)             : 55
+   Loc: [/home/gyl/example/MusicPlayer/tests/playback_tests.cpp(143)]
+PASS   : playback_tests::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 250ms
+********* Finished testing of playback_tests *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Total Test time (real) =   0.27 sec
+
+The following tests FAILED:
+	 30 - ui_controls (Failed)
+Errors while running CTest
