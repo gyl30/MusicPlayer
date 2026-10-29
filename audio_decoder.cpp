@@ -1,9 +1,40 @@
 #include <QMetaObject>
+#include <QByteArray>
+#include <QStringDecoder>
 
 #include "log.h"
 #include "scoped_exit.h"
 #include "audio_decoder.h"
 #include "lyrics_parser.h"
+
+static QString decode_metadata_value(const char* value)
+{
+    if (!value) return {};
+
+    QByteArray data(value);
+
+    // Try UTF-8 first (modern files)
+    {
+        auto dec = QStringDecoder(QStringDecoder::Utf8);
+        QString result = dec(data);
+        if (!dec.hasError())
+            return result;
+    }
+
+    // Try GBK (common for Chinese ID3v2 tags in older MP3 files)
+    {
+        auto dec = QStringDecoder("GBK");
+        if (dec.isValid())
+        {
+            QString result = dec(data);
+            if (!dec.hasError())
+                return result;
+        }
+    }
+
+    // Fall back to Latin-1 (never fails)
+    return QString::fromLatin1(value);
+}
 
 static std::string ffmpeg_error_string(int error_code)
 {
@@ -474,8 +505,8 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
         tag = nullptr;
         while ((tag = av_dict_get(dict, "", tag, AV_DICT_IGNORE_SUFFIX)) != nullptr)
         {
-            QString key = QString::fromUtf8(tag->key);
-            QString value = QString::fromUtf8(tag->value);
+            QString key = decode_metadata_value(tag->key);
+            QString value = decode_metadata_value(tag->value);
             metadata_map.insert(key, value);
         }
     };
