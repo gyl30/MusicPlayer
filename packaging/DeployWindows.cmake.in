@@ -4,7 +4,7 @@ if(CMAKE_INSTALL_CONFIG_NAME STREQUAL "Debug")
 else()
     set(qt_config --release)
 endif()
-execute_process(COMMAND "@WINDEPLOYQT_EXECUTABLE@" ${qt_config} --compiler-runtime "${deploy_dir}/MusicPlayer.exe"
+execute_process(COMMAND "@WINDEPLOYQT_EXECUTABLE@" ${qt_config} --compiler-runtime --include-plugins qsqlite "${deploy_dir}/MusicPlayer.exe"
                 RESULT_VARIABLE result)
 if(NOT result EQUAL 0)
     message(FATAL_ERROR "windeployqt 失败：${result}")

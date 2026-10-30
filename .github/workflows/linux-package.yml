@@ -50,3 +50,10 @@ jobs:
           fi
           python3 tests/check_installed_startup.py /usr/bin/MusicPlayer
           sudo apt-get remove -y musicplayer
+      - name: 上传 Linux 安装包
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: musicplayer-linux-deb
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 14

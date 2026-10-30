@@ -29,7 +29,7 @@ jobs:
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg is not installed on this runner' }
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed: $LASTEXITCODE" }
-          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
+          "$PWD/vcpkg_installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
       - name: 安装 NSIS
         shell: pwsh
         run: |
@@ -46,9 +46,11 @@ jobs:
         shell: pwsh
         run: |
           $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
-          $ffmpeg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed/x64-windows'
+          $installed = Join-Path $PWD 'vcpkg_installed'
+          $ffmpeg = Join-Path $installed 'x64-windows'
           cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DFFMPEG_ROOT="$ffmpeg" -DBUILD_TESTING=ON
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_INSTALLED_DIR="$installed" `
+            -DFFMPEG_ROOT="$ffmpeg" -DBUILD_TESTING=ON
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
           cmake --build build --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
@@ -62,3 +64,25 @@ jobs:
           $installer = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'NSIS installer was not generated' }
           Get-Item $installer.FullName | Format-List FullName, Length
+          $listing = & 7z.exe l -slt $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not inspect NSIS installer contents' }
+          $contents = $listing -join "`n"
+          $required = @(
+            '(?m)^Path = .*platforms[/\\]qwindows\.dll$',
+            '(?m)^Path = .*sqldrivers[/\\]qsqlite\.dll$',
+            '(?m)^Path = .*SDL2\.dll$',
+            '(?m)^Path = .*avformat-\d+\.dll$',
+            '(?m)^Path = .*avcodec-\d+\.dll$',
+            '(?m)^Path = .*avutil-\d+\.dll$',
+            '(?m)^Path = .*swresample-\d+\.dll$'
+          )
+          foreach ($pattern in $required) {
+            if ($contents -notmatch $pattern) { throw "NSIS installer is missing required runtime file: $pattern" }
+          }
+      - name: 上传 Windows 安装包
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: musicplayer-windows-x64-nsis
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 14
