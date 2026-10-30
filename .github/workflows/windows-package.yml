@@ -22,7 +22,7 @@ jobs:
         with:
           version: 6.9.3
           arch: win64_msvc2022_64
-          modules: qtmultimedia qtsvg
+          modules: qtmultimedia
       - name: 安装 SDL2、Boost 和 FFmpeg
         shell: pwsh
         run: |

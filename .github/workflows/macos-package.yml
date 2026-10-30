@@ -31,7 +31,7 @@ jobs:
         with:
           version: 6.9.3
           arch: clang_64
-          modules: qtmultimedia qtsvg
+          modules: qtmultimedia
       - name: 安装 SDL2、Boost 和 FFmpeg
         run: brew install sdl2 boost ffmpeg pkg-config
       - name: 检查原生 runner 架构
