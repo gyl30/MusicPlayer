@@ -14,9 +14,15 @@ database_manager::database_manager(QObject* parent) : QObject(parent) {}
 
 database_manager::~database_manager()
 {
+    const QString connection_name = db_.connectionName();
     if (db_.isOpen())
     {
         db_.close();
+    }
+    db_ = QSqlDatabase();
+    if (!connection_name.isEmpty())
+    {
+        QSqlDatabase::removeDatabase(connection_name);
     }
 }
 

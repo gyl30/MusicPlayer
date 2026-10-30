@@ -7,6 +7,8 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QDir>
+#include <QFileInfo>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QSystemTrayIcon>
@@ -23,6 +25,7 @@
 #include "audio_player.h"
 #include "playback_controller.h"
 #include "playlist_manager.h"
+#include "database_manager.h"
 #include "playlist_window.h"
 #include "music_management_dialog.h"
 #include "duration_scanner.h"
@@ -83,6 +86,20 @@ private:
     }
 
 private slots:
+    void init()
+    {
+        const QString test_scope = QStringLiteral("MusicPlayerTests-%1-%2-%3")
+            .arg(QFileInfo(temp_.path()).fileName(), QString::fromLatin1(QTest::currentTestFunction()),
+                 QString::fromLatin1(QTest::currentDataTag()));
+        QCoreApplication::setOrganizationName(QStringLiteral("MusicPlayerTests"));
+        QCoreApplication::setApplicationName(test_scope);
+    }
+
+    void cleanup()
+    {
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).removeRecursively();
+    }
+
     void initTestCase()
     {
         spdlog::set_level(spdlog::level::warn);
@@ -93,6 +110,17 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temp_.path());
         tone_ = temp_.filePath("tone.wav");
         encode({"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=12", tone_});
+    }
+
+    void database_connection_lifecycle()
+    {
+        QVERIFY(!QSqlDatabase::contains());
+        {
+            database_manager manager;
+            QVERIFY(manager.initialize());
+            QVERIFY(QSqlDatabase::contains());
+        }
+        QVERIFY(!QSqlDatabase::contains());
     }
 
     void management_cancel()
@@ -1129,6 +1157,8 @@ private slots:
             release = true;
         }
         QCoreApplication::processEvents();
+        database_manager verification;
+        QVERIFY(verification.initialize());
         QVERIFY(QSqlDatabase::database().isOpen());
         QSqlQuery query("SELECT COUNT(*) FROM PlaylistSongs");
         QVERIFY(query.next());

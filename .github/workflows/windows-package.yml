@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: |
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg is not installed on this runner' }
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install sdl2:x64-windows boost:x64-windows ffmpeg:x64-windows
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed: $LASTEXITCODE" }
           "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
       - name: 安装 NSIS
