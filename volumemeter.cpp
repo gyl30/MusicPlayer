@@ -30,7 +30,7 @@ void volume_meter::paintEvent(QPaintEvent* /*event*/)
     QRectF track = horizontal ? QRectF(1, height() / 2.0 - 2, width() - 2, 4)
                               : QRectF(width() / 2.0 - 2, 1, 4, height() - 2);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor("#DCE3DE"));
+    painter.setBrush(QColor("#D4DEEA"));
     painter.drawRoundedRect(track, 2, 2);
     const double fraction = maximum() > minimum()
                                 ? qBound(0.0, double(value() - minimum()) / (maximum() - minimum()), 1.0) : 0.0;

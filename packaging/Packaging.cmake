@@ -57,7 +57,7 @@ else()
     set(notice_dir "${CMAKE_INSTALL_DATADIR}/doc/musicplayer")
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/packaging/THIRD_PARTY_NOTICES.md" copyright_text)
     foreach(license IN ITEMS third/spdlog/LICENSE packaging/licenses/fmt-LICENSE.txt
-            packaging/licenses/boost-LICENSE.txt packaging/licenses/fftreal-LICENSE.txt)
+            packaging/licenses/boost-LICENSE.txt)
         file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${license}" license_text)
         string(APPEND copyright_text "\n\n--- ${license} ---\n${license_text}")
     endforeach()
@@ -70,7 +70,6 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third/spdlog/LICENSE" DESTINATION "${
 install(FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/licenses/fmt-LICENSE.txt"
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/licenses/boost-LICENSE.txt"
-    "${CMAKE_CURRENT_SOURCE_DIR}/packaging/licenses/fftreal-LICENSE.txt"
     DESTINATION "${notice_dir}"
 )
 if(WIN32)

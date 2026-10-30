@@ -25,6 +25,7 @@
 #include <QSet>
 #include <QFontMetrics>
 #include <QSizeGrip>
+#include <QTabBar>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -146,9 +147,9 @@ static void update_duration_column_width(QTreeWidget* tree)
         }
     }
 
-    int column_width = text_width + 8;
-    column_width = qMax(column_width, 40);
-    column_width = qMin(column_width, 64);
+    int column_width = text_width + 24;
+    column_width = qMax(column_width, 64);
+    column_width = qMin(column_width, 88);
     tree->setColumnWidth(1, column_width);
 }
 
@@ -164,8 +165,8 @@ static void apply_playing_item_visual_state(QTreeWidgetItem* item)
         QFont font = item->font(column);
         font.setBold(true);
         item->setFont(column, font);
-        item->setForeground(column, QBrush(QColor("#176D58")));
-        item->setBackground(column, QBrush(QColor("#E2EEE7")));
+        item->setForeground(column, QBrush(QColor("#1478E8")));
+        item->setBackground(column, QBrush(QColor("#E4F0FF")));
     }
 }
 
@@ -304,7 +305,7 @@ void playlist_window::setup_ui()
     title_layout->setContentsMargins(12, 0, 6, 0);
     title_layout->setSpacing(3);
 
-    auto* title_label = new QLabel("音乐播放器", title_bar);
+    auto* title_label = new QLabel("MusicPlayer", title_bar);
     title_label->setObjectName("appTitleText");
     title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(title_label);
@@ -328,6 +329,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->setObjectName("songTreeWidget");
     song_tree_widget_->setColumnCount(2);
     song_tree_widget_->header()->hide();
+    song_tree_widget_->header()->setStretchLastSection(false);
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     song_tree_widget_->setColumnWidth(1, 40);
@@ -345,15 +347,28 @@ void playlist_window::setup_ui()
     playback_layout->setContentsMargins(10, 8, 10, 10);
     playback_layout->setSpacing(10);
     playback_layout->addWidget(player_window_);
-    lyrics_view_ = new lyrics_widget(playback_page);
+    auto* views = new QStackedWidget(playback_page);
+    views->setObjectName("libraryViews");
+    views->addWidget(song_tree_widget_);
+    lyrics_view_ = new lyrics_widget(views);
     lyrics_view_->setObjectName("lyricsView");
-    lyrics_view_->setFixedHeight(84);
-    lyrics_view_->hide();
-    playback_layout->addWidget(lyrics_view_);
+    views->addWidget(lyrics_view_);
     auto* library_layout = new QHBoxLayout();
     library_layout->setSpacing(6);
+    auto* tabs = new QTabBar(playback_page);
+    tabs->setObjectName("libraryTabs");
+    tabs->addTab("播放列表");
+    tabs->addTab("歌词");
+    tabs->setExpanding(false);
+    tabs->setDrawBase(false);
+    connect(tabs, &QTabBar::currentChanged, views, &QStackedWidget::setCurrentIndex);
+    connect(tabs, &QTabBar::currentChanged, this, [this](int index)
+    {
+        if (index == 1) lyrics_view_->set_current_time(current_progress_ms_);
+    });
+    library_layout->addWidget(tabs);
     library_layout->addStretch();
-    auto* add_button = new QPushButton("添加音乐", playback_page);
+    auto* add_button = new QPushButton("＋ 添加", playback_page);
     add_button->setObjectName("addMusicButton");
     add_button->setToolTip("添加到当前选中的歌单；未选择时添加到第一个歌单");
     connect(add_button, &QPushButton::clicked, this, [this]
@@ -369,14 +384,14 @@ void playlist_window::setup_ui()
         on_add_songs_action();
     });
     library_layout->addWidget(add_button);
-    auto* manage_button = new QPushButton("管理歌单", playback_page);
+    auto* manage_button = new QPushButton("管理", playback_page);
     manage_button->setObjectName("manageButton");
     manage_button->setToolTip("管理歌单（Ctrl+M）");
     connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
     library_layout->addWidget(manage_button);
 
     playback_layout->addLayout(library_layout);
-    playback_layout->addWidget(song_tree_widget_, 1);
+    playback_layout->addWidget(views, 1);
     auto* resize_layout = new QHBoxLayout();
     resize_layout->addStretch();
     resize_layout->addWidget(new QSizeGrip(playback_page));
@@ -496,7 +511,7 @@ void playlist_window::setup_connections()
                 }
 
                 lyrics_view_->set_lyrics(lyrics);
-                lyrics_view_->setVisible(!lyrics.isEmpty());
+
             });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
@@ -567,7 +582,6 @@ void playlist_window::on_stop_requested()
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
-        lyrics_view_->hide();
     }
 }
 
@@ -622,7 +636,6 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
-        lyrics_view_->hide();
     }
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)

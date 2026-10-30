@@ -1,0 +1,74 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-build
+Test project /tmp/musicplayer-round2-build
+      Start  1: unknown_duration
+ 1/34 Test  #1: unknown_duration .................   Passed    0.35 sec
+      Start  2: latest_seek
+ 2/34 Test  #2: latest_seek ......................   Passed    0.43 sec
+      Start  3: paused_seek
+ 3/34 Test  #3: paused_seek ......................   Passed    0.80 sec
+      Start  4: exit_while_decoding
+ 4/34 Test  #4: exit_while_decoding ..............   Passed    0.32 sec
+      Start  5: rapid_switch
+ 5/34 Test  #5: rapid_switch .....................   Passed    0.43 sec
+      Start  6: formats
+ 6/34 Test  #6: formats ..........................   Passed    2.44 sec
+      Start  7: invalid_files
+ 7/34 Test  #7: invalid_files ....................   Passed    0.39 sec
+      Start  8: startup_seek
+ 8/34 Test  #8: startup_seek .....................   Passed    0.54 sec
+      Start  9: callback_ownership
+ 9/34 Test  #9: callback_ownership ...............   Passed    0.27 sec
+      Start 10: stale_errors
+10/34 Test #10: stale_errors .....................   Passed    0.33 sec
+      Start 11: short_packets
+11/34 Test #11: short_packets ....................   Passed    0.74 sec
+      Start 12: shuffle_history
+12/34 Test #12: shuffle_history ..................   Passed    0.41 sec
+      Start 13: mode_boundaries
+13/34 Test #13: mode_boundaries ..................   Passed    0.19 sec
+      Start 14: remove_playlist
+14/34 Test #14: remove_playlist ..................   Passed    0.37 sec
+      Start 15: remove_song
+15/34 Test #15: remove_song ......................   Passed    0.35 sec
+      Start 16: refresh_nodes
+16/34 Test #16: refresh_nodes ....................   Passed    0.15 sec
+      Start 17: storage_atomicity
+17/34 Test #17: storage_atomicity ................   Passed    1.77 sec
+      Start 18: storage_minimal_writes
+18/34 Test #18: storage_minimal_writes ...........   Passed    0.39 sec
+      Start 19: management_failure
+19/34 Test #19: management_failure ...............   Passed    0.29 sec
+      Start 20: storage_write_failure
+20/34 Test #20: storage_write_failure ............   Passed    0.27 sec
+      Start 21: playback_failure_limit
+21/34 Test #21: playback_failure_limit ...........   Passed    4.08 sec
+      Start 22: shuffle_manual_selection
+22/34 Test #22: shuffle_manual_selection .........   Passed    0.43 sec
+      Start 23: async_import
+23/34 Test #23: async_import .....................   Passed    4.96 sec
+      Start 24: metadata_removed
+24/34 Test #24: metadata_removed .................   Passed    0.26 sec
+      Start 25: metadata_update_failure
+25/34 Test #25: metadata_update_failure ..........   Passed    0.33 sec
+      Start 26: metadata_scan_shutdown
+26/34 Test #26: metadata_scan_shutdown ...........   Passed    0.81 sec
+      Start 27: metadata_path_reuse
+27/34 Test #27: metadata_path_reuse ..............   Passed    0.17 sec
+      Start 28: close_without_tray
+28/34 Test #28: close_without_tray ...............   Passed    0.18 sec
+      Start 29: management_cancel
+29/34 Test #29: management_cancel ................   Passed    0.20 sec
+      Start 30: ui_controls
+30/34 Test #30: ui_controls ......................   Passed    0.32 sec
+      Start 31: management_bulk_selection
+31/34 Test #31: management_bulk_selection ........   Passed    0.12 sec
+      Start 32: management_unchanged_return
+32/34 Test #32: management_unchanged_return ......   Passed    0.11 sec
+      Start 33: stale_ready_seek_callbacks
+33/34 Test #33: stale_ready_seek_callbacks .......   Passed    0.62 sec
+      Start 34: library_views
+34/34 Test #34: library_views ....................   Passed    0.46 sec
+
+100% tests passed, 0 tests failed out of 34
+
+Total Test time (real) =  24.28 sec

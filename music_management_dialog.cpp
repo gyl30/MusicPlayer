@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include <QLabel>
 #include <QSet>
+#include <QSignalBlocker>
 #include <algorithm>
 #include "music_management_dialog.h"
 #include "playlist_manager.h"
@@ -270,6 +271,7 @@ void music_management_dialog::on_source_select_all_clicked()
         }
     }
 
+    const QSignalBlocker blocker(source_songs_list_);
     for (int i = 0; i < source_songs_list_->count(); ++i)
     {
         source_songs_list_->item(i)->setCheckState(all_checked ? Qt::Unchecked : Qt::Checked);
@@ -427,6 +429,11 @@ void music_management_dialog::on_delete_button_clicked()
 
 void music_management_dialog::on_done_button_clicked()
 {
+    if (!has_pending_changes_)
+    {
+        emit changes_discarded();
+        return;
+    }
     if (!playlist_manager_->apply_changes_from_dialog(temp_playlists_))
     {
         QMessageBox::warning(this, "保存失败", "歌单修改未能保存，更改仍保留在本页。请检查磁盘空间和文件访问权限后重试。");

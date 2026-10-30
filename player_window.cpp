@@ -18,7 +18,6 @@
 #include "volumemeter.h"
 #include "player_window.h"
 #include "playlist_window.h"
-#include "spectrum_widget.h"
 #include "scrolling_text_label.h"
 #include "playback_controller.h"
 
@@ -34,11 +33,7 @@ player_window::~player_window() = default;
 
 bool player_window::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == main_container_ && event->type() == QEvent::Resize)
-    {
-        update_spectrum_background_geometry();
-    }
-    else if (watched == progress_slider_ && event->type() == QEvent::MouseButtonPress)
+    if (watched == progress_slider_ && event->type() == QEvent::MouseButtonPress)
     {
         auto* mouse_event = static_cast<QMouseEvent*>(event);
         if (mouse_event->button() == Qt::LeftButton)
@@ -104,147 +99,98 @@ void player_window::restore_idle_state(const QString& title, qint64 position_ms,
         progress_slider_->setValue(0);
     }
 
+    duration_label_->setText(safe_duration_ms > 0 ? QTime(0, 0).addMSecs(static_cast<int>(safe_duration_ms)).toString(safe_duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss") : "--:--");
     const QTime restored_time = QTime(0, 0).addMSecs(static_cast<int>(safe_position_ms));
     const QString format = safe_position_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
     set_time_text(restored_time.toString(format));
 
-    lyrics_.clear();
-    current_lyric_status_.clear();
-    emit lyric_status_changed(QString());
-}
-
-void player_window::resizeEvent(QResizeEvent* event)
-{
-    QWidget::resizeEvent(event);
-    refresh_time_label_width();
-    refresh_track_title_elision();
 }
 
 void player_window::setup_ui()
 {
-    main_container_ = new QWidget(this);
-    main_container_->setObjectName("playerPanel");
-    main_container_->installEventFilter(this);
-
-    spectrum_widget_ = new spectrum_widget(main_container_);
-    spectrum_widget_->setObjectName("spectrumBackground");
-    spectrum_widget_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    spectrum_widget_->setBarColor(QColor(23, 109, 88, 100));
-
-    auto* root_layout = new QVBoxLayout(this);
-    root_layout->setContentsMargins(0, 0, 0, 0);
-    root_layout->setSpacing(3);
-    root_layout->addWidget(main_container_);
-
-    auto* panel_layout = new QHBoxLayout(main_container_);
-    panel_layout->setContentsMargins(14, 14, 14, 36);
-    panel_layout->setSpacing(8);
-
-    cover_art_label_ = new QLabel(main_container_);
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(6, 6, 6, 8);
+    root->setSpacing(6);
+    auto* info = new QHBoxLayout();
+    info->setSpacing(14);
+    cover_art_label_ = new QLabel(this);
     cover_art_label_->setObjectName("coverArtLabel");
+    cover_art_label_->setFixedSize(76, 76);
     cover_art_label_->setAlignment(Qt::AlignCenter);
-    cover_art_label_->setFixedSize(54, 54);
-    cover_art_label_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    cover_art_label_->hide();
-    panel_layout->addWidget(cover_art_label_);
-
-    left_panel_layout_ = new QVBoxLayout();
-    left_panel_layout_->setContentsMargins(0, 0, 0, 0);
-    left_panel_layout_->setSpacing(7);
-    panel_layout->addLayout(left_panel_layout_, 1);
-
-    auto* title_layout = new QHBoxLayout();
-    title_layout->setContentsMargins(0, 0, 0, 0);
-    title_layout->setSpacing(10);
-
+    clear_cover_art();
+    info->addWidget(cover_art_label_);
+    auto* details = new QVBoxLayout();
+    details->setSpacing(4);
     track_title_label_ = new scrolling_text_label(this);
-    track_title_label_->setText("欢迎使用");
     track_title_label_->setObjectName("trackTitleLabel");
-    track_title_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     track_title_label_->setMinimumWidth(0);
     track_title_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    title_layout->addWidget(track_title_label_, 1);
+    track_title_label_->setText("欢迎使用");
+    details->addWidget(track_title_label_);
+    artist_label_ = new QLabel("本地音乐", this);
+    artist_label_->setObjectName("artistLabel");
+    artist_label_->setTextFormat(Qt::PlainText);
+    artist_label_->setMinimumWidth(0);
+    artist_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    details->addWidget(artist_label_);
+    info->addLayout(details, 1);
+    root->addLayout(info);
 
-    time_label_ = new QLabel("00:00", this);
-    time_label_->setObjectName("timeLabel");
-    time_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    time_label_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    refresh_time_label_width();
-    title_layout->addWidget(time_label_);
-    title_layout->setStretch(0, 1);
-    title_layout->setStretch(1, 0);
-
-    progress_slider_ = new QSlider(Qt::Horizontal);
+    progress_slider_ = new QSlider(Qt::Horizontal, this);
     progress_slider_->setObjectName("progressSlider");
     progress_slider_->setRange(0, 100);
-    progress_slider_->setValue(0);
-    progress_slider_->setFixedHeight(24);
+    progress_slider_->setFixedHeight(20);
+    progress_slider_->setAccessibleName("播放进度");
     progress_slider_->installEventFilter(this);
+    root->addWidget(progress_slider_);
+    auto* times = new QHBoxLayout();
+    time_label_ = new QLabel("00:00", this);
+    time_label_->setObjectName("timeLabel");
+    duration_label_ = new QLabel("--:--", this);
+    duration_label_->setObjectName("durationLabel");
+    times->addWidget(time_label_);
+    times->addStretch();
+    times->addWidget(duration_label_);
+    root->addLayout(times);
 
-    auto* progress_layout = new QHBoxLayout();
-    progress_layout->setContentsMargins(0, 0, 0, 0);
-    progress_layout->setSpacing(0);
-    progress_layout->addWidget(progress_slider_);
-
-    stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "");
-    prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "");
-    play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "");
-    play_pause_button_->setObjectName("playPauseButton");
-    next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "");
-    shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "");
+    auto* controls = new QWidget(this);
+    controls->setObjectName("controlsContainer");
+    auto* row = new QHBoxLayout(controls);
+    row->setContentsMargins(0, 2, 0, 0);
+    row->setSpacing(3);
+    shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "", controls);
     shuffle_button_->setObjectName("modeButton");
-
+    prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "", controls);
+    play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "", controls);
+    play_pause_button_->setObjectName("playPauseButton");
+    next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "", controls);
+    stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "", controls);
     stop_button_->setToolTip("停止");
     prev_button_->setToolTip("上一首");
     play_pause_button_->setToolTip("播放/暂停");
     next_button_->setToolTip("下一首");
-    shuffle_button_->setToolTip("列表循环");
-    for (auto* button : {stop_button_, prev_button_, play_pause_button_, next_button_, shuffle_button_})
+    update_playback_mode_button_style();
+    for (auto* button : {shuffle_button_, prev_button_, play_pause_button_, next_button_, stop_button_})
     {
         button->setAccessibleName(button->toolTip());
+        row->addWidget(button);
     }
-    progress_slider_->setAccessibleName("播放进度");
-
-    auto* controls_container = new QWidget();
-    controls_container->setObjectName("controlsContainer");
-    auto* controls_layout = new QHBoxLayout(controls_container);
-    controls_layout->setContentsMargins(0, 0, 0, 0);
-    controls_layout->setSpacing(6);
-
-    controls_layout->addStretch();
-    controls_layout->addWidget(shuffle_button_);
-    controls_layout->addWidget(prev_button_);
-    controls_layout->addWidget(play_pause_button_);
-    controls_layout->addWidget(next_button_);
-    controls_layout->addWidget(stop_button_);
-    controls_layout->addStretch();
-
-    volume_meter_ = new volume_meter();
+    row->addStretch();
+    auto* volume_icon = new QLabel(controls);
+    volume_icon->setPixmap(QIcon(":/icons/volume.svg").pixmap(14, 14));
+    volume_icon->setToolTip("音量");
+    row->addWidget(volume_icon);
+    volume_meter_ = new volume_meter(controls);
     volume_meter_->setObjectName("volumeMeter");
     volume_meter_->setRange(0, 100);
     QSettings settings("MusicPlayer", "MusicPlayer");
-    const int saved_volume = qBound(0, settings.value("playback/volume", 80).toInt(), 100);
-    volume_meter_->setValue(saved_volume);
-    volume_meter_->setFixedSize(64, 24);
+    volume_meter_->setValue(qBound(0, settings.value("playback/volume", 80).toInt(), 100));
+    volume_meter_->setFixedSize(44, 24);
     volume_meter_->setOrientation(Qt::Horizontal);
-    volume_meter_->setToolTip("音量：方向键或滚轮调整，Home 静音，End 最大");
     volume_meter_->setAccessibleName("音量");
-
-    auto* volume_label = new QLabel("音量", this);
-    volume_label->setObjectName("volumeLabel");
-    auto* volume_layout = new QHBoxLayout();
-    volume_layout->setContentsMargins(0, 0, 0, 0);
-    volume_layout->setSpacing(8);
-    volume_layout->addStretch();
-    volume_layout->addWidget(volume_label);
-    volume_layout->addWidget(volume_meter_);
-
-    left_panel_layout_->addLayout(title_layout);
-    left_panel_layout_->addLayout(progress_layout);
-    root_layout->addWidget(controls_container);
-    root_layout->addLayout(volume_layout);
-
-    update_spectrum_background_geometry();
+    volume_meter_->setToolTip("音量：方向键或滚轮调整，Home 静音，End 最大");
+    row->addWidget(volume_meter_);
+    root->addWidget(controls);
 }
 
 void player_window::setup_connections()
@@ -263,7 +209,6 @@ void player_window::setup_connections()
     {
         connect(this, &player_window::playback_mode_changed, controller_, &playback_controller::set_playback_mode);
 
-        controller_->set_spectrum_widget(spectrum_widget_);
         connect(controller_, &playback_controller::track_info_ready, this, &player_window::update_track_info);
         connect(controller_, &playback_controller::playback_started, this, &player_window::on_playback_started);
         connect(controller_, &playback_controller::progress_updated, this, &player_window::update_progress);
@@ -284,7 +229,6 @@ void player_window::setup_connections()
         connect(controller_, &playback_controller::playback_error, this, &player_window::handle_playback_error);
         connect(controller_, &playback_controller::metadata_ready, this, &player_window::on_metadata_updated);
         connect(controller_, &playback_controller::cover_art_ready, this, &player_window::on_cover_art_updated);
-        connect(controller_, &playback_controller::lyrics_updated, this, &player_window::on_lyrics_updated);
         connect(controller_, &playback_controller::playback_finished, this, &player_window::on_playback_finished);
         connect(controller_, &playback_controller::playback_paused, this, &player_window::on_playback_paused);
 
@@ -299,11 +243,10 @@ void player_window::reset_ui()
     clear_cover_art();
     set_track_title("欢迎使用");
     set_time_text("00:00");
+    duration_label_->setText("--:--");
+    artist_label_->setText("本地音乐");
     progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
-    lyrics_.clear();
-    current_lyric_status_.clear();
-    emit lyric_status_changed(QString());
 }
 
 void player_window::on_playback_stopped()
@@ -383,13 +326,6 @@ void player_window::on_cover_art_updated(const QByteArray& image_data)
     cover_art_label_->show();
 }
 
-void player_window::on_lyrics_updated(const QList<LyricLine>& lyrics)
-{
-    lyrics_ = lyrics;
-    current_lyric_status_.clear();
-    emit lyric_status_changed(QString());
-}
-
 void player_window::on_playback_mode_clicked()
 {
     switch (current_mode_)
@@ -432,6 +368,7 @@ void player_window::update_playback_mode_button_style()
             shuffle_button_->setToolTip("顺序播放");
             break;
     }
+    shuffle_button_->setAccessibleName(shuffle_button_->toolTip());
     shuffle_button_->setProperty("active", current_mode_ != playback_mode::ListLoop);
     style()->unpolish(shuffle_button_);
     style()->polish(shuffle_button_);
@@ -439,6 +376,7 @@ void player_window::update_playback_mode_button_style()
 
 void player_window::update_track_info(qint64 duration_ms)
 {
+    duration_label_->setText(duration_ms > 0 ? QTime(0, 0).addMSecs(static_cast<int>(duration_ms)).toString(duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss") : "--:--");
     progress_slider_->setRange(0, qMax(1, static_cast<int>(duration_ms)));
     progress_slider_->setValue(0);
     QString format = duration_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
@@ -455,40 +393,7 @@ void player_window::update_progress(qint64 current_ms, qint64 total_ms)
     QString format = total_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
     set_time_text(current_time.toString(format));
 
-    const QString lyric_status = lyric_at_time(current_ms);
-    if (lyric_status != current_lyric_status_)
-    {
-        current_lyric_status_ = lyric_status;
-        emit lyric_status_changed(current_lyric_status_);
-    }
-}
 
-QString player_window::lyric_at_time(qint64 time_ms) const
-{
-    if (lyrics_.isEmpty())
-    {
-        return {};
-    }
-
-    int matched_index = -1;
-    for (int i = 0; i < lyrics_.size(); ++i)
-    {
-        if (time_ms >= lyrics_[i].timestamp_ms)
-        {
-            matched_index = i;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    if (matched_index < 0)
-    {
-        return {};
-    }
-
-    return lyrics_[matched_index].text.trimmed();
 }
 
 void player_window::handle_playback_error(const QString& error_message) { set_track_title(QString("错误: %1").arg(error_message)); }
@@ -497,28 +402,15 @@ void player_window::on_metadata_updated(const QMap<QString, QString>& metadata)
 {
     QString title = metadata.value("title");
     QString artist = metadata.value("artist");
-    QString display_text;
-
-    if (!artist.isEmpty() && !title.isEmpty())
-    {
-        display_text = QString("%1 - %2").arg(artist, title);
-    }
-    else if (!title.isEmpty())
-    {
-        display_text = title;
-    }
-    else
-    {
-        return;
-    }
-    set_track_title(display_text);
+    artist_label_->setText(artist.isEmpty() ? "未知歌手" : artist);
+    artist_label_->setToolTip(artist);
+    if (!title.isEmpty()) set_track_title(title);
 }
 
 void player_window::set_track_title(const QString& title)
 {
-    full_track_title_ = title;
     track_title_label_->setToolTip(title);
-    track_title_label_->setText(full_track_title_);
+    track_title_label_->setText(title);
 }
 
 void player_window::clear_cover_art()
@@ -528,8 +420,7 @@ void player_window::clear_cover_art()
         return;
     }
 
-    cover_art_label_->clear();
-    cover_art_label_->hide();
+    cover_art_label_->setPixmap(QIcon(":/icons/song.svg").pixmap(30, 30));
 }
 
 void player_window::set_time_text(const QString& text)
@@ -545,39 +436,6 @@ void player_window::set_time_text(const QString& text)
     }
 
     time_label_->setText(text);
-    refresh_time_label_width();
-    refresh_track_title_elision();
-}
-
-void player_window::refresh_time_label_width()
-{
-    if (time_label_ == nullptr)
-    {
-        return;
-    }
-
-    time_label_->setFixedWidth(time_label_->sizeHint().width());
-}
-
-void player_window::refresh_track_title_elision()
-{
-    if (track_title_label_ == nullptr)
-    {
-        return;
-    }
-
-    track_title_label_->update();
-}
-
-void player_window::update_spectrum_background_geometry()
-{
-    if (main_container_ == nullptr || spectrum_widget_ == nullptr)
-    {
-        return;
-    }
-
-    spectrum_widget_->setGeometry(14, main_container_->height() - 28, main_container_->width() - 28, 20);
-    spectrum_widget_->lower();
 }
 
 void player_window::on_seek_requested()

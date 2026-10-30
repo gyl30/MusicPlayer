@@ -281,7 +281,7 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
 
         if (current_packet_->bytes_played >= current_packet_->data.size())
         {
-            // 回调只转移所有权；Qt 通知和最终释放由播放器线程处理。
+            // 回调只转移所有权；最终释放由播放器线程处理。
             if (!played_packets_.push(current_packet_))
             {
                 break;
@@ -305,7 +305,7 @@ void audio_player::update_progress_ui()
         return;
     }
 
-    played_packets_.consume_all([this](const std::shared_ptr<audio_packet>& packet) { emit packet_played(packet); });
+    played_packets_.consume_all([](const std::shared_ptr<audio_packet>&) {});
     if (playback_drained_.exchange(false))
     {
         on_playback_completed_internal();

@@ -12,6 +12,8 @@
 #include <QSystemTrayIcon>
 #include <QPushButton>
 #include <QSlider>
+#include <QTabBar>
+#include <QLabel>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
 #include <atomic>
@@ -117,6 +119,54 @@ private slots:
         QVERIFY(!page->has_pending_changes());
     }
 
+    void management_bulk_selection()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const auto id = manager.get_all_playlists().first().id;
+        QStringList paths;
+        for (int i = 0; i < 200; ++i)
+            paths.append(temp_.filePath(QString("bulk-%1.wav").arg(i)));
+        QVERIFY(manager.add_songs_to_playlist(id, paths));
+        music_management_dialog page(&manager);
+        page.reload();
+        auto* songs = page.findChildren<QListWidget*>().at(1);
+        QSignalSpy changed(songs, &QListWidget::itemChanged);
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(QMetaObject::invokeMethod(&page, "on_source_select_all_clicked"));
+        qInfo() << "批量勾选(ms):" << timer.elapsed() << "逐项通知:" << changed.count();
+        QCOMPARE(changed.count(), 0);
+        for (int i = 0; i < songs->count(); ++i)
+            QCOMPARE(songs->item(i)->checkState(), Qt::Checked);
+        QVERIFY(page.findChild<QPushButton*>("removeButton")->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(&page, "on_source_select_all_clicked"));
+        QCOMPARE(changed.count(), 0);
+        for (int i = 0; i < songs->count(); ++i)
+            QCOMPARE(songs->item(i)->checkState(), Qt::Unchecked);
+        QVERIFY(!page.findChild<QPushButton*>("removeButton")->isEnabled());
+    }
+
+    void management_unchanged_return()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        music_management_dialog page(&manager);
+        page.reload();
+        QSignalSpy returned(&page, &music_management_dialog::changes_discarded);
+        QSignalSpy applied(&page, &music_management_dialog::changes_applied);
+        // 占用事务，证明无修改返回不需要再开启写事务。
+        QVERIFY(QSqlDatabase::database().transaction());
+        DEFER(QSqlDatabase::database().rollback());
+        QTimer::singleShot(0, &page, []
+        {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->accept();
+        });
+        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
+        QCOMPARE(returned.count(), 1);
+        QCOMPARE(applied.count(), 0);
+    }
+
     void ui_controls()
     {
         const auto old_style = qApp->styleSheet();
@@ -140,7 +190,8 @@ private slots:
         QVERIFY(volume != nullptr);
         const QRect volume_rect(volume->mapTo(&window, QPoint()), volume->size());
         const QRect play_rect(play->mapTo(&window, QPoint()), play->size());
-        QVERIFY(volume_rect.top() > play_rect.bottom());
+        QVERIFY(volume_rect.center().y() >= play_rect.top() && volume_rect.center().y() <= play_rect.bottom());
+        QVERIFY(volume_rect.left() > play_rect.right());
         QVERIFY(window.rect().contains(volume_rect));
         volume->setValue(50);
         QSignalSpy volume_changed(volume, &volume_meter::value_changed);
@@ -154,7 +205,7 @@ private slots:
         auto* lyrics = window.findChild<lyrics_widget*>();
         QVERIFY(lyrics != nullptr);
         lyrics->set_lyrics({{0, "第一行中文歌词"}, {1000, "第二行中文歌词"}});
-        lyrics->show();
+        window.findChild<QTabBar*>("libraryTabs")->setCurrentIndex(1);
         window.resize(340, 400);
         QTest::qWait(50);
         QVERIFY(volume->mapTo(&window, QPoint(0, volume->height())).y()
@@ -179,6 +230,58 @@ private slots:
         QTest::mouseClick(cancel, Qt::LeftButton);
         QVERIFY(add->isVisible());
         QVERIFY(manage->isVisible());
+    }
+
+    void stale_ready_seek_callbacks()
+    {
+        playback_controller controller;
+        constexpr qint64 first_session = 1;
+        QSignalSpy progress(&controller, &playback_controller::progress_updated);
+        // 新控制器的第一次 play_file 固定生成会话 1。
+        controller.play_file(tone_);
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+        controller.play_file(tone_, 2000);
+        QSignalSpy seek(&controller, &playback_controller::seek_finished);
+        QVERIFY(QMetaObject::invokeMethod(&controller, "on_player_ready", Q_ARG(qint64, first_session)));
+        QVERIFY(QMetaObject::invokeMethod(&controller, "on_player_seek_handled", Q_ARG(qint64, first_session)));
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty() && progress.last().first().toLongLong() >= 2000, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 1, 1000);
+        controller.stop();
+        const int count = progress.count();
+        QVERIFY(QMetaObject::invokeMethod(&controller, "on_player_ready", Q_ARG(qint64, qint64{2})));
+        QVERIFY(QMetaObject::invokeMethod(&controller, "on_player_seek_handled", Q_ARG(qint64, qint64{2})));
+        QTest::qWait(150);
+        QCOMPARE(progress.count(), count);
+        QVERIFY(!controller.is_media_loaded());
+    }
+
+    void library_views()
+    {
+        playlist_window window;
+        window.show();
+        auto* tabs = window.findChild<QTabBar*>("libraryTabs");
+        QVERIFY(tabs != nullptr);
+        QCOMPARE(tabs->count(), 2);
+        auto* player = window.findChild<player_window*>();
+        auto* duration = window.findChild<QLabel*>("durationLabel");
+        player->update_track_info(0);
+        QCOMPARE(duration->text(), QString("--:--"));
+        player->update_track_info(266000);
+        QCOMPARE(duration->text(), QString("04:26"));
+        auto* tree = window.findChild<QTreeWidget*>();
+        QTest::qWait(50);
+        QVERIFY(tree->columnWidth(0) > tree->columnWidth(1) * 2);
+        auto* controller = window.findChild<playback_controller*>();
+        QSignalSpy progress(controller, &playback_controller::progress_updated);
+        controller->play_file(tone_);
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+        const auto before = progress.last().first().toLongLong();
+        tabs->setCurrentIndex(1);
+        QVERIFY(window.findChild<lyrics_widget*>()->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(progress.last().first().toLongLong() > before, 1000);
+        tabs->setCurrentIndex(0);
+        QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
+        controller->stop();
     }
 
     void unknown_duration()
@@ -329,10 +432,7 @@ private slots:
         format.setChannelCount(1);
         format.setSampleFormat(QAudioFormat::Int16);
         const Qt::HANDLE owner = QThread::currentThreadId();
-        std::atomic<Qt::HANDLE> signal_thread{nullptr};
         std::atomic<Qt::HANDLE> release_thread{nullptr};
-        connect(&player, &audio_player::packet_played, &player,
-                [&](const std::shared_ptr<audio_packet>&) { signal_thread = QThread::currentThreadId(); }, Qt::DirectConnection);
         player.start_playback(1, format);
         auto packet = std::shared_ptr<audio_packet>(new audio_packet, [&](audio_packet* value)
         {
@@ -344,7 +444,6 @@ private slots:
         player.enqueue_packet(1, packet);
         packet.reset();
         QTRY_VERIFY_WITH_TIMEOUT(release_thread.load() != nullptr, 1000);
-        QCOMPARE(signal_thread.load(), owner);
         QCOMPARE(release_thread.load(), owner);
         player.stop_playback();
     }

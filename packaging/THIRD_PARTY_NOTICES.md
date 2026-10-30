@@ -10,7 +10,6 @@ MusicPlayer 目前未声明项目自身许可证。本地安装验收包不等�
 | spdlog | 仓库内 1.15.3 | spdlog-LICENSE.txt，MIT |
 | fmt | spdlog 内置 11.2.0 | fmt-LICENSE.txt，MIT 及嵌入对象代码例外 |
 | Boost lockfree | 构建时安装的 Boost | boost-LICENSE.txt，BSL-1.0 |
-| fftreal.h | Dmitry V. Benko，2018，文件内声明 | fftreal-LICENSE.txt，MIT |
 
 fmt 原文来源：<https://github.com/fmtlib/fmt/blob/11.2.0/LICENSE>；
 Boost 原文来源：<https://www.boost.org/LICENSE_1_0.txt>。

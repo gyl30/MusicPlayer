@@ -19,8 +19,8 @@ lyrics_widget::lyrics_widget(QWidget* parent) : QWidget(parent)
     font_active_.setPointSize(14);
     font_active_.setBold(true);
 
-    color_normal_ = QColor("#65746E");
-    color_active_ = QColor("#176D58");
+    color_normal_ = QColor("#64758D");
+    color_active_ = QColor("#1478E8");
 
     animation_timer_ = new QTimer(this);
     animation_timer_->setInterval(kAnimationFrameInterval);

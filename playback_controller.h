@@ -14,7 +14,6 @@
 class QThread;
 class audio_decoder;
 class audio_player;
-class spectrum_widget;
 struct audio_packet;
 
 class playback_controller : public QObject
@@ -25,7 +24,6 @@ class playback_controller : public QObject
     explicit playback_controller(QObject* parent = nullptr);
     ~playback_controller() override;
 
-    void set_spectrum_widget(spectrum_widget* widget);
     bool is_media_loaded() const { return is_media_loaded_; }
 
    public slots:
@@ -53,13 +51,11 @@ class playback_controller : public QObject
     void on_duration_ready(qint64 session_id, qint64 duration_ms, const QAudioFormat& format);
     void on_decoder_seek_finished(qint64 session_id, qint64 actual_seek_ms);
     void on_decoding_error(qint64 session_id, const QString& error_message);
-    void on_player_ready_for_spectrum(qint64 session_id);
+    void on_player_ready(qint64 session_id);
     void on_player_seek_handled(qint64 session_id);
-    void on_spectrum_ready_for_decoding(qint64 session_id);
     void on_player_error(qint64 session_id, const QString& error_message);
     void on_progress_update(qint64 session_id, qint64 current_ms);
     void on_playback_completed(qint64 session_id);
-    void on_packet_for_spectrum(const std::shared_ptr<audio_packet>& packet);
     void on_buffer_level_low(qint64 session_id);
     void on_metadata_ready(qint64 session_id, const QMap<QString, QString>& metadata);
     void on_cover_art_ready(qint64 session_id, const QByteArray& image_data);
@@ -67,13 +63,12 @@ class playback_controller : public QObject
 
    private:
     void cleanup_player();
-    void start_spectrum_or_decoding(qint64 session_id, qint64 start_offset_ms);
+    void resume_decoding(qint64 session_id);
 
     QThread* decoder_thread_ = nullptr;
     audio_decoder* decoder_ = nullptr;
     QThread* player_thread_ = nullptr;
     audio_player* player_ = nullptr;
-    spectrum_widget* spectrum_widget_ = nullptr;
 
     bool is_playing_ = false;
     bool is_media_loaded_ = false;
@@ -83,7 +78,6 @@ class playback_controller : public QObject
     bool is_paused_ = false;
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
-    qint64 seek_result_ms_ = -1;
     qint64 playback_start_position_ms_ = 0;
     playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
