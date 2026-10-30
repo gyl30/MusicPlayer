@@ -264,7 +264,7 @@ void playback_controller::on_buffer_level_low(qint64 session_id)
 
 void playback_controller::on_progress_update(qint64 session_id, qint64 current_ms)
 {
-    if (session_id != current_session_id_ || !is_playing_)
+    if (session_id != current_session_id_ || !is_playing_ || is_paused_ || is_seeking_)
     {
         return;
     }
