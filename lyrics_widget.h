@@ -24,6 +24,9 @@ class lyrics_widget : public QWidget
    protected:
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
    private slots:
     void on_animation_timer();
@@ -36,7 +39,6 @@ class lyrics_widget : public QWidget
     QList<LyricLine> lyrics_;
     QList<QRectF> line_rects_;
 
-    qint64 current_time_ms_ = 0;
     int current_index_ = -1;
 
     double current_scroll_y_ = 0.0;

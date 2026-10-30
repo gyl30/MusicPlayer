@@ -1,0 +1,86 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-sanitize
+Test project /tmp/musicplayer-round2-sanitize
+      Start  1: unknown_duration
+ 1/40 Test  #1: unknown_duration .................   Passed    0.40 sec
+      Start  2: latest_seek
+ 2/40 Test  #2: latest_seek ......................   Passed    0.44 sec
+      Start  3: paused_seek
+ 3/40 Test  #3: paused_seek ......................   Passed    0.86 sec
+      Start  4: exit_while_decoding
+ 4/40 Test  #4: exit_while_decoding ..............   Passed    0.36 sec
+      Start  5: rapid_switch
+ 5/40 Test  #5: rapid_switch .....................   Passed    0.48 sec
+      Start  6: formats
+ 6/40 Test  #6: formats ..........................   Passed    2.46 sec
+      Start  7: invalid_files
+ 7/40 Test  #7: invalid_files ....................   Passed    0.42 sec
+      Start  8: startup_seek
+ 8/40 Test  #8: startup_seek .....................   Passed    0.57 sec
+      Start  9: callback_ownership
+ 9/40 Test  #9: callback_ownership ...............   Passed    0.31 sec
+      Start 10: stale_errors
+10/40 Test #10: stale_errors .....................   Passed    0.38 sec
+      Start 11: short_packets
+11/40 Test #11: short_packets ....................   Passed    0.78 sec
+      Start 12: shuffle_history
+12/40 Test #12: shuffle_history ..................   Passed    0.71 sec
+      Start 13: mode_boundaries
+13/40 Test #13: mode_boundaries ..................   Passed    0.39 sec
+      Start 14: remove_playlist
+14/40 Test #14: remove_playlist ..................   Passed    0.53 sec
+      Start 15: remove_song
+15/40 Test #15: remove_song ......................   Passed    0.51 sec
+      Start 16: refresh_nodes
+16/40 Test #16: refresh_nodes ....................   Passed    0.28 sec
+      Start 17: storage_atomicity
+17/40 Test #17: storage_atomicity ................   Passed    3.29 sec
+      Start 18: storage_minimal_writes
+18/40 Test #18: storage_minimal_writes ...........   Passed    0.83 sec
+      Start 19: management_failure
+19/40 Test #19: management_failure ...............   Passed    0.61 sec
+      Start 20: storage_write_failure
+20/40 Test #20: storage_write_failure ............   Passed    0.58 sec
+      Start 21: playback_failure_limit
+21/40 Test #21: playback_failure_limit ...........   Passed    4.52 sec
+      Start 22: shuffle_manual_selection
+22/40 Test #22: shuffle_manual_selection .........   Passed    0.41 sec
+      Start 23: async_import
+23/40 Test #23: async_import .....................   Passed    3.68 sec
+      Start 24: metadata_removed
+24/40 Test #24: metadata_removed .................   Passed    0.25 sec
+      Start 25: metadata_update_failure
+25/40 Test #25: metadata_update_failure ..........   Passed    0.33 sec
+      Start 26: metadata_scan_shutdown
+26/40 Test #26: metadata_scan_shutdown ...........   Passed    2.28 sec
+      Start 27: metadata_path_reuse
+27/40 Test #27: metadata_path_reuse ..............   Passed    0.20 sec
+      Start 28: close_without_tray
+28/40 Test #28: close_without_tray ...............   Passed    0.25 sec
+      Start 29: management_cancel
+29/40 Test #29: management_cancel ................   Passed    0.27 sec
+      Start 30: ui_controls
+30/40 Test #30: ui_controls ......................   Passed    0.54 sec
+      Start 31: management_bulk_selection
+31/40 Test #31: management_bulk_selection ........   Passed    0.19 sec
+      Start 32: management_unchanged_return
+32/40 Test #32: management_unchanged_return ......   Passed    0.15 sec
+      Start 33: stale_ready_seek_callbacks
+33/40 Test #33: stale_ready_seek_callbacks .......   Passed    0.71 sec
+      Start 34: library_views
+34/40 Test #34: library_views ....................   Passed    0.53 sec
+      Start 35: page_size_restore
+35/40 Test #35: page_size_restore ................   Passed    0.42 sec
+      Start 36: responsive_layout
+36/40 Test #36: responsive_layout ................   Passed    0.45 sec
+      Start 37: large_playlist_ui
+37/40 Test #37: large_playlist_ui ................   Passed    8.86 sec
+      Start 38: svg_library_actions
+38/40 Test #38: svg_library_actions ..............   Passed    0.32 sec
+      Start 39: adaptive_lyrics
+39/40 Test #39: adaptive_lyrics ..................   Passed    0.88 sec
+      Start 40: playback_state_restore_ui
+40/40 Test #40: playback_state_restore_ui ........   Passed    0.71 sec
+
+100% tests passed, 0 tests failed out of 40
+
+Total Test time (real) =  41.14 sec

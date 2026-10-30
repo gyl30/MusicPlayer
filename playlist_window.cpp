@@ -29,7 +29,6 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QFileInfo>
-#include <QTabBar>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -47,7 +46,7 @@ public:
 
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const override
     {
-        return QSize(80, option.widget != nullptr && option.widget->width() >= 460 ? 44 : 36);
+        return QSize(80, option.widget != nullptr && option.widget->width() >= 460 ? 40 : 34);
     }
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override
@@ -64,12 +63,14 @@ public:
         font.setBold(playing || !song);
         painter->setFont(font);
         painter->setPen(playing ? QColor("#1478E8") : song && index.column() == 0 ? QColor("#26364E") : QColor("#64758D"));
-        QRect text = option.rect.adjusted(10, 0, -12, 0);
+        QRect text = option.rect.adjusted(4, 0, -12, 0);
         if (song && index.column() == 0)
         {
-            painter->drawText(QRect(text.left(), text.top(), 24, text.height()), Qt::AlignVCenter | Qt::AlignLeft,
+            const int number_width = qMax(24, painter->fontMetrics().horizontalAdvance(
+                QString::number(index.model()->rowCount(index.parent()))) + 6);
+            painter->drawText(QRect(text.left(), text.top(), number_width, text.height()), Qt::AlignVCenter | Qt::AlignLeft,
                               playing ? QStringLiteral("▶") : QString::number(index.row() + 1));
-            text.setLeft(text.left() + 32);
+            text.setLeft(text.left() + number_width + 6);
         }
         painter->drawText(text, Qt::AlignVCenter | (index.column() == 1 ? Qt::AlignRight : Qt::AlignLeft),
                           painter->fontMetrics().elidedText(index.data().toString(), Qt::ElideRight, text.width()));
@@ -133,7 +134,7 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
         return;
     }
 
-    const QString display_text = normalize_display_text(QFileInfo(file_name).completeBaseName());
+    const QString display_text = normalize_display_text(file_name);
     item->setText(0, display_text);
     item->setToolTip(0, file_name);
 }
@@ -339,6 +340,12 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
 void playlist_window::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
+    if (playback_layout_ != nullptr) update_playback_layout();
+    if (resize_grip_ != nullptr)
+    {
+        resize_grip_->move(width() - resize_grip_->width() - 2, height() - resize_grip_->height() - 2);
+        resize_grip_->raise();
+    }
     if (song_tree_widget_ != nullptr && (event->oldSize().width() < 480) != (event->size().width() < 480))
         song_tree_widget_->doItemsLayout();
 }
@@ -358,7 +365,7 @@ void playlist_window::setup_ui()
 
     auto* title_bar = new QWidget(central_widget);
     title_bar->setObjectName("appTitleBar");
-    title_bar->setFixedHeight(36);
+    title_bar->setFixedHeight(40);
     title_bar->installEventFilter(this);
 
     auto* title_layout = new QHBoxLayout(title_bar);
@@ -370,13 +377,15 @@ void playlist_window::setup_ui()
     title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(title_label);
     title_layout->addStretch();
-    auto* minimize_button = new QPushButton("-", title_bar);
+    auto* minimize_button = new QPushButton(QIcon(":/icons/minimize.svg"), "", title_bar);
     minimize_button->setObjectName("windowMinButton");
+    minimize_button->setAccessibleName("最小化");
     minimize_button->setFocusPolicy(Qt::NoFocus);
     title_layout->addWidget(minimize_button);
 
-    auto* close_button = new QPushButton("×", title_bar);
+    auto* close_button = new QPushButton(QIcon(":/icons/close.svg"), "", title_bar);
     close_button->setObjectName("windowCloseButton");
+    close_button->setAccessibleName("关闭");
     close_button->setFocusPolicy(Qt::NoFocus);
     title_layout->addWidget(close_button);
 
@@ -397,8 +406,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     song_tree_widget_->setColumnWidth(1, 40);
-    song_tree_widget_->setIndentation(12);
-    song_tree_widget_->setIconSize(QSize(14, 14));
+    song_tree_widget_->setIndentation(6);
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     song_tree_widget_->setFrameShape(QFrame::NoFrame);
@@ -407,34 +415,24 @@ void playlist_window::setup_ui()
     song_tree_widget_->setAlternatingRowColors(false);
 
     auto* playback_page = new QWidget(this);
-    auto* playback_layout = new QVBoxLayout(playback_page);
-    playback_layout->setContentsMargins(10, 8, 10, 10);
-    playback_layout->setSpacing(10);
-    playback_layout->addWidget(player_window_);
-    auto* views = new QStackedWidget(playback_page);
-    views->setObjectName("libraryViews");
-    views->addWidget(song_tree_widget_);
-    lyrics_view_ = new lyrics_widget(views);
-    lyrics_view_->setObjectName("lyricsView");
-    views->addWidget(lyrics_view_);
+    playback_layout_ = new QBoxLayout(QBoxLayout::TopToBottom, playback_page);
+    playback_layout_->setContentsMargins(10, 8, 10, 10);
+    playback_layout_->setSpacing(10);
+    auto* library_panel = new QWidget(playback_page);
+    library_panel->setMinimumWidth(0);
+    auto* library = new QVBoxLayout(library_panel);
+    library->setContentsMargins(0, 0, 0, 0);
+    library->setSpacing(8);
+    library->addWidget(player_window_);
     auto* library_layout = new QHBoxLayout();
     library_layout->setSpacing(6);
-    auto* tabs = new QTabBar(playback_page);
-    tabs->setObjectName("libraryTabs");
-    tabs->addTab("播放列表");
-    tabs->addTab("歌词");
-    tabs->setExpanding(false);
-    tabs->setDrawBase(false);
-    connect(tabs, &QTabBar::currentChanged, views, &QStackedWidget::setCurrentIndex);
-    connect(tabs, &QTabBar::currentChanged, this, [this](int index)
-    {
-        if (index == 1) lyrics_view_->set_current_time(current_progress_ms_);
-    });
-    library_layout->addWidget(tabs);
+    auto* list_title = new QLabel("播放列表", library_panel);
+    list_title->setObjectName("libraryTitle");
+    library_layout->addWidget(list_title);
     library_layout->addStretch();
-    auto* add_button = new QPushButton("＋ 添加", playback_page);
+    auto* add_button = new QPushButton(QIcon(":/icons/add.svg"), "", playback_page);
     add_button->setObjectName("addMusicButton");
-    add_button->setToolTip("添加到当前选中的歌单；未选择时添加到第一个歌单");
+    add_button->setAccessibleName("添加音乐");
     connect(add_button, &QPushButton::clicked, this, [this]
     {
         auto* item = song_tree_widget_->currentItem();
@@ -448,18 +446,33 @@ void playlist_window::setup_ui()
         on_add_songs_action();
     });
     library_layout->addWidget(add_button);
-    auto* manage_button = new QPushButton("管理", playback_page);
+    auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), "", playback_page);
     manage_button->setObjectName("manageButton");
-    manage_button->setToolTip("管理歌单（Ctrl+M）");
+    manage_button->setAccessibleName("管理歌单");
     connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
     library_layout->addWidget(manage_button);
 
-    playback_layout->addLayout(library_layout);
-    playback_layout->addWidget(views, 1);
-    auto* resize_layout = new QHBoxLayout();
-    resize_layout->addStretch();
-    resize_layout->addWidget(new QSizeGrip(playback_page));
-    playback_layout->addLayout(resize_layout);
+    library->addLayout(library_layout);
+    song_tree_widget_->setMinimumHeight(80);
+    library->addWidget(song_tree_widget_, 1);
+    playback_layout_->addWidget(library_panel, 3);
+
+    lyrics_panel_ = new QWidget(playback_page);
+    lyrics_panel_->setObjectName("lyricsPanel");
+    auto* lyric_layout = new QVBoxLayout(lyrics_panel_);
+    lyric_layout->setContentsMargins(8, 4, 8, 4);
+    lyric_layout->setSpacing(0);
+    lyrics_toggle_ = new QPushButton("歌词", lyrics_panel_);
+    lyrics_toggle_->setObjectName("lyricsToggle");
+    lyrics_toggle_->setAccessibleName("展开或收起歌词");
+    lyrics_toggle_->setCheckable(true);
+    lyric_layout->addWidget(lyrics_toggle_);
+    lyrics_view_ = new lyrics_widget(lyrics_panel_);
+    lyrics_view_->setObjectName("lyricsView");
+    lyric_layout->addWidget(lyrics_view_, 1);
+    playback_layout_->addWidget(lyrics_panel_, 2);
+    lyrics_panel_->hide();
+    connect(lyrics_toggle_, &QPushButton::toggled, this, [this] { update_playback_layout(); });
 
     main_stack_ = new QStackedWidget(this);
     main_stack_->addWidget(playback_page);
@@ -467,6 +480,8 @@ void playlist_window::setup_ui()
     management_page_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
 
     main_layout->addWidget(main_stack_, 1);
+    resize_grip_ = new QSizeGrip(central_widget);
+    resize_grip_->setFixedSize(14, 14);
 
     auto* manage_shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+M")), this);
     connect(manage_shortcut, &QShortcut::activated, this, &playlist_window::on_manage_playlists_action);
@@ -486,6 +501,30 @@ void playlist_window::setup_ui()
                 }
             });
     connect(tray_icon_, &tray_icon::quit_triggered, this, &playlist_window::quit_application);
+}
+
+void playlist_window::update_playback_layout()
+{
+    const bool wide = width() >= 780;
+    playback_layout_->setDirection(wide ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
+    lyrics_toggle_->setVisible(!wide);
+    lyrics_toggle_->setText(lyrics_toggle_->isChecked() ? "歌词  ▾" : "歌词  ▴");
+    if (wide)
+    {
+        lyrics_panel_->setMinimumHeight(0);
+        lyrics_panel_->setMaximumHeight(QWIDGETSIZE_MAX);
+        playback_layout_->setStretch(0, 3);
+        playback_layout_->setStretch(1, 2);
+    }
+    else
+    {
+        const int height = lyrics_toggle_->isChecked() ? (width() < 460 ? 170 : 240) : 100;
+        lyrics_panel_->setMinimumHeight(0);
+        lyrics_panel_->setMaximumHeight(height);
+        playback_layout_->setStretch(0, 3);
+        playback_layout_->setStretch(1, 2);
+    }
+    lyrics_view_->set_current_time(current_progress_ms_);
 }
 
 void playlist_window::setup_connections()
@@ -547,7 +586,7 @@ void playlist_window::setup_connections()
                              current_duration_ms_);
                     last_logged_progress_ms_ = current_ms;
                 }
-                if (lyrics_view_ != nullptr && lyrics_view_->isVisible())
+                if (lyrics_view_ != nullptr)
                 {
                     lyrics_view_->set_current_time(current_ms);
                 }
@@ -559,6 +598,7 @@ void playlist_window::setup_connections()
             {
                 current_progress_ms_ = qMax<qint64>(0, actual_ms);
                 last_logged_progress_ms_ = current_progress_ms_;
+                lyrics_view_->set_current_time(current_progress_ms_);
                 LOG_INFO("播放状态调试 UI收到跳转完成 actual {}ms 当前内存进度 {}ms 当前内存时长 {}ms",
                          actual_ms,
                          current_progress_ms_,
@@ -575,7 +615,9 @@ void playlist_window::setup_connections()
                 }
 
                 lyrics_view_->set_lyrics(lyrics);
-
+                lyrics_view_->set_current_time(current_progress_ms_);
+                lyrics_panel_->setVisible(!lyrics.isEmpty());
+                update_playback_layout();
             });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
@@ -650,6 +692,7 @@ void playlist_window::on_stop_requested()
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
+        lyrics_panel_->hide();
     }
 }
 
@@ -704,6 +747,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
+        lyrics_panel_->hide();
     }
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)

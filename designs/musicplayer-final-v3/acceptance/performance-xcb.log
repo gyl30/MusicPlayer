@@ -1,0 +1,9 @@
+********* Start testing of playback_tests *********
+Config: Using QtTest library 6.2.4, Qt 6.2.4 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 11.3.0), ubuntu 22.04
+PASS   : playback_tests::initTestCase()
+QWARN  : playback_tests::large_playlist_ui() QSystemTrayIcon::setVisible: No Icon set
+QINFO  : playback_tests::large_playlist_ui() 1200首：导入同步(ms) 81 含扫描(ms) 541 最大选择滚动重绘(ms) 3 逐行QWidget新增 0
+PASS   : playback_tests::large_playlist_ui()
+PASS   : playback_tests::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 14646ms
+********* Finished testing of playback_tests *********

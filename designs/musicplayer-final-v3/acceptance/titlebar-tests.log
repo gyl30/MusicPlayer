@@ -1,0 +1,14 @@
+Internal ctest changing into directory: /tmp/musicplayer-round2-build
+Test project /tmp/musicplayer-round2-build
+    Start 28: close_without_tray
+1/4 Test #28: close_without_tray ...............   Passed    0.22 sec
+    Start 30: ui_controls
+2/4 Test #30: ui_controls ......................   Passed    0.30 sec
+    Start 35: page_size_restore
+3/4 Test #35: page_size_restore ................   Passed    0.19 sec
+    Start 39: adaptive_lyrics
+4/4 Test #39: adaptive_lyrics ..................   Passed    0.64 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Total Test time (real) =   1.36 sec

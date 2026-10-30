@@ -2,6 +2,9 @@
 #include <QPainter>
 #include <QTextOption>
 #include <QFontMetrics>
+#include <QShowEvent>
+#include <QHideEvent>
+#include <QWheelEvent>
 #include "lyrics_widget.h"
 
 constexpr qint64 kLyricPredictionOffsetMs = 250;
@@ -25,7 +28,6 @@ lyrics_widget::lyrics_widget(QWidget* parent) : QWidget(parent)
     animation_timer_ = new QTimer(this);
     animation_timer_->setInterval(kAnimationFrameInterval);
     connect(animation_timer_, &QTimer::timeout, this, &lyrics_widget::on_animation_timer);
-    animation_timer_->start();
 
     setAttribute(Qt::WA_OpaquePaintEvent, false);
 }
@@ -36,26 +38,24 @@ void lyrics_widget::set_lyrics(const QList<LyricLine>& lyrics)
 {
     lyrics_ = lyrics;
     current_index_ = -1;
-    current_time_ms_ = 0;
     target_scroll_y_ = 0;
 
     current_scroll_y_ = height() / 2.0;
 
     layout_dirty_ = true;
+    setAccessibleDescription({});
+    if (lyrics_.isEmpty()) animation_timer_->stop();
+    else if (isVisible()) animation_timer_->start();
     update();
 }
 
 void lyrics_widget::clear()
 {
-    lyrics_.clear();
-    line_rects_.clear();
-    current_index_ = -1;
-    update();
+    set_lyrics({});
 }
 
 void lyrics_widget::set_current_time(qint64 time_ms)
 {
-    current_time_ms_ = time_ms;
 
     if (lyrics_.isEmpty())
     {
@@ -66,6 +66,9 @@ void lyrics_widget::set_current_time(qint64 time_ms)
     if (new_index != current_index_)
     {
         current_index_ = new_index;
+        setAccessibleDescription(current_index_ >= 0 ? lyrics_[current_index_].text : QString());
+        if (isVisible()) animation_timer_->start();
+        update();
     }
 }
 
@@ -92,7 +95,35 @@ int lyrics_widget::get_line_at_time(qint64 time_ms) const
 void lyrics_widget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    const bool reading = height() > 180;
+    font_normal_.setPointSize(reading ? 12 : 10);
+    font_active_.setPointSize(reading ? 15 : 12);
+    line_spacing_ = reading ? 16 : 8;
     layout_dirty_ = true;
+    if (isVisible() && !lyrics_.isEmpty()) animation_timer_->start();
+}
+
+void lyrics_widget::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    if (!lyrics_.isEmpty()) animation_timer_->start();
+}
+
+void lyrics_widget::hideEvent(QHideEvent* event)
+{
+    animation_timer_->stop();
+    QWidget::hideEvent(event);
+}
+
+void lyrics_widget::wheelEvent(QWheelEvent* event)
+{
+    if (line_rects_.isEmpty()) return;
+    animation_timer_->stop();
+    current_scroll_y_ = qBound(height() / 2.0 - line_rects_.last().bottom(),
+                              current_scroll_y_ + event->angleDelta().y() / 2.0, height() / 2.0);
+    target_scroll_y_ = current_scroll_y_;
+    update();
+    event->accept();
 }
 
 void lyrics_widget::update_layout()
@@ -124,8 +155,10 @@ void lyrics_widget::update_layout()
 
 void lyrics_widget::on_animation_timer()
 {
+    if (layout_dirty_) update_layout();
     if (lyrics_.isEmpty() || line_rects_.isEmpty())
     {
+        animation_timer_->stop();
         return;
     }
 
@@ -146,6 +179,7 @@ void lyrics_widget::on_animation_timer()
         current_scroll_y_ += (target_scroll_y_ - current_scroll_y_) * kScrollSmoothingFactor;
         update();
     }
+    else animation_timer_->stop();
 }
 
 void lyrics_widget::paintEvent(QPaintEvent* /*event*/)

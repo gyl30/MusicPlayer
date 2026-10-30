@@ -13,7 +13,8 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QScrollBar>
-#include <QTabBar>
+#include <QFileDialog>
+#include <QLineEdit>
 #include <QLabel>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
@@ -206,7 +207,8 @@ private slots:
         auto* lyrics = window.findChild<lyrics_widget*>();
         QVERIFY(lyrics != nullptr);
         lyrics->set_lyrics({{0, "第一行中文歌词"}, {1000, "第二行中文歌词"}});
-        window.findChild<QTabBar*>("libraryTabs")->setCurrentIndex(1);
+        QVERIFY(QMetaObject::invokeMethod(window.findChild<playback_controller*>(), "lyrics_updated",
+                                          Q_ARG(QList<LyricLine>, QList<LyricLine>({{0, "第一行中文歌词"}}))));
         window.resize(340, 400);
         QTest::qWait(50);
         QVERIFY(volume->mapTo(&window, QPoint(0, volume->height())).y()
@@ -260,9 +262,6 @@ private slots:
     {
         playlist_window window;
         window.show();
-        auto* tabs = window.findChild<QTabBar*>("libraryTabs");
-        QVERIFY(tabs != nullptr);
-        QCOMPARE(tabs->count(), 2);
         auto* player = window.findChild<player_window*>();
         auto* duration = window.findChild<QLabel*>("durationLabel");
         player->update_track_info(0);
@@ -277,10 +276,15 @@ private slots:
         controller->play_file(tone_);
         QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
         const auto before = progress.last().first().toLongLong();
-        tabs->setCurrentIndex(1);
+        QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
         QVERIFY(window.findChild<lyrics_widget*>()->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(progress.last().first().toLongLong() > before, 1000);
-        tabs->setCurrentIndex(0);
+        controller->pause_resume();
+        QSignalSpy seek(controller, &playback_controller::seek_completed);
+        controller->seek(3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!seek.isEmpty(), 1000);
+        QCOMPARE(window.findChild<lyrics_widget*>()->accessibleDescription(), QString("第二行"));
         QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
         controller->stop();
     }
@@ -362,9 +366,124 @@ private slots:
         }
         QCOMPARE(tree->viewport()->findChildren<QWidget*>().count(), children);
         QCOMPARE(group->child(0)->data(0, Qt::UserRole).toString(), paths.first());
-        QVERIFY(!group->child(0)->text(0).endsWith(".wav"));
+        QVERIFY(group->child(0)->text(0).endsWith(".wav"));
         qInfo() << "1200首：导入同步(ms)" << import_ms << "含扫描(ms)" << total_ms
                 << "最大选择滚动重绘(ms)" << max_interaction_ms << "逐行QWidget新增" << 0;
+    }
+
+    void svg_library_actions()
+    {
+        playlist_window window;
+        window.show();
+        for (const QString& name : {QString("addMusicButton"), QString("manageButton")})
+        {
+            auto* button = window.findChild<QPushButton*>(name);
+            QVERIFY(button != nullptr);
+            QVERIFY(button->text().isEmpty());
+            QVERIFY(button->toolTip().isEmpty());
+            QVERIFY(!button->icon().isNull());
+            QVERIFY(!button->accessibleName().isEmpty());
+        }
+        const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
+        QTimer choose_file;
+        connect(&choose_file, &QTimer::timeout, &window, [this]
+        {
+            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (dialog != nullptr && dialog->isVisible())
+            {
+                if (dialog->directory().absolutePath() != temp_.path()) dialog->setDirectory(temp_.path());
+                auto* name = dialog->findChild<QLineEdit*>("fileNameEdit");
+                if (name != nullptr) name->setText(tone_);
+                QMetaObject::invokeMethod(dialog, "accept");
+            }
+        });
+        choose_file.start(100);
+        QTimer::singleShot(3000, &window, []
+        {
+            if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) dialog->reject();
+        });
+        window.findChild<QPushButton*>("addMusicButton")->click();
+        choose_file.stop();
+        auto* manager = window.findChild<playlist_manager*>();
+        QCOMPARE(manager->get_playlist_by_id(manager->get_all_playlists().first().id).songs.size(), 1);
+        window.findChild<QPushButton*>("manageButton")->click();
+        QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
+        window.findChild<QPushButton*>("cancelChangesButton")->click();
+        QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
+    }
+
+    void adaptive_lyrics()
+    {
+        playlist_window window;
+        window.show();
+        auto* controller = window.findChild<playback_controller*>();
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* lyrics = window.findChild<lyrics_widget*>();
+        QList<LyricLine> lines{{0,"第一行"},{2000,"第二行"},{6000,"第三行"}};
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        window.resize(860, 720);
+        QTest::qWait(100);
+        QVERIFY(tree->isVisible());
+        QVERIFY(lyrics->isVisible());
+        QVERIFY(lyrics->mapTo(&window, QPoint()).x() > tree->mapTo(&window, QPoint(tree->width(), 0)).x());
+        auto* toggle = window.findChild<QPushButton*>("lyricsToggle");
+        QVERIFY(toggle != nullptr);
+        window.resize(540, 740);
+        QTest::qWait(100);
+        const int collapsed_tree_height = tree->height();
+        QVERIFY(lyrics->height() < 120);
+        toggle->click();
+        QTest::qWait(100);
+        QVERIFY(lyrics->height() > 180);
+        QVERIFY(tree->height() < collapsed_tree_height);
+        window.resize(360, 530);
+        QTest::qWait(100);
+        QCOMPARE(window.size(), QSize(360, 530));
+        QVERIFY(lyrics->height() >= 125);
+        QVERIFY(window.rect().contains(QRect(lyrics->mapTo(&window, QPoint()), lyrics->size())));
+        lines.clear();
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        QVERIFY(!lyrics->isVisible());
+        window.resize(860, 720);
+        QTest::qWait(100);
+        QVERIFY(tree->width() > 750);
+    }
+
+    void playback_state_restore_ui()
+    {
+        {
+            playlist_window window;
+            auto* manager = window.findChild<playlist_manager*>();
+            const auto id = manager->get_all_playlists().first().id;
+            QVERIFY(manager->add_songs_to_playlist(id, {tone_}));
+            auto* controller = window.findChild<playback_controller*>();
+            auto* tree = window.findChild<QTreeWidget*>();
+            QSignalSpy progress(controller, &playback_controller::progress_updated);
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
+                Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
+            QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+            controller->pause_resume();
+            QSignalSpy seek(controller, &playback_controller::seek_finished);
+            controller->seek(3000);
+            QTRY_VERIFY_WITH_TIMEOUT(!seek.isEmpty(), 1000);
+            QVERIFY(seek.last().first().toBool());
+            QTRY_VERIFY_WITH_TIMEOUT(progress.last().first().toLongLong() >= 2900, 1000);
+            window.findChild<player_window*>()->set_playback_mode(playback_mode::Shuffle);
+            auto* volume = window.findChild<volume_meter*>();
+            volume->setValue(50);
+            QTest::keyClick(volume, Qt::Key_End);
+        }
+        QSettings saved("MusicPlayer", "MusicPlayer");
+        const int position = saved.value("playback/positionMs").toInt();
+        QVERIFY(position >= 2900);
+        playlist_window restored;
+        QCOMPARE(restored.findChild<QSlider*>("progressSlider")->value(), position);
+        QCOMPARE(restored.findChild<volume_meter*>()->value(), 100);
+        QCOMPARE(restored.findChild<QPushButton*>("modeButton")->toolTip(), QString("随机播放"));
+        QVERIFY(!restored.findChild<playback_controller*>()->is_media_loaded());
+        QCOMPARE(restored.findChild<QTreeWidget*>()->currentItem()->data(0, Qt::UserRole).toString(), tone_);
     }
 
     void unknown_duration()

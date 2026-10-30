@@ -9,10 +9,10 @@ QPushButton:hover { background: #E4F0FF; border-color: #9ABDE8; }
 QPushButton:pressed { background: #CFDFF4; }
 QPushButton:focus { border: 1px solid #1478E8; }
 QPushButton:disabled { color: #8895A7; background: #EDF1F7; border-color: #E5EBF4; }
-#windowMinButton, #windowCloseButton { min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px; padding: 0; border: none; background: transparent; }
+#windowMinButton, #windowCloseButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
 #windowMinButton:hover { background: #E4F0FF; }
 #windowCloseButton:hover { background: #F4DDDA; color: #A23931; }
-#manageButton, #addMusicButton { min-height: 22px; padding: 2px 8px; background: transparent; border-color: transparent; }
+#manageButton, #addMusicButton { min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; background: transparent; border-color: transparent; qproperty-iconSize: 20px 20px; }
 #manageButton:hover, #addMusicButton:hover { background: #E4F0FF; }
 #manageButton:focus, #addMusicButton:focus { border-color: #1478E8; }
 #trackTitleLabel { font-size: 14pt; font-weight: 600; color: #26364E; }
@@ -59,9 +59,6 @@ QLineEdit { background: #FFFFFF; color: #26364E; border: 1px solid #BCCADD; bord
 QLineEdit:focus { border-color: #1478E8; }
 
 #durationLabel, #artistLabel { color: #64758D; }
-QTabBar::tab { padding: 7px 5px; margin-right: 5px; color: #64758D; border-bottom: 2px solid transparent; }
-QTabBar::tab:selected { color: #1478E8; border-bottom-color: #1478E8; font-weight: 600; }
-QTabBar::tab:focus { background: #E4F0FF; }
 
 #coverArtLabel { border-radius: 10px; }
 #albumLabel { color: #64758D; font-size: 9pt; }
@@ -76,3 +73,11 @@ QTabBar::tab:focus { background: #E4F0FF; }
 
 #songTreeWidget::branch:has-children:closed { image: url(:/icons/chevron-right.svg); }
 #songTreeWidget::branch:has-children:open { image: url(:/icons/chevron-down.svg); }
+
+#manageButton:pressed, #addMusicButton:pressed { background: #CFDFF4; }
+#manageButton:disabled, #addMusicButton:disabled { background: #EDF1F7; }
+#libraryTitle { color: #1478E8; font-weight: 600; }
+#lyricsPanel { background: #EDF4FC; border-radius: 8px; }
+#lyricsToggle { min-height: 20px; padding: 0 4px; border: none; background: transparent; color: #64758D; text-align: right; }
+#lyricsToggle:hover { color: #1478E8; }
+#lyricsToggle:focus { border: 1px solid #9ABDE8; }

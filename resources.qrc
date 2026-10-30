@@ -1,5 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource prefix="/">
+    <file alias="icons/minimize.svg">icons/minimize.svg</file>
+    <file alias="icons/close.svg">icons/close.svg</file>
     <file alias="icons/app_icon.svg">icons/app_icon.svg</file>
     <file alias="icons/chevron-right.svg">icons/chevron-right.svg</file>
     <file alias="icons/chevron-down.svg">icons/chevron-down.svg</file>
@@ -12,6 +14,7 @@
     <file alias="icons/playlist.svg">icons/playlist.svg</file>
     <file alias="icons/song.svg">icons/song.svg</file>
     <file alias="icons/shuffle.svg">icons/shuffle.svg</file>
+    <file alias="icons/add.svg">icons/add.svg</file>
     <file alias="icons/manage.svg">icons/manage.svg</file>
     <file alias="icons/repeat.svg">icons/repeat.svg</file>
     <file alias="icons/repeat-one.svg">icons/repeat-one.svg</file>

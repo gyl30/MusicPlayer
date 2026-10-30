@@ -1,0 +1,8 @@
+********* Start testing of playback_tests *********
+Config: Using QtTest library 6.2.4, Qt 6.2.4 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 11.3.0), ubuntu 22.04
+PASS   : playback_tests::initTestCase()
+QWARN  : playback_tests::svg_library_actions() QSystemTrayIcon::setVisible: No Icon set
+PASS   : playback_tests::svg_library_actions()
+PASS   : playback_tests::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 303ms
+********* Finished testing of playback_tests *********

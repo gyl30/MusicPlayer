@@ -13,6 +13,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
 class QStackedWidget;
+class QBoxLayout;
+class QSizeGrip;
+class QPushButton;
 
 class playback_controller;
 class playlist_manager;
@@ -69,6 +72,7 @@ class playlist_window : public QMainWindow
     void setup_ui();
     void setup_connections();
     void switch_to_page(int page_index);
+    void update_playback_layout();
     void clear_playing_indicator();
     void populate_playlists_on_startup();
     void restore_playback_state();
@@ -85,6 +89,10 @@ class playlist_window : public QMainWindow
     player_window* player_window_ = nullptr;
     music_management_dialog* management_page_ = nullptr;
     lyrics_widget* lyrics_view_ = nullptr;
+    QWidget* lyrics_panel_ = nullptr;
+    QPushButton* lyrics_toggle_ = nullptr;
+    QBoxLayout* playback_layout_ = nullptr;
+    QSizeGrip* resize_grip_ = nullptr;
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
