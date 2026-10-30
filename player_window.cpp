@@ -4,6 +4,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTime>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStyle>
 #include <QStyleOptionSlider>
@@ -13,6 +14,8 @@
 #include <QColor>
 #include <QMouseEvent>
 #include <QPixmap>
+#include <QPainter>
+#include <QPainterPath>
 #include <limits>
 
 #include "volumemeter.h"
@@ -108,19 +111,21 @@ void player_window::restore_idle_state(const QString& title, qint64 position_ms,
 
 void player_window::setup_ui()
 {
+    setObjectName("playerView");
+    setProperty("compact", true);
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 8);
-    root->setSpacing(6);
+    root->setSpacing(12);
     auto* info = new QHBoxLayout();
     info->setSpacing(14);
     cover_art_label_ = new QLabel(this);
     cover_art_label_->setObjectName("coverArtLabel");
-    cover_art_label_->setFixedSize(76, 76);
+    cover_art_label_->setFixedSize(104, 104);
     cover_art_label_->setAlignment(Qt::AlignCenter);
     clear_cover_art();
     info->addWidget(cover_art_label_);
     auto* details = new QVBoxLayout();
-    details->setSpacing(4);
+    details->setSpacing(2);
     track_title_label_ = new scrolling_text_label(this);
     track_title_label_->setObjectName("trackTitleLabel");
     track_title_label_->setMinimumWidth(0);
@@ -133,6 +138,12 @@ void player_window::setup_ui()
     artist_label_->setMinimumWidth(0);
     artist_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     details->addWidget(artist_label_);
+    album_label_ = new QLabel(this);
+    album_label_->setObjectName("albumLabel");
+    album_label_->setTextFormat(Qt::PlainText);
+    album_label_->setMinimumWidth(0);
+    album_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    details->addWidget(album_label_);
     info->addLayout(details, 1);
     root->addLayout(info);
 
@@ -142,7 +153,7 @@ void player_window::setup_ui()
     progress_slider_->setFixedHeight(20);
     progress_slider_->setAccessibleName("播放进度");
     progress_slider_->installEventFilter(this);
-    root->addWidget(progress_slider_);
+    details->addWidget(progress_slider_);
     auto* times = new QHBoxLayout();
     time_label_ = new QLabel("00:00", this);
     time_label_->setObjectName("timeLabel");
@@ -151,13 +162,14 @@ void player_window::setup_ui()
     times->addWidget(time_label_);
     times->addStretch();
     times->addWidget(duration_label_);
-    root->addLayout(times);
+    details->addLayout(times);
 
     auto* controls = new QWidget(this);
     controls->setObjectName("controlsContainer");
     auto* row = new QHBoxLayout(controls);
     row->setContentsMargins(0, 2, 0, 0);
     row->setSpacing(3);
+    row->addStretch();
     shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "", controls);
     shuffle_button_->setObjectName("modeButton");
     prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "", controls);
@@ -174,6 +186,7 @@ void player_window::setup_ui()
     {
         button->setAccessibleName(button->toolTip());
         row->addWidget(button);
+        if (button != stop_button_) row->addStretch();
     }
     row->addStretch();
     auto* volume_icon = new QLabel(controls);
@@ -245,6 +258,9 @@ void player_window::reset_ui()
     set_time_text("00:00");
     duration_label_->setText("--:--");
     artist_label_->setText("本地音乐");
+    artist_label_->setToolTip({});
+    album_label_->clear();
+    album_label_->setToolTip({});
     progress_slider_->setRange(0, 100);
     progress_slider_->setValue(0);
 }
@@ -298,7 +314,7 @@ void player_window::on_playback_started(const QString& file_path, const QString&
     reset_ui();
     is_paused_ = false;
     play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
-    set_track_title(file_name);
+    set_track_title(QFileInfo(file_name).completeBaseName());
     setWindowTitle(file_name);
 }
 
@@ -315,15 +331,13 @@ void player_window::on_cover_art_updated(const QByteArray& image_data)
         return;
     }
 
-    QPixmap cover;
-    if (!cover.loadFromData(image_data))
+    if (!cover_pixmap_.loadFromData(image_data))
     {
         clear_cover_art();
         return;
     }
 
-    cover_art_label_->setPixmap(cover.scaled(cover_art_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    cover_art_label_->show();
+    refresh_cover_art();
 }
 
 void player_window::on_playback_mode_clicked()
@@ -404,6 +418,11 @@ void player_window::on_metadata_updated(const QMap<QString, QString>& metadata)
     QString artist = metadata.value("artist");
     artist_label_->setText(artist.isEmpty() ? "未知歌手" : artist);
     artist_label_->setToolTip(artist);
+    QStringList extra;
+    if (!metadata.value("album").isEmpty()) extra << metadata.value("album");
+    if (!metadata.value("date").isEmpty()) extra << metadata.value("date");
+    album_label_->setText(extra.join(" · "));
+    album_label_->setToolTip(album_label_->text());
     if (!title.isEmpty()) set_track_title(title);
 }
 
@@ -420,7 +439,52 @@ void player_window::clear_cover_art()
         return;
     }
 
-    cover_art_label_->setPixmap(QIcon(":/icons/song.svg").pixmap(30, 30));
+    cover_pixmap_ = QPixmap();
+    refresh_cover_art();
+}
+
+void player_window::refresh_cover_art()
+{
+    if (cover_pixmap_.isNull())
+    {
+        cover_art_label_->setPixmap(QIcon(":/icons/song.svg").pixmap(32, 32));
+        return;
+    }
+    const qreal ratio = devicePixelRatioF();
+    QPixmap result(cover_art_label_->size() * ratio);
+    result.setDevicePixelRatio(ratio);
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.setRenderHint(QPainter::Antialiasing);
+    QPainterPath clip;
+    clip.addRoundedRect(QRectF(QPointF(), QSizeF(cover_art_label_->size())), 10, 10);
+    painter.setClipPath(clip);
+    const QPixmap scaled = cover_pixmap_.scaled(result.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    painter.drawPixmap(QRectF(QPointF(), QSizeF(cover_art_label_->size())), scaled,
+                       QRectF((scaled.width() - result.width()) / 2.0, (scaled.height() - result.height()) / 2.0,
+                              result.width(), result.height()));
+    cover_art_label_->setPixmap(result);
+}
+
+void player_window::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    const bool compact = width() < 460;
+    if (property("compact").toBool() != compact)
+    {
+        setProperty("compact", compact);
+        for (auto* child : findChildren<QWidget*>())
+        {
+            child->style()->unpolish(child);
+            child->style()->polish(child);
+        }
+    }
+    const int side = compact ? 104 : 144;
+    if (cover_art_label_->width() != side)
+    {
+        cover_art_label_->setFixedSize(side, side);
+        refresh_cover_art();
+    }
 }
 
 void player_window::set_time_text(const QString& text)

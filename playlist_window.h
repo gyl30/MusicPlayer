@@ -63,6 +63,7 @@ class playlist_window : public QMainWindow
    protected:
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
    private:
     void setup_ui();
@@ -88,6 +89,8 @@ class playlist_window : public QMainWindow
 
     QTreeWidget* song_tree_widget_ = nullptr;
     QStackedWidget* main_stack_ = nullptr;
+    QSize playback_page_size_{540, 740};
+    QSize management_page_size_{800, 480};
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;

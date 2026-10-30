@@ -36,7 +36,7 @@ QTreeWidget, QListWidget { background: #F5F8FC; alternate-background-color: #F5F
 QTreeWidget::item, QListWidget::item { min-height: 28px; padding: 3px 6px; }
 QTreeWidget::item:hover, QListWidget::item:hover { background: #ECF3FC; }
 QTreeWidget::item:selected, QListWidget::item:selected { background: #DCEAFF; color: #26364E; }
-QTreeWidget::item:focus, QListWidget::item:focus { border: 1px solid #1478E8; }
+QListWidget::item:focus { border: 1px solid #1478E8; }
 QTreeWidget::branch { background: transparent; }
 #managementPanel { background: transparent; border: none; }
 #managementPanel QLabel { font-weight: 600; }
@@ -62,3 +62,17 @@ QLineEdit:focus { border-color: #1478E8; }
 QTabBar::tab { padding: 7px 5px; margin-right: 5px; color: #64758D; border-bottom: 2px solid transparent; }
 QTabBar::tab:selected { color: #1478E8; border-bottom-color: #1478E8; font-weight: 600; }
 QTabBar::tab:focus { background: #E4F0FF; }
+
+#coverArtLabel { border-radius: 10px; }
+#albumLabel { color: #64758D; font-size: 9pt; }
+#playerView[compact="false"] #trackTitleLabel { font-size: 18pt; }
+#playerView[compact="false"] #artistLabel { font-size: 12pt; }
+#playerView[compact="false"] #albumLabel { font-size: 10pt; }
+#playerView[compact="false"] #controlsContainer #playPauseButton { min-width: 54px; max-width: 54px; min-height: 54px; max-height: 54px; border-radius: 27px; qproperty-iconSize: 28px 28px; }
+#playerView[compact="false"] #controlsContainer QPushButton { qproperty-iconSize: 22px 22px; }
+#songTreeWidget { padding: 0; }
+#songTreeWidget::item { padding: 0; border: none; }
+#songTreeWidget::item:focus { border: none; }
+
+#songTreeWidget::branch:has-children:closed { image: url(:/icons/chevron-right.svg); }
+#songTreeWidget::branch:has-children:open { image: url(:/icons/chevron-down.svg); }

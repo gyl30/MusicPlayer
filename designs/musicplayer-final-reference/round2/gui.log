@@ -1,0 +1,14 @@
+"empty" QSize(540, 740)
+"normal" QSize(540, 740)
+"list-states" QSize(540, 740)
+branch after click false
+branch after second click true
+"compact" QSize(360, 480)
+"minimum" QSize(340, 400)
+"playing" QSize(540, 740)
+"no-cover" QSize(540, 740)
+"long" QSize(360, 480)
+"lyrics" QSize(540, 740)
+"management" QSize(800, 480)
+[mp3float @ 0x799e7c006900] Could not update timestamps for skipped samples.
+"real-local" QSize(540, 740)

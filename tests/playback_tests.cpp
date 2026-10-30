@@ -12,6 +12,7 @@
 #include <QSystemTrayIcon>
 #include <QPushButton>
 #include <QSlider>
+#include <QScrollBar>
 #include <QTabBar>
 #include <QLabel>
 #include "volumemeter.h"
@@ -282,6 +283,88 @@ private slots:
         tabs->setCurrentIndex(0);
         QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
         controller->stop();
+    }
+
+    void page_size_restore()
+    {
+        playlist_window window;
+        window.show();
+        window.resize(610, 710);
+        QTest::qWait(50);
+        const auto playback_size = window.size();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        window.resize(850, 530);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QCOMPARE(window.size(), playback_size);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QCOMPARE(window.size(), QSize(850, 530));
+    }
+
+    void responsive_layout()
+    {
+        playlist_window window;
+        window.show();
+        auto* cover = window.findChild<QLabel*>("coverArtLabel");
+        auto* slider = window.findChild<QSlider*>("progressSlider");
+        for (const QSize size : {QSize(540, 740), QSize(360, 480), QSize(340, 400)})
+        {
+            window.resize(size);
+            QTest::qWait(80);
+            const QRect image(cover->mapTo(&window, QPoint()), cover->size());
+            const QRect progress(slider->mapTo(&window, QPoint()), slider->size());
+            QVERIFY(progress.left() > image.right());
+            QVERIFY(progress.bottom() <= image.bottom());
+            QVERIFY(window.rect().contains(image));
+            QVERIFY(window.rect().contains(progress));
+        }
+    }
+
+    void large_playlist_ui()
+    {
+        const auto old_style = qApp->styleSheet();
+        DEFER(qApp->setStyleSheet(old_style));
+        QFile style(":/style/stylesheet.qss");
+        QVERIFY(style.open(QFile::ReadOnly));
+        qApp->setStyleSheet(style.readAll());
+        const QString short_file = temp_.filePath("list-short.wav");
+        encode({"-i", tone_, "-t", "0.02", short_file});
+        QStringList paths;
+        for (int i = 0; i < 1200; ++i)
+        {
+            const auto path = temp_.filePath(QString("列表歌曲-%1.wav").arg(i));
+            QVERIFY(QFile::copy(short_file, path));
+            paths.append(path);
+        }
+        playlist_window window;
+        window.show();
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* manager = window.findChild<playlist_manager*>();
+        const auto id = manager->get_all_playlists().first().id;
+        const int children = tree->viewport()->findChildren<QWidget*>().count();
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(manager->add_songs_to_playlist(id, paths));
+        const auto import_ms = timer.elapsed();
+        auto* group = tree->topLevelItem(0);
+        QCOMPARE(group->childCount(), 1200);
+        group->setExpanded(true);
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 5000);
+        const auto total_ms = timer.elapsed();
+        qint64 max_interaction_ms = 0;
+        for (int i = 0; i < 30; ++i)
+        {
+            timer.restart();
+            tree->setCurrentItem(group->child((i * 41) % 1200));
+            tree->scrollToItem(tree->currentItem());
+            tree->viewport()->repaint();
+            QCoreApplication::processEvents();
+            max_interaction_ms = qMax(max_interaction_ms, timer.elapsed());
+        }
+        QCOMPARE(tree->viewport()->findChildren<QWidget*>().count(), children);
+        QCOMPARE(group->child(0)->data(0, Qt::UserRole).toString(), paths.first());
+        QVERIFY(!group->child(0)->text(0).endsWith(".wav"));
+        qInfo() << "1200首：导入同步(ms)" << import_ms << "含扫描(ms)" << total_ms
+                << "最大选择滚动重绘(ms)" << max_interaction_ms << "逐行QWidget新增" << 0;
     }
 
     void unknown_duration()

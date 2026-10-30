@@ -25,6 +25,10 @@
 #include <QSet>
 #include <QFontMetrics>
 #include <QSizeGrip>
+#include <QStyledItemDelegate>
+#include <QPainter>
+#include <QResizeEvent>
+#include <QFileInfo>
 #include <QTabBar>
 
 #include "log.h"
@@ -35,6 +39,53 @@
 #include "playback_controller.h"
 #include "music_management_dialog.h"
 #include "lyrics_widget.h"
+
+class song_delegate final : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const override
+    {
+        return QSize(80, option.widget != nullptr && option.widget->width() >= 460 ? 44 : 36);
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override
+    {
+        painter->save();
+        const bool song = index.parent().isValid();
+        const bool playing = song && qvariant_cast<QFont>(index.data(Qt::FontRole)).bold();
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+        if (playing || selected || hovered)
+            painter->fillRect(option.rect, playing ? QColor("#E4F0FF") : selected ? QColor("#E1E7F0") : QColor("#EEF3FA"));
+        QFont font = option.font;
+        font.setPointSize(option.widget != nullptr && option.widget->width() >= 460 ? 11 : 10);
+        font.setBold(playing || !song);
+        painter->setFont(font);
+        painter->setPen(playing ? QColor("#1478E8") : song && index.column() == 0 ? QColor("#26364E") : QColor("#64758D"));
+        QRect text = option.rect.adjusted(10, 0, -12, 0);
+        if (song && index.column() == 0)
+        {
+            painter->drawText(QRect(text.left(), text.top(), 24, text.height()), Qt::AlignVCenter | Qt::AlignLeft,
+                              playing ? QStringLiteral("▶") : QString::number(index.row() + 1));
+            text.setLeft(text.left() + 32);
+        }
+        painter->drawText(text, Qt::AlignVCenter | (index.column() == 1 ? Qt::AlignRight : Qt::AlignLeft),
+                          painter->fontMetrics().elidedText(index.data().toString(), Qt::ElideRight, text.width()));
+        if (song)
+        {
+            painter->setPen(QColor("#E8EDF5"));
+            painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        }
+        if (option.state & QStyle::State_HasFocus)
+        {
+            painter->setPen(QPen(QColor("#7899C2"), 1, Qt::DotLine));
+            painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        }
+        painter->restore();
+    }
+};
 
 static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
 {
@@ -82,9 +133,9 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
         return;
     }
 
-    const QString display_text = normalize_display_text(file_name);
+    const QString display_text = normalize_display_text(QFileInfo(file_name).completeBaseName());
     item->setText(0, display_text);
-    item->setToolTip(0, display_text);
+    item->setToolTip(0, file_name);
 }
 
 static QString format_duration_ms(qint64 duration_ms)
@@ -127,7 +178,10 @@ static void update_duration_column_width(QTreeWidget* tree)
         return;
     }
 
-    const QFontMetrics metrics(tree->font());
+    QFont duration_font = tree->font();
+    duration_font.setPointSize(11);
+    duration_font.setBold(true);
+    const QFontMetrics metrics(duration_font);
     int text_width = metrics.horizontalAdvance(QStringLiteral("--:--"));
     for (int i = 0; i < tree->topLevelItemCount(); ++i)
     {
@@ -149,7 +203,6 @@ static void update_duration_column_width(QTreeWidget* tree)
 
     int column_width = text_width + 24;
     column_width = qMax(column_width, 64);
-    column_width = qMin(column_width, 88);
     tree->setColumnWidth(1, column_width);
 }
 
@@ -237,7 +290,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     setWindowTitle("音乐播放器");
     centralWidget()->setMinimumWidth(340);
     layout()->setSizeConstraint(QLayout::SetMinimumSize);
-    resize(360, 480);
+    resize(playback_page_size_);
 }
 
 playlist_window::~playlist_window()
@@ -281,6 +334,13 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
     }
 
     return QMainWindow::eventFilter(watched, event);
+}
+
+void playlist_window::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    if (song_tree_widget_ != nullptr && (event->oldSize().width() < 480) != (event->size().width() < 480))
+        song_tree_widget_->doItemsLayout();
 }
 
 void playlist_window::setup_ui()
@@ -328,12 +388,16 @@ void playlist_window::setup_ui()
     song_tree_widget_ = new QTreeWidget();
     song_tree_widget_->setObjectName("songTreeWidget");
     song_tree_widget_->setColumnCount(2);
+    song_tree_widget_->setItemDelegate(new song_delegate(song_tree_widget_));
+    song_tree_widget_->setUniformRowHeights(true);
+    song_tree_widget_->setMouseTracking(true);
+    song_tree_widget_->setAllColumnsShowFocus(true);
     song_tree_widget_->header()->hide();
     song_tree_widget_->header()->setStretchLastSection(false);
     song_tree_widget_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     song_tree_widget_->header()->setSectionResizeMode(1, QHeaderView::Fixed);
     song_tree_widget_->setColumnWidth(1, 40);
-    song_tree_widget_->setIndentation(16);
+    song_tree_widget_->setIndentation(12);
     song_tree_widget_->setIconSize(QSize(14, 14));
     song_tree_widget_->setContextMenuPolicy(Qt::CustomContextMenu);
     song_tree_widget_->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -541,9 +605,13 @@ void playlist_window::switch_to_page(int page_index)
         return;
     }
 
-    main_stack_->setCurrentIndex(page_index);
+    const int previous_page = main_stack_->currentIndex();
+    if (previous_page == page_index) return;
+    if (previous_page == kPlaybackPageIndex) playback_page_size_ = size();
+    else management_page_size_ = size();
     centralWidget()->setMinimumWidth(page_index == kPlaybackPageIndex ? 340 : 720);
-    resize(page_index == kPlaybackPageIndex ? QSize(360, 480) : QSize(800, 480));
+    main_stack_->setCurrentIndex(page_index);
+    resize(page_index == kPlaybackPageIndex ? playback_page_size_ : management_page_size_);
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -904,13 +972,11 @@ void playlist_window::populate_playlists_on_startup()
         auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
         set_item_text_with_tooltip(playlist_item, QString("%1 [%2]").arg(playlist.name).arg(full_playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
-        playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
         playlist_item->setExpanded(false);
 
         for (const auto& song : full_playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(playlist_item);
-            song_item->setIcon(0, QIcon(":/icons/song.svg"));
             set_song_item_text_with_tooltip(song_item, song.file_name);
             set_song_duration_text(song_item, song.duration_ms);
             song_item->setData(0, Qt::UserRole, song.file_path);
@@ -952,7 +1018,6 @@ void playlist_window::on_playlist_added(const Playlist& new_playlist)
     auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
     set_item_text_with_tooltip(playlist_item, QString("%1 [0]").arg(new_playlist.name));
     playlist_item->setData(0, Qt::UserRole, new_playlist.id);
-    playlist_item->setIcon(0, QIcon(":/icons/playlist.svg"));
     playlist_item->setExpanded(false);
     song_tree_widget_->blockSignals(false);
 }
@@ -1011,7 +1076,6 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
         for (const auto& song : playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(item);
-            song_item->setIcon(0, QIcon(":/icons/song.svg"));
             set_song_item_text_with_tooltip(song_item, song.file_name);
             set_song_duration_text(song_item, song.duration_ms);
             song_item->setData(0, Qt::UserRole, song.file_path);

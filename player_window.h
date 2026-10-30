@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QMap>
 #include <QByteArray>
+#include <QPixmap>
 #include <QList>
 #include "audio_packet.h"
 
@@ -54,6 +55,7 @@ class player_window : public QWidget
 
    protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
    private slots:
     void on_seek_requested();
@@ -72,6 +74,7 @@ class player_window : public QWidget
     void set_time_text(const QString& text);
     void set_track_title(const QString& title);
     void clear_cover_art();
+    void refresh_cover_art();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -89,6 +92,8 @@ class player_window : public QWidget
     QLabel* time_label_ = nullptr;
     QLabel* duration_label_ = nullptr;
     QLabel* artist_label_ = nullptr;
+    QLabel* album_label_ = nullptr;
+    QPixmap cover_pixmap_;
     QLabel* cover_art_label_ = nullptr;
     scrolling_text_label* track_title_label_ = nullptr;
 
