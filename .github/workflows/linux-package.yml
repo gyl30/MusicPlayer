@@ -1,0 +1,52 @@
+name: Linux DEB
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debian-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: 安装构建和运行依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-multimedia-dev qt6-svg-dev qt6-qpa-plugins \
+            libqt6sql6-sqlite libsdl2-dev libboost-dev \
+            libavformat-dev libavcodec-dev libavutil-dev libswresample-dev \
+            ffmpeg dpkg-dev file python3
+      - name: 配置 Release 构建
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: 构建并运行全部回归
+        run: |
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure -j1
+      - name: 生成并检查 DEB
+        run: |
+          cpack --config build/CPackConfig.cmake -G DEB -B dist --verbose
+          package=$(find dist -maxdepth 1 -name '*.deb' -print -quit)
+          test -n "$package"
+          dpkg-deb --info "$package"
+          dpkg-deb --contents "$package"
+      - name: 安装、启动检查及卸载
+        run: |
+          package=$(find dist -maxdepth 1 -name '*.deb' -print -quit)
+          sudo apt-get install -y "./$package"
+          ldd /usr/bin/MusicPlayer | tee runtime-dependencies.txt
+          if grep -Fq 'not found' runtime-dependencies.txt; then
+            cat runtime-dependencies.txt
+            exit 1
+          fi
+          python3 tests/check_installed_startup.py /usr/bin/MusicPlayer
+          sudo apt-get remove -y musicplayer

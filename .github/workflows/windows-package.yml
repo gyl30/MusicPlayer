@@ -1,0 +1,64 @@
+name: Windows NSIS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nsis-installer:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: 安装 Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        with:
+          version: 6.9.3
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qtsvg
+      - name: 安装 SDL2、Boost 和 FFmpeg
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg is not installed on this runner' }
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install sdl2:x64-windows boost:x64-windows ffmpeg:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed: $LASTEXITCODE" }
+          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
+      - name: 安装 NSIS
+        shell: pwsh
+        run: |
+          $makensis = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if (-not $makensis) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "NSIS installation failed: $LASTEXITCODE" }
+            $nsisDir = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+            $makensisPath = Join-Path $nsisDir 'makensis.exe'
+            if (-not (Test-Path $makensisPath)) { throw "makensis.exe was not installed in $nsisDir" }
+            $nsisDir | Add-Content $env:GITHUB_PATH
+          }
+      - name: 配置、构建并运行 Qt 测试
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          $ffmpeg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed/x64-windows'
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DFFMPEG_ROOT="$ffmpeg" -DBUILD_TESTING=ON
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
+          cmake --build build --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "CTest failed: $LASTEXITCODE" }
+      - name: 生成并检查 NSIS 安装程序
+        shell: pwsh
+        run: |
+          cpack --config build/CPackConfig.cmake -C Release -G NSIS -B dist --verbose
+          if ($LASTEXITCODE -ne 0) { throw "CPack failed: $LASTEXITCODE" }
+          $installer = Get-ChildItem dist -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not generated' }
+          Get-Item $installer.FullName | Format-List FullName, Length
