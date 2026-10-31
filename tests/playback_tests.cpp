@@ -426,6 +426,30 @@ private slots:
         QTRY_COMPARE(window.size(), narrow_size);
     }
 
+    void window_resize_edges()
+    {
+        playlist_window window;
+        window.show();
+        auto* frame = window.centralWidget();
+        QVERIFY(frame != nullptr);
+        const auto handles = frame->findChildren<QWidget*>("windowResizeHandle", Qt::FindDirectChildrenOnly);
+        QCOMPARE(handles.size(), 8);
+        for (const QSize size : {QSize(540, 740), QSize(850, 530), QSize(340, 400)})
+        {
+            window.resize(size);
+            QTest::qWait(50);
+            QCOMPARE(window.size(), size);
+            for (auto* handle : handles)
+            {
+                QVERIFY(handle->isVisible());
+                QVERIFY(frame->rect().contains(handle->geometry()));
+                QVERIFY(handle->width() > 0 && handle->height() > 0);
+            }
+        }
+        QCOMPARE(handles.first()->geometry().topLeft(), QPoint(0, 0));
+        QCOMPARE(handles.last()->geometry().bottomRight(), frame->rect().bottomRight());
+    }
+
     void responsive_layout()
     {
         playlist_window window;

@@ -25,7 +25,6 @@
 #include <QSize>
 #include <QSet>
 #include <QFontMetrics>
-#include <QSizeGrip>
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QResizeEvent>
@@ -39,6 +38,31 @@
 #include "playback_controller.h"
 #include "music_management_dialog.h"
 #include "lyrics_widget.h"
+
+class window_resize_handle final : public QWidget
+{
+public:
+    window_resize_handle(QWidget* parent, Qt::Edges edges, Qt::CursorShape cursor) : QWidget(parent), edges_(edges)
+    {
+        setObjectName("windowResizeHandle");
+        setCursor(cursor);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton && window() != nullptr && window()->windowHandle() != nullptr
+            && window()->windowHandle()->startSystemResize(edges_))
+        {
+            event->accept();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+private:
+    Qt::Edges edges_;
+};
 
 class song_delegate final : public QStyledItemDelegate
 {
@@ -323,6 +347,10 @@ void playlist_window::closeEvent(QCloseEvent* event)
 
 bool playlist_window::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == centralWidget() && event->type() == QEvent::Resize)
+    {
+        update_resize_handles();
+    }
     if (management_overlay_ != nullptr && watched == management_overlay_->parentWidget()
         && event->type() == QEvent::Resize)
     {
@@ -345,11 +373,7 @@ void playlist_window::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
     if (playback_layout_ != nullptr) update_playback_layout();
-    if (resize_grip_ != nullptr)
-    {
-        resize_grip_->move(width() - resize_grip_->width() - 2, height() - resize_grip_->height() - 2);
-        resize_grip_->raise();
-    }
+    update_resize_handles();
     if (song_tree_widget_ != nullptr && (event->oldSize().width() < 480) != (event->size().width() < 480))
         song_tree_widget_->doItemsLayout();
 }
@@ -362,6 +386,7 @@ void playlist_window::setup_ui()
     auto* central_widget = new QWidget(this);
     central_widget->setObjectName("appFrame");
     setCentralWidget(central_widget);
+    central_widget->installEventFilter(this);
 
     auto* main_layout = new QVBoxLayout(central_widget);
     main_layout->setContentsMargins(1, 1, 1, 1);
@@ -525,8 +550,17 @@ void playlist_window::setup_ui()
     overlay_layout->addWidget(management_card);
     playback_page->installEventFilter(this);
     management_overlay_->hide();
-    resize_grip_ = new QSizeGrip(central_widget);
-    resize_grip_->setFixedSize(14, 14);
+    resize_handles_ = {
+        new window_resize_handle(central_widget, Qt::TopEdge | Qt::LeftEdge, Qt::SizeFDiagCursor),
+        new window_resize_handle(central_widget, Qt::TopEdge, Qt::SizeVerCursor),
+        new window_resize_handle(central_widget, Qt::TopEdge | Qt::RightEdge, Qt::SizeBDiagCursor),
+        new window_resize_handle(central_widget, Qt::LeftEdge, Qt::SizeHorCursor),
+        new window_resize_handle(central_widget, Qt::RightEdge, Qt::SizeHorCursor),
+        new window_resize_handle(central_widget, Qt::BottomEdge | Qt::LeftEdge, Qt::SizeBDiagCursor),
+        new window_resize_handle(central_widget, Qt::BottomEdge, Qt::SizeVerCursor),
+        new window_resize_handle(central_widget, Qt::BottomEdge | Qt::RightEdge, Qt::SizeFDiagCursor)
+    };
+    update_resize_handles();
 
     auto* manage_shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+M")), this);
     connect(manage_shortcut, &QShortcut::activated, this, &playlist_window::on_manage_playlists_action);
@@ -562,6 +596,28 @@ void playlist_window::apply_theme(bool dark)
     theme_button_->setToolTip(dark ? "切换到亮色模式" : "切换到暗色模式");
     theme_button_->setAccessibleName(theme_button_->toolTip());
     QSettings("MusicPlayer", "MusicPlayer").setValue("appearance/dark", dark);
+}
+
+void playlist_window::update_resize_handles()
+{
+    if (resize_handles_.size() != 8 || centralWidget() == nullptr)
+    {
+        return;
+    }
+
+    constexpr int border = 8;
+    const int width = centralWidget()->width();
+    const int height = centralWidget()->height();
+    const int inner_width = qMax(0, width - border * 2);
+    const int inner_height = qMax(0, height - border * 2);
+    resize_handles_[0]->setGeometry(0, 0, border, border);
+    resize_handles_[1]->setGeometry(border, 0, inner_width, border);
+    resize_handles_[2]->setGeometry(width - border, 0, border, border);
+    resize_handles_[3]->setGeometry(0, border, border, inner_height);
+    resize_handles_[4]->setGeometry(width - border, border, border, inner_height);
+    resize_handles_[5]->setGeometry(0, height - border, border, border);
+    resize_handles_[6]->setGeometry(border, height - border, inner_width, border);
+    resize_handles_[7]->setGeometry(width - border, height - border, border, border);
 }
 
 void playlist_window::update_playback_layout()
