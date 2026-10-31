@@ -867,6 +867,11 @@ void playlist_window::handle_playback_error_strategy(const QString& error_messag
     LOG_WARN("播放出错 (连续第 {} 次): {}", consecutive_failures_ + 1, error_message.toStdString());
     if (error_message.startsWith(QStringLiteral("音乐文件不存在")))
     {
+        if (clicked_song_item_ != nullptr && clicked_song_item_->parent() != nullptr)
+        {
+            clear_playing_indicator();
+            currently_playing_item_ = clicked_song_item_;
+        }
         auto* warning = findChild<QMessageBox*>("missingFileWarning");
         if (warning == nullptr)
         {
