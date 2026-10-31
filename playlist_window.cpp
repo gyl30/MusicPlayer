@@ -313,7 +313,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     apply_theme(QSettings("MusicPlayer", "MusicPlayer").value("appearance/dark", false).toBool());
     setWindowTitle("音乐播放器");
     centralWidget()->setMinimumWidth(340);
-    layout()->setSizeConstraint(QLayout::SetMinimumSize);
+    layout()->setSizeConstraint(QLayout::SetNoConstraint);
     resize(540, 740);
 }
 
@@ -389,6 +389,7 @@ void playlist_window::setup_ui()
     central_widget->installEventFilter(this);
 
     auto* main_layout = new QVBoxLayout(central_widget);
+    main_layout->setSizeConstraint(QLayout::SetNoConstraint);
     main_layout->setContentsMargins(1, 1, 1, 1);
     main_layout->setSpacing(0);
 
