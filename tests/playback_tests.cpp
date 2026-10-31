@@ -410,22 +410,22 @@ private slots:
         const QSize playback_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
         QTRY_COMPARE(window.size(), playback_size);
+        auto* overlay = window.findChild<QWidget*>("managementOverlay");
+        QVERIFY(overlay != nullptr);
+        QVERIFY(overlay->isVisible());
 
         window.resize(850, 530);
         QTest::qWait(50);
         const QSize management_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
         QTRY_COMPARE(window.size(), management_size);
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QTRY_COMPARE(window.size(), management_size);
+        QVERIFY(!overlay->isVisible());
 
         window.resize(340, 400);
         QTest::qWait(50);
         const QSize narrow_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
         QTRY_COMPARE(window.size(), narrow_size);
-        auto* overlay = window.findChild<QWidget*>("managementOverlay");
-        QVERIFY(overlay != nullptr);
         QVERIFY(overlay->isVisible());
         QVERIFY(window.rect().contains(QRect(overlay->mapTo(&window, QPoint()), overlay->size())));
         auto* scroll = window.findChild<QScrollArea*>("managementScroll");
