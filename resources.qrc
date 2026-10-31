@@ -16,6 +16,7 @@
     <file alias="icons/shuffle.svg">icons/shuffle.svg</file>
     <file alias="icons/add.svg">icons/add.svg</file>
     <file alias="icons/manage.svg">icons/manage.svg</file>
+    <file alias="icons/lyrics.svg">icons/lyrics.svg</file>
     <file alias="icons/repeat.svg">icons/repeat.svg</file>
     <file alias="icons/repeat-one.svg">icons/repeat-one.svg</file>
     <file alias="icons/sequential.svg">icons/sequential.svg</file>

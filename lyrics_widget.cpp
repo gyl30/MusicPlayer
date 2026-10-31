@@ -192,7 +192,7 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
     {
         painter.setFont(font_normal_);
         painter.setPen(color_normal_);
-        painter.drawText(rect(), Qt::AlignCenter, "暂无歌词");
+        painter.drawText(rect(), Qt::AlignCenter, "没有歌词");
         return;
     }
 

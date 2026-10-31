@@ -89,7 +89,7 @@ class playlist_window : public QMainWindow
     music_management_dialog* management_page_ = nullptr;
     lyrics_widget* lyrics_view_ = nullptr;
     QWidget* lyrics_panel_ = nullptr;
-    QPushButton* lyrics_toggle_ = nullptr;
+    QPushButton* lyrics_button_ = nullptr;
     QBoxLayout* playback_layout_ = nullptr;
     QSizeGrip* resize_grip_ = nullptr;
     tray_icon* tray_icon_ = nullptr;

@@ -238,10 +238,15 @@ private slots:
         lyrics->set_lyrics({{0, "第一行中文歌词"}, {1000, "第二行中文歌词"}});
         QVERIFY(QMetaObject::invokeMethod(window.findChild<playback_controller*>(), "lyrics_updated",
                                           Q_ARG(QList<LyricLine>, QList<LyricLine>({{0, "第一行中文歌词"}}))));
-        window.resize(340, 400);
+        auto* lyrics_button = window.findChild<QPushButton*>("lyricsButton");
+        QVERIFY(lyrics_button != nullptr);
+        QVERIFY(!lyrics->isVisible());
+        lyrics_button->click();
         QTest::qWait(50);
-        QVERIFY(volume->mapTo(&window, QPoint(0, volume->height())).y()
-                <= lyrics->mapTo(&window, QPoint()).y());
+        QVERIFY(lyrics->isVisible());
+        QCOMPARE(window.size(), QSize(340, 400));
+        lyrics_button->click();
+        QVERIFY(!lyrics->isVisible());
         auto* mode = window.findChild<QPushButton*>("modeButton");
         auto* player = window.findChild<player_window*>();
         player->set_playback_mode(playback_mode::ListLoop);
@@ -313,6 +318,9 @@ private slots:
         const auto before = progress.last().first().toLongLong();
         QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
         QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        auto* lyrics_button = window.findChild<QPushButton*>("lyricsButton");
+        QVERIFY(lyrics_button != nullptr);
+        lyrics_button->click();
         QVERIFY(window.findChild<lyrics_widget*>()->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(progress.last().first().toLongLong() > before, 1000);
         controller->pause_resume();
@@ -477,34 +485,35 @@ private slots:
         auto* controller = window.findChild<playback_controller*>();
         auto* tree = window.findChild<QTreeWidget*>();
         auto* lyrics = window.findChild<lyrics_widget*>();
-        QList<LyricLine> lines{{0,"第一行"},{2000,"第二行"},{6000,"第三行"}};
-        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        auto* button = window.findChild<QPushButton*>("lyricsButton");
+        QVERIFY(button != nullptr);
+        QVERIFY(!lyrics->isVisible());
+
         window.resize(860, 720);
-        QTest::qWait(100);
-        QVERIFY(tree->isVisible());
+        const QSize wide_size = window.size();
+        button->click();
+        QTRY_COMPARE(window.size(), wide_size);
+        QVERIFY(button->isChecked());
         QVERIFY(lyrics->isVisible());
         QVERIFY(lyrics->mapTo(&window, QPoint()).x() > tree->mapTo(&window, QPoint(tree->width(), 0)).x());
-        auto* toggle = window.findChild<QPushButton*>("lyricsToggle");
-        QVERIFY(toggle != nullptr);
-        window.resize(540, 740);
-        QTest::qWait(100);
-        const int collapsed_tree_height = tree->height();
-        QVERIFY(lyrics->height() < 120);
-        toggle->click();
-        QTest::qWait(100);
-        QVERIFY(lyrics->height() > 180);
-        QVERIFY(tree->height() < collapsed_tree_height);
-        window.resize(360, 530);
-        QTest::qWait(100);
-        QCOMPARE(window.size(), QSize(360, 530));
-        QVERIFY(lyrics->height() >= 125);
-        QVERIFY(window.rect().contains(QRect(lyrics->mapTo(&window, QPoint()), lyrics->size())));
+
+        QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        QVERIFY(lyrics->isVisible());
         lines.clear();
         QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        QVERIFY(lyrics->isVisible());
+
+        window.resize(540, 740);
+        const QSize narrow_size = window.size();
+        QTRY_COMPARE(window.size(), narrow_size);
+        QVERIFY(window.rect().contains(QRect(lyrics->mapTo(&window, QPoint()), lyrics->size())));
+        button->click();
         QVERIFY(!lyrics->isVisible());
-        window.resize(860, 720);
-        QTest::qWait(100);
-        QVERIFY(tree->width() > 750);
+        QTRY_COMPARE(window.size(), narrow_size);
+        button->click();
+        QVERIFY(lyrics->isVisible());
+        QTRY_COMPARE(window.size(), narrow_size);
     }
 
     void playback_state_restore_ui()

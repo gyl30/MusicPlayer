@@ -418,6 +418,7 @@ void playlist_window::setup_ui()
     playback_layout_->setSpacing(10);
     auto* library_panel = new QWidget(playback_page);
     library_panel->setMinimumWidth(0);
+    library_panel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto* library = new QVBoxLayout(library_panel);
     library->setContentsMargins(0, 0, 0, 0);
     library->setSpacing(8);
@@ -444,6 +445,18 @@ void playlist_window::setup_ui()
         on_add_songs_action();
     });
     library_layout->addWidget(add_button);
+    lyrics_button_ = new QPushButton(QIcon(":/icons/lyrics.svg"), "", playback_page);
+    lyrics_button_->setObjectName("lyricsButton");
+    lyrics_button_->setAccessibleName("显示歌词");
+    lyrics_button_->setToolTip("显示歌词");
+    lyrics_button_->setCheckable(true);
+    library_layout->addWidget(lyrics_button_);
+    connect(lyrics_button_, &QPushButton::toggled, this, [this](bool enabled)
+    {
+        lyrics_button_->setAccessibleName(enabled ? "隐藏歌词" : "显示歌词");
+        lyrics_button_->setToolTip(enabled ? "隐藏歌词" : "显示歌词");
+        update_playback_layout();
+    });
     auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), "", playback_page);
     manage_button->setObjectName("manageButton");
     manage_button->setAccessibleName("管理歌单");
@@ -457,20 +470,16 @@ void playlist_window::setup_ui()
 
     lyrics_panel_ = new QWidget(playback_page);
     lyrics_panel_->setObjectName("lyricsPanel");
+    lyrics_panel_->setMinimumWidth(0);
+    lyrics_panel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto* lyric_layout = new QVBoxLayout(lyrics_panel_);
     lyric_layout->setContentsMargins(8, 4, 8, 4);
     lyric_layout->setSpacing(0);
-    lyrics_toggle_ = new QPushButton("歌词", lyrics_panel_);
-    lyrics_toggle_->setObjectName("lyricsToggle");
-    lyrics_toggle_->setAccessibleName("展开或收起歌词");
-    lyrics_toggle_->setCheckable(true);
-    lyric_layout->addWidget(lyrics_toggle_);
     lyrics_view_ = new lyrics_widget(lyrics_panel_);
     lyrics_view_->setObjectName("lyricsView");
     lyric_layout->addWidget(lyrics_view_, 1);
     playback_layout_->addWidget(lyrics_panel_, 2);
     lyrics_panel_->hide();
-    connect(lyrics_toggle_, &QPushButton::toggled, this, [this] { update_playback_layout(); });
 
     main_layout->addWidget(playback_page, 1);
     management_overlay_ = new QWidget(playback_page);
@@ -527,25 +536,10 @@ void playlist_window::setup_ui()
 
 void playlist_window::update_playback_layout()
 {
-    const bool wide = width() >= 780;
-    playback_layout_->setDirection(wide ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
-    lyrics_toggle_->setVisible(!wide);
-    lyrics_toggle_->setText(lyrics_toggle_->isChecked() ? "歌词  ▾" : "歌词  ▴");
-    if (wide)
-    {
-        lyrics_panel_->setMinimumHeight(0);
-        lyrics_panel_->setMaximumHeight(QWIDGETSIZE_MAX);
-        playback_layout_->setStretch(0, 3);
-        playback_layout_->setStretch(1, 2);
-    }
-    else
-    {
-        const int height = lyrics_toggle_->isChecked() ? (width() < 460 ? 170 : 240) : 100;
-        lyrics_panel_->setMinimumHeight(0);
-        lyrics_panel_->setMaximumHeight(height);
-        playback_layout_->setStretch(0, 3);
-        playback_layout_->setStretch(1, 2);
-    }
+    playback_layout_->setDirection(QBoxLayout::LeftToRight);
+    playback_layout_->setStretch(0, 3);
+    playback_layout_->setStretch(1, 2);
+    lyrics_panel_->setVisible(lyrics_button_->isChecked());
     lyrics_view_->set_current_time(current_progress_ms_);
 }
 
@@ -638,8 +632,6 @@ void playlist_window::setup_connections()
 
                 lyrics_view_->set_lyrics(lyrics);
                 lyrics_view_->set_current_time(current_progress_ms_);
-                lyrics_panel_->setVisible(!lyrics.isEmpty());
-                update_playback_layout();
             });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
@@ -712,7 +704,6 @@ void playlist_window::on_stop_requested()
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
-        lyrics_panel_->hide();
     }
 }
 
@@ -767,7 +758,6 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
-        lyrics_panel_->hide();
     }
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)
