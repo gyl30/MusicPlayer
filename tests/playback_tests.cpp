@@ -167,11 +167,20 @@ private slots:
         page.reload();
         auto* cleanup = page.findChild<QPushButton*>("cleanupInvalidButton");
         QVERIFY(cleanup != nullptr);
-        QTimer::singleShot(0, &page, []
+        QCOMPARE(manager.get_playlist_by_id(first).songs.size(), 2);
+        QCOMPARE(manager.get_playlist_by_id(second).songs.size(), 1);
+        QTimer confirm;
+        connect(&confirm, &QTimer::timeout, &page, []
         {
-            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->done(QMessageBox::Yes);
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+            {
+                if (auto* yes = box->button(QMessageBox::Yes)) yes->click();
+                else box->reject();
+            }
         });
+        confirm.start(10);
         cleanup->click();
+        confirm.stop();
 
         const Playlist kept = manager.get_playlist_by_id(first);
         QCOMPARE(kept.songs.size(), 1);
