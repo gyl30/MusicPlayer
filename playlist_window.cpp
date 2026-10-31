@@ -65,14 +65,6 @@ public:
         painter->setFont(font);
         painter->setPen(playing ? QColor("#1478E8") : song && index.column() == 0 ? QColor("#26364E") : QColor("#64758D"));
         QRect text = option.rect.adjusted(4, 0, -12, 0);
-        if (song && index.column() == 0)
-        {
-            const int number_width = qMax(24, painter->fontMetrics().horizontalAdvance(
-                QString::number(index.model()->rowCount(index.parent()))) + 6);
-            painter->drawText(QRect(text.left(), text.top(), number_width, text.height()), Qt::AlignVCenter | Qt::AlignLeft,
-                              playing ? QStringLiteral("▶") : QString::number(index.row() + 1));
-            text.setLeft(text.left() + number_width + 6);
-        }
         painter->drawText(text, Qt::AlignVCenter | (index.column() == 1 ? Qt::AlignRight : Qt::AlignLeft),
                           painter->fontMetrics().elidedText(index.data().toString(), Qt::ElideRight, text.width()));
         if (song)
