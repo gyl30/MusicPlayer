@@ -13,10 +13,20 @@ jobs:
   nsis-installer:
     runs-on: windows-2025
     timeout-minutes: 60
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-archives
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: 缓存 vcpkg 编译产物
+        id: vcpkg-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .vcpkg-archives
+          key: windows-2025-vcpkg-x64-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            windows-2025-vcpkg-x64-windows-
       - name: 安装 Qt
         uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
@@ -27,6 +37,8 @@ jobs:
         shell: pwsh
         run: |
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg is not installed on this runner' }
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+          Write-Host "Exact vcpkg cache hit: ${{ steps.vcpkg-cache.outputs.cache-hit }}"
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed: $LASTEXITCODE" }
           "$PWD/vcpkg_installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
