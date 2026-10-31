@@ -54,6 +54,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
           cmake --build build --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
+          # 先检查测试进程能否启动，避免 DLL/Qt 插件加载错误被 41 条 CTest 失败淹没。
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $env:SDL_AUDIODRIVER = 'dummy'
+          $env:QT_DEBUG_PLUGINS = '1'
+          $testExe = Join-Path $PWD 'build/Release/playback_tests.exe'
+          $stdout = Join-Path $PWD 'build/test-launch.stdout.txt'
+          $stderr = Join-Path $PWD 'build/test-launch.stderr.txt'
+          Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
+          Write-Host "Test executable: $testExe"
+          $process = Start-Process -FilePath $testExe -ArgumentList 'database_connection_lifecycle' `
+            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (Test-Path $stdout) { Get-Content $stdout }
+          if (Test-Path $stderr) { Get-Content $stderr }
+          $status = [long]$process.ExitCode -band 0xffffffffL
+          Write-Host ("Test process exit: {0} (NTSTATUS 0x{1:X8})" -f $process.ExitCode, $status)
+          if ($process.ExitCode -ne 0) { throw 'Test startup or smoke case failed; see exit status and stderr above' }
+          Remove-Item Env:QT_DEBUG_PLUGINS
           ctest --test-dir build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "CTest failed: $LASTEXITCODE" }
       - name: 生成并检查 NSIS 安装程序
