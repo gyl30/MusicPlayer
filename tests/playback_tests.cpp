@@ -1419,5 +1419,9 @@ private slots:
     }
 };
 
+#ifdef main
+#error "SDL headers must not redefine the Qt Test main entry point"
+#endif
+
 QTEST_MAIN(playback_tests)
 #include "playback_tests.moc"

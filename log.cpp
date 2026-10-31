@@ -1,4 +1,3 @@
-#include <cstdlib>
 #include <QByteArray>
 #include <QtGlobal>
 #include <string>
@@ -75,20 +74,22 @@ static void set_log_level()
 static uint32_t get_log_file_size()
 {
     constexpr auto kFileSize = 50 * 1024 * 1024;
-    if (qEnvironmentVariableIsSet("LOG_FILE_SIZE"))
+    bool ok = false;
+    const uint32_t file_size = qgetenv("LOG_FILE_SIZE").toUInt(&ok);
+    if (ok && file_size > 0)
     {
-        const QByteArray file_size = qgetenv("LOG_FILE_SIZE");
-        return static_cast<uint32_t>(std::strtol(file_size.constData(), nullptr, 10));
+        return file_size;
     }
     return kFileSize;
 }
 static uint32_t get_log_file_count()
 {
     constexpr auto kFileCount = 5;
-    if (qEnvironmentVariableIsSet("LOG_FILE_COUNT"))
+    bool ok = false;
+    const uint32_t file_count = qgetenv("LOG_FILE_COUNT").toUInt(&ok);
+    if (ok && file_count > 0)
     {
-        const QByteArray file_count = qgetenv("LOG_FILE_COUNT");
-        return static_cast<uint32_t>(std::strtol(file_count.constData(), nullptr, 10));
+        return file_count;
     }
     return kFileCount;
 }

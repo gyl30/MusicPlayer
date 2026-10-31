@@ -6,7 +6,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QAudioFormat>
-#include <SDL.h>
+#include <SDL_audio.h>
 #include <boost/lockfree/spsc_queue.hpp>
 
 #include "audio_packet.h"

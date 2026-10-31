@@ -1,5 +1,6 @@
 #include <cmath>
 #include <algorithm>
+#include <SDL.h>
 #include "log.h"
 #include "audio_player.h"
 
