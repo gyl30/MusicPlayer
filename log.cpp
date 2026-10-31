@@ -1,4 +1,6 @@
 #include <cstdlib>
+#include <QByteArray>
+#include <QtGlobal>
 #include <string>
 #include <vector>
 #include <memory>
@@ -61,11 +63,11 @@ static void init_default_log(const spdlog::filename_t& filename)
 static void set_log_level()
 {
     spdlog::set_level(spdlog::level::info);
-    if (getenv("TRACE") != nullptr)
+    if (qEnvironmentVariableIsSet("TRACE"))
     {
         spdlog::set_level(spdlog::level::trace);
     }
-    else if (getenv("DEBUG") != nullptr)
+    else if (qEnvironmentVariableIsSet("DEBUG"))
     {
         spdlog::set_level(spdlog::level::debug);
     }
@@ -73,20 +75,20 @@ static void set_log_level()
 static uint32_t get_log_file_size()
 {
     constexpr auto kFileSize = 50 * 1024 * 1024;
-    char* file_size = getenv("LOG_FILE_SIZE");
-    if (file_size != nullptr)
+    if (qEnvironmentVariableIsSet("LOG_FILE_SIZE"))
     {
-        return atoi(file_size);
+        const QByteArray file_size = qgetenv("LOG_FILE_SIZE");
+        return static_cast<uint32_t>(std::strtol(file_size.constData(), nullptr, 10));
     }
     return kFileSize;
 }
 static uint32_t get_log_file_count()
 {
     constexpr auto kFileCount = 5;
-    char* file_count = getenv("LOG_FILE_COUNT");
-    if (file_count != nullptr)
+    if (qEnvironmentVariableIsSet("LOG_FILE_COUNT"))
     {
-        return atoi(file_count);
+        const QByteArray file_count = qgetenv("LOG_FILE_COUNT");
+        return static_cast<uint32_t>(std::strtol(file_count.constData(), nullptr, 10));
     }
     return kFileCount;
 }
