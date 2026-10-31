@@ -254,13 +254,18 @@ private slots:
         QVERIFY(manage != nullptr);
         QTest::mouseClick(manage, Qt::LeftButton);
         QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
+        auto* overlay = window.findChild<QWidget*>("managementOverlay");
+        QVERIFY(overlay != nullptr);
+        QVERIFY(overlay->isVisible());
+        QVERIFY(window.rect().contains(QRect(overlay->mapTo(&window, QPoint()), overlay->size())));
         auto* add = window.findChild<QPushButton*>("addMusicButton");
         QVERIFY(add != nullptr);
-        QVERIFY(!add->isVisible());
-        QVERIFY(!manage->isVisible());
-        auto* cancel = window.findChild<QPushButton*>("cancelChangesButton");
-        QVERIFY(cancel != nullptr);
-        QTest::mouseClick(cancel, Qt::LeftButton);
+        QVERIFY(add->isVisible());
+        QVERIFY(manage->isVisible());
+        auto* close_management = window.findChild<QPushButton*>("managementCloseButton");
+        QVERIFY(close_management != nullptr);
+        QTest::mouseClick(close_management, Qt::LeftButton);
+        QVERIFY(!overlay->isVisible());
         QVERIFY(add->isVisible());
         QVERIFY(manage->isVisible());
     }
@@ -344,7 +349,11 @@ private slots:
         const QSize narrow_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
         QTRY_COMPARE(window.size(), narrow_size);
-        auto* scroll = window.findChild<QScrollArea*>();
+        auto* overlay = window.findChild<QWidget*>("managementOverlay");
+        QVERIFY(overlay != nullptr);
+        QVERIFY(overlay->isVisible());
+        QVERIFY(window.rect().contains(QRect(overlay->mapTo(&window, QPoint()), overlay->size())));
+        auto* scroll = window.findChild<QScrollArea*>("managementScroll");
         QVERIFY(scroll != nullptr);
         QVERIFY(scroll->horizontalScrollBar()->maximum() > 0);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));

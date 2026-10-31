@@ -3,7 +3,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QStackedWidget>
+#include <QScrollArea>
 #include <QScrollArea>
 #include <QMessageBox>
 #include <QTreeWidget>
@@ -317,6 +317,11 @@ void playlist_window::closeEvent(QCloseEvent* event)
 
 bool playlist_window::eventFilter(QObject* watched, QEvent* event)
 {
+    if (management_overlay_ != nullptr && watched == management_overlay_->parentWidget()
+        && event->type() == QEvent::Resize)
+    {
+        management_overlay_->setGeometry(static_cast<QWidget*>(watched)->rect());
+    }
     if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonPress)
     {
         auto* mouse_event = static_cast<QMouseEvent*>(event);
@@ -467,16 +472,36 @@ void playlist_window::setup_ui()
     lyrics_panel_->hide();
     connect(lyrics_toggle_, &QPushButton::toggled, this, [this] { update_playback_layout(); });
 
-    main_stack_ = new QStackedWidget(this);
-    main_stack_->addWidget(playback_page);
-    auto* management_scroll = new QScrollArea(this);
+    main_layout->addWidget(playback_page, 1);
+    management_overlay_ = new QWidget(playback_page);
+    management_overlay_->setObjectName("managementOverlay");
+    auto* overlay_layout = new QVBoxLayout(management_overlay_);
+    overlay_layout->setContentsMargins(12, 12, 12, 12);
+    auto* management_card = new QWidget(management_overlay_);
+    management_card->setObjectName("managementCard");
+    auto* card_layout = new QVBoxLayout(management_card);
+    card_layout->setContentsMargins(8, 8, 8, 8);
+    card_layout->setSpacing(6);
+    auto* header_layout = new QHBoxLayout();
+    header_layout->addWidget(new QLabel("音乐管理", management_card));
+    header_layout->addStretch();
+    auto* close_management = new QPushButton(QIcon(":/icons/close.svg"), "", management_card);
+    close_management->setObjectName("managementCloseButton");
+    close_management->setAccessibleName("关闭音乐管理");
+    header_layout->addWidget(close_management);
+    connect(close_management, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
+    card_layout->addLayout(header_layout);
+    auto* management_scroll = new QScrollArea(management_card);
+    management_scroll->setObjectName("managementScroll");
     management_scroll->setFrameShape(QFrame::NoFrame);
     management_scroll->setWidgetResizable(true);
+    management_scroll->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     management_page_->setMinimumWidth(720);
     management_scroll->setWidget(management_page_);
-    main_stack_->addWidget(management_scroll);
-
-    main_layout->addWidget(main_stack_, 1);
+    card_layout->addWidget(management_scroll, 1);
+    overlay_layout->addWidget(management_card);
+    playback_page->installEventFilter(this);
+    management_overlay_->hide();
     resize_grip_ = new QSizeGrip(central_widget);
     resize_grip_->setFixedSize(14, 14);
 
@@ -639,12 +664,16 @@ void playlist_window::setup_connections()
 
 void playlist_window::switch_to_page(int page_index)
 {
-    if (main_stack_ == nullptr)
+    if (management_overlay_ == nullptr)
     {
         return;
     }
 
-    main_stack_->setCurrentIndex(page_index);
+    management_overlay_->setVisible(page_index == kManagementPageIndex);
+    if (page_index == kManagementPageIndex)
+    {
+        management_overlay_->raise();
+    }
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -968,7 +997,7 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
 
 void playlist_window::on_manage_playlists_action()
 {
-    if (main_stack_ != nullptr && main_stack_->currentIndex() == kManagementPageIndex)
+    if (management_overlay_ != nullptr && !management_overlay_->isHidden())
     {
         if (management_page_ != nullptr && management_page_->has_pending_changes())
         {

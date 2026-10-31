@@ -12,7 +12,6 @@
 class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
-class QStackedWidget;
 class QBoxLayout;
 class QSizeGrip;
 class QPushButton;
@@ -96,7 +95,7 @@ class playlist_window : public QMainWindow
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
-    QStackedWidget* main_stack_ = nullptr;
+    QWidget* management_overlay_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
