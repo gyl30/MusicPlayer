@@ -25,7 +25,6 @@ QPushButton:disabled { color: #8895A7; background: #EDF1F7; border-color: #E5EBF
 #controlsContainer #playPauseButton { min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; background: #1478E8; border-radius: 22px; qproperty-iconSize: 24px 24px; }
 #controlsContainer #playPauseButton:hover { background: #0966CD; }
 #controlsContainer #playPauseButton:pressed { background: #0959AC; }
-#controlsContainer #modeButton[active="true"] { background: #E4F0FF; }
 #volumeMeter { qproperty-barColor: #83B6EE; }
 QSlider#progressSlider { background: transparent; }
 QSlider#progressSlider::groove:horizontal { background: #D4DEEA; height: 4px; border-radius: 2px; }

@@ -249,6 +249,7 @@ private slots:
         for (int i = 0; i < 4; ++i) QTest::mouseClick(mode, Qt::LeftButton);
         QCOMPARE(changed.count(), 4);
         QCOMPARE(mode->toolTip(), QString("列表循环"));
+        QVERIFY(!mode->property("active").toBool());
         auto* manage = window.findChild<QPushButton*>("manageButton");
         QVERIFY(manage != nullptr);
         QTest::mouseClick(manage, Qt::LeftButton);

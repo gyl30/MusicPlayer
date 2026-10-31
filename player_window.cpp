@@ -383,9 +383,6 @@ void player_window::update_playback_mode_button_style()
             break;
     }
     shuffle_button_->setAccessibleName(shuffle_button_->toolTip());
-    shuffle_button_->setProperty("active", current_mode_ != playback_mode::ListLoop);
-    style()->unpolish(shuffle_button_);
-    style()->polish(shuffle_button_);
 }
 
 void player_window::update_track_info(qint64 duration_ms)
