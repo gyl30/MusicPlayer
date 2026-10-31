@@ -61,15 +61,23 @@ jobs:
           $testExe = Join-Path $PWD 'build/Release/playback_tests.exe'
           $stdout = Join-Path $PWD 'build/test-launch.stdout.txt'
           $stderr = Join-Path $PWD 'build/test-launch.stderr.txt'
+          $qtestLog = Join-Path $PWD 'build/test-launch.qtlog.txt'
+          $ffmpegExe = Join-Path $ffmpeg 'tools/ffmpeg/ffmpeg.exe'
           Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
           Write-Host "Test executable: $testExe"
-          $process = Start-Process -FilePath $testExe -ArgumentList 'database_connection_lifecycle' `
+          if (-not (Test-Path $ffmpegExe)) { throw "Missing test FFmpeg: $ffmpegExe" }
+          & $ffmpegExe -version
+          if ($LASTEXITCODE -ne 0) { throw "Test FFmpeg cannot start: $LASTEXITCODE" }
+          # QtTest 在 Windows 下可能没有附加控制台；将断言输出明确写入文件。
+          $process = Start-Process -FilePath $testExe `
+            -ArgumentList @('-o', "$qtestLog,txt", 'database_connection_lifecycle') `
             -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           if (Test-Path $stdout) { Get-Content $stdout }
           if (Test-Path $stderr) { Get-Content $stderr }
+          if (Test-Path $qtestLog) { Get-Content $qtestLog } else { Write-Warning 'QtTest did not produce a log file' }
           $status = [long]$process.ExitCode -band 0xffffffffL
           Write-Host ("Test process exit: {0} (NTSTATUS 0x{1:X8})" -f $process.ExitCode, $status)
-          if ($process.ExitCode -ne 0) { throw 'Test startup or smoke case failed; see exit status and stderr above' }
+          if ($process.ExitCode -ne 0) { throw 'Test startup or smoke case failed; see QtTest log and exit status above' }
           Remove-Item Env:QT_DEBUG_PLUGINS
           ctest --test-dir build -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "CTest failed: $LASTEXITCODE" }
