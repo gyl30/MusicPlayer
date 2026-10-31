@@ -57,24 +57,29 @@ public:
         const bool playing = song && qvariant_cast<QFont>(index.data(Qt::FontRole)).bold();
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
+        const bool dark = qApp->property("darkMode").toBool();
         if (playing || selected || hovered)
-            painter->fillRect(option.rect, playing ? QColor("#E4F0FF") : selected ? QColor("#E1E7F0") : QColor("#EEF3FA"));
+            painter->fillRect(option.rect, playing ? QColor(dark ? "#304D6C" : "#E4F0FF")
+                                                      : selected ? QColor(dark ? "#30445F" : "#E1E7F0")
+                                                                 : QColor(dark ? "#29394D" : "#EEF3FA"));
         QFont font = option.font;
         font.setPointSize(option.widget != nullptr && option.widget->width() >= 460 ? 11 : 10);
         font.setBold(playing || !song);
         painter->setFont(font);
-        painter->setPen(playing ? QColor("#1478E8") : song && index.column() == 0 ? QColor("#26364E") : QColor("#64758D"));
+        painter->setPen(playing ? QColor(dark ? "#74B6FF" : "#1478E8")
+                                : song && index.column() == 0 ? QColor(dark ? "#E6EDF7" : "#26364E")
+                                                              : QColor(dark ? "#A2B2C7" : "#64758D"));
         QRect text = option.rect.adjusted(4, 0, -12, 0);
         painter->drawText(text, Qt::AlignVCenter | (index.column() == 1 ? Qt::AlignRight : Qt::AlignLeft),
                           painter->fontMetrics().elidedText(index.data().toString(), Qt::ElideRight, text.width()));
         if (song)
         {
-            painter->setPen(QColor("#E8EDF5"));
+            painter->setPen(QColor(dark ? "#3B4C61" : "#E8EDF5"));
             painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
         }
         if (option.state & QStyle::State_HasFocus)
         {
-            painter->setPen(QPen(QColor("#7899C2"), 1, Qt::DotLine));
+            painter->setPen(QPen(QColor(dark ? "#83ACD8" : "#7899C2"), 1, Qt::DotLine));
             painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
         }
         painter->restore();
@@ -281,6 +286,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     playlist_manager_->initialize_and_load();
     populate_playlists_on_startup();
     restore_playback_state();
+    apply_theme(QSettings("MusicPlayer", "MusicPlayer").value("appearance/dark", false).toBool());
     setWindowTitle("音乐播放器");
     centralWidget()->setMinimumWidth(340);
     layout()->setSizeConstraint(QLayout::SetMinimumSize);
@@ -375,6 +381,14 @@ void playlist_window::setup_ui()
     title_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(title_label);
     title_layout->addStretch();
+    theme_button_ = new QPushButton(title_bar);
+    theme_button_->setObjectName("themeButton");
+    theme_button_->setFocusPolicy(Qt::NoFocus);
+    title_layout->addWidget(theme_button_);
+    connect(theme_button_, &QPushButton::clicked, this, [this]
+    {
+        apply_theme(!qApp->property("darkMode").toBool());
+    });
     auto* minimize_button = new QPushButton(QIcon(":/icons/minimize.svg"), "", title_bar);
     minimize_button->setObjectName("windowMinButton");
     minimize_button->setAccessibleName("最小化");
@@ -532,6 +546,22 @@ void playlist_window::setup_ui()
                 }
             });
     connect(tray_icon_, &tray_icon::quit_triggered, this, &playlist_window::quit_application);
+}
+
+void playlist_window::apply_theme(bool dark)
+{
+    QFile style(dark ? ":/style/stylesheet-dark.qss" : ":/style/stylesheet.qss");
+    if (!style.open(QIODevice::ReadOnly))
+    {
+        return;
+    }
+
+    qApp->setProperty("darkMode", dark);
+    qApp->setStyleSheet(QString::fromUtf8(style.readAll()));
+    theme_button_->setIcon(QIcon(dark ? ":/icons/moon.svg" : ":/icons/sun.svg"));
+    theme_button_->setToolTip(dark ? "切换到亮色模式" : "切换到暗色模式");
+    theme_button_->setAccessibleName(theme_button_->toolTip());
+    QSettings("MusicPlayer", "MusicPlayer").setValue("appearance/dark", dark);
 }
 
 void playlist_window::update_playback_layout()

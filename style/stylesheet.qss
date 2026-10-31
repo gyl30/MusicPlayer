@@ -9,8 +9,8 @@ QPushButton:hover { background: #E4F0FF; border-color: #9ABDE8; }
 QPushButton:pressed { background: #CFDFF4; }
 QPushButton:focus { border: 1px solid #1478E8; }
 QPushButton:disabled { color: #8895A7; background: #EDF1F7; border-color: #E5EBF4; }
-#windowMinButton, #windowCloseButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
-#windowMinButton:hover { background: #E4F0FF; }
+#windowMinButton, #windowCloseButton, #themeButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
+#windowMinButton:hover, #themeButton:hover { background: #E4F0FF; }
 #windowCloseButton:hover { background: #F4DDDA; color: #A23931; }
 #manageButton, #addMusicButton, #lyricsButton { min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; background: transparent; border-color: transparent; qproperty-iconSize: 20px 20px; }
 #manageButton:hover, #addMusicButton:hover, #lyricsButton:hover { background: #E4F0FF; }

@@ -72,6 +72,7 @@ class playlist_window : public QMainWindow
     void setup_connections();
     void switch_to_page(int page_index);
     void update_playback_layout();
+    void apply_theme(bool dark);
     void clear_playing_indicator();
     void populate_playlists_on_startup();
     void restore_playback_state();
@@ -90,6 +91,7 @@ class playlist_window : public QMainWindow
     lyrics_widget* lyrics_view_ = nullptr;
     QWidget* lyrics_panel_ = nullptr;
     QPushButton* lyrics_button_ = nullptr;
+    QPushButton* theme_button_ = nullptr;
     QBoxLayout* playback_layout_ = nullptr;
     QSizeGrip* resize_grip_ = nullptr;
     tray_icon* tray_icon_ = nullptr;

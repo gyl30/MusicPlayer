@@ -17,9 +17,12 @@
     <file alias="icons/add.svg">icons/add.svg</file>
     <file alias="icons/manage.svg">icons/manage.svg</file>
     <file alias="icons/lyrics.svg">icons/lyrics.svg</file>
+    <file alias="icons/moon.svg">icons/moon.svg</file>
+    <file alias="icons/sun.svg">icons/sun.svg</file>
     <file alias="icons/repeat.svg">icons/repeat.svg</file>
     <file alias="icons/repeat-one.svg">icons/repeat-one.svg</file>
     <file alias="icons/sequential.svg">icons/sequential.svg</file>
     <file alias="style/stylesheet.qss">style/stylesheet.qss</file>
+    <file alias="style/stylesheet-dark.qss">style/stylesheet-dark.qss</file>
 </qresource>
 </RCC>

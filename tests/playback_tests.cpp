@@ -198,6 +198,32 @@ private slots:
         QCOMPARE(applied.count(), 0);
     }
 
+    void theme_toggle()
+    {
+        const QString previous_style = qApp->styleSheet();
+        const QVariant previous_mode = qApp->property("darkMode");
+        DEFER(qApp->setStyleSheet(previous_style); qApp->setProperty("darkMode", previous_mode));
+        QSettings settings("MusicPlayer", "MusicPlayer");
+        settings.setValue("appearance/dark", false);
+
+        playlist_window window;
+        window.show();
+        auto* button = window.findChild<QPushButton*>("themeButton");
+        QVERIFY(button != nullptr);
+        QVERIFY(!qApp->property("darkMode").toBool());
+        QCOMPARE(button->toolTip(), QString("切换到暗色模式"));
+        button->click();
+        QVERIFY(qApp->property("darkMode").toBool());
+        QCOMPARE(button->toolTip(), QString("切换到亮色模式"));
+        QVERIFY(qApp->styleSheet().contains("#18222F"));
+        QCOMPARE(settings.value("appearance/dark").toBool(), true);
+        const QSize before = window.size();
+        button->click();
+        QVERIFY(!qApp->property("darkMode").toBool());
+        QCOMPARE(window.size(), before);
+        QCOMPARE(settings.value("appearance/dark").toBool(), false);
+    }
+
     void ui_controls()
     {
         const auto old_style = qApp->styleSheet();
