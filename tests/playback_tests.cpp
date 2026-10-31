@@ -150,6 +150,38 @@ private slots:
         QVERIFY(!page->has_pending_changes());
     }
 
+    void management_cleanup_invalid()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        QVERIFY(manager.create_new_playlist("清理测试"));
+        const auto lists = manager.get_all_playlists();
+        const qint64 first = lists.first().id;
+        const qint64 second = lists.last().id;
+        const QString missing_a = temp_.filePath("cleanup-missing-a.wav");
+        const QString missing_b = temp_.filePath("cleanup-missing-b.wav");
+        QVERIFY(manager.add_songs_to_playlist(first, {tone_, missing_a}));
+        QVERIFY(manager.add_songs_to_playlist(second, {missing_b}));
+
+        music_management_dialog page(&manager);
+        page.reload();
+        auto* cleanup = page.findChild<QPushButton*>("cleanupInvalidButton");
+        QVERIFY(cleanup != nullptr);
+        QTimer::singleShot(0, &page, []
+        {
+            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->done(QMessageBox::Yes);
+        });
+        cleanup->click();
+
+        const Playlist kept = manager.get_playlist_by_id(first);
+        QCOMPARE(kept.songs.size(), 1);
+        QCOMPARE(kept.songs.first().file_path, tone_);
+        QCOMPARE(manager.get_playlist_by_id(second).songs.size(), 0);
+        QVERIFY(QFileInfo::exists(tone_));
+        QVERIFY(!page.has_pending_changes());
+        QVERIFY(cleanup->text().contains("2"));
+    }
+
     void management_bulk_selection()
     {
         playlist_manager manager;

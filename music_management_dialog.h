@@ -32,6 +32,7 @@ class music_management_dialog : public QWidget
     void on_copy_button_clicked();
     void on_move_button_clicked();
     void on_delete_button_clicked();
+    void on_cleanup_invalid_clicked();
     void on_done_button_clicked();
 
    private:

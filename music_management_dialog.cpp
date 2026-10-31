@@ -5,6 +5,7 @@
 #include <QListWidgetItem>
 #include <QMessageBox>
 #include <QLabel>
+#include <QFileInfo>
 #include <QSet>
 #include <QSignalBlocker>
 #include <algorithm>
@@ -28,6 +29,10 @@ void music_management_dialog::reload()
 {
     load_initial_data();
     populate_playlist_widgets();
+    if (auto* cleanup = findChild<QPushButton*>("cleanupInvalidButton"))
+    {
+        cleanup->setText("清理失效文件");
+    }
 }
 
 void music_management_dialog::load_initial_data()
@@ -87,6 +92,11 @@ void music_management_dialog::setup_ui()
     action_layout->addWidget(copy_button_);
     action_layout->addWidget(move_button_);
     action_layout->addWidget(delete_button_);
+    auto* cleanup_button = new QPushButton("清理失效文件");
+    cleanup_button->setObjectName("cleanupInvalidButton");
+    cleanup_button->setToolTip("从所有歌单移除不存在或不是普通文件的记录，不删除磁盘文件");
+    action_layout->addWidget(cleanup_button);
+    connect(cleanup_button, &QPushButton::clicked, this, &music_management_dialog::on_cleanup_invalid_clicked);
     action_layout->addSpacing(40);
     action_layout->addWidget(done_button_);
     auto* cancel_button = new QPushButton("取消");
@@ -425,6 +435,54 @@ void music_management_dialog::on_delete_button_clicked()
 
     has_pending_changes_ = true;
     populate_playlist_widgets();
+}
+
+void music_management_dialog::on_cleanup_invalid_clicked()
+{
+    if (has_pending_changes_)
+    {
+        QMessageBox::information(this, "存在未应用的修改", "请先应用或取消当前修改，再清理失效文件。");
+        return;
+    }
+
+    QMap<qint64, Playlist> changed;
+    int removed = 0;
+    for (auto it = temp_playlists_.cbegin(); it != temp_playlists_.cend(); ++it)
+    {
+        Playlist playlist = it.value();
+        const auto last = std::remove_if(playlist.songs.begin(), playlist.songs.end(), [](const Song& song)
+        {
+            return !QFileInfo(song.file_path).isFile();
+        });
+        const int count = static_cast<int>(std::distance(last, playlist.songs.end()));
+        if (count > 0)
+        {
+            playlist.songs.erase(last, playlist.songs.end());
+            changed.insert(it.key(), playlist);
+            removed += count;
+        }
+    }
+
+    if (removed == 0)
+    {
+        QMessageBox::information(this, "没有失效文件", "当前歌单没有需要清理的失效音乐文件。");
+        return;
+    }
+
+    const QString message = QString("将从所有歌单移除 %1 条失效记录。\n此操作只修改程序中的歌单，不会删除磁盘上的文件。是否继续？").arg(removed);
+    if (QMessageBox::question(this, "清理失效文件", message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+        != QMessageBox::Yes)
+    {
+        return;
+    }
+    if (!playlist_manager_->apply_changes_from_dialog(changed))
+    {
+        QMessageBox::warning(this, "清理失败", "歌单更改未能保存，请检查数据库权限后重试。");
+        return;
+    }
+
+    reload();
+    findChild<QPushButton*>("cleanupInvalidButton")->setText(QString("已清理 %1 条").arg(removed));
 }
 
 void music_management_dialog::on_done_button_clicked()
