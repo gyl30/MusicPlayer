@@ -10,8 +10,11 @@
       "default-features": false,
       "features": [
         "avcodec",
+        "avdevice",
         "avformat",
         "ffmpeg",
+        "mp3lame",
+        "opus",
         "swresample"
       ]
     }
