@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QScrollBar>
+#include <QScrollArea>
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QLabel>
@@ -319,19 +320,34 @@ private slots:
         controller->stop();
     }
 
-    void page_size_restore()
+    void page_size_stable()
     {
         playlist_window window;
         window.show();
         window.resize(610, 710);
         QTest::qWait(50);
-        const auto playback_size = window.size();
+        const QSize playback_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QTRY_COMPARE(window.size(), playback_size);
+
         window.resize(850, 530);
+        QTest::qWait(50);
+        const QSize management_size = window.size();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QCOMPARE(window.size(), playback_size);
+        QTRY_COMPARE(window.size(), management_size);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QCOMPARE(window.size(), QSize(850, 530));
+        QTRY_COMPARE(window.size(), management_size);
+
+        window.resize(340, 400);
+        QTest::qWait(50);
+        const QSize narrow_size = window.size();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QTRY_COMPARE(window.size(), narrow_size);
+        auto* scroll = window.findChild<QScrollArea*>();
+        QVERIFY(scroll != nullptr);
+        QVERIFY(scroll->horizontalScrollBar()->maximum() > 0);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
+        QTRY_COMPARE(window.size(), narrow_size);
     }
 
     void responsive_layout()

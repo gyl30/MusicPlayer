@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QStackedWidget>
+#include <QScrollArea>
 #include <QMessageBox>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -291,7 +292,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     setWindowTitle("音乐播放器");
     centralWidget()->setMinimumWidth(340);
     layout()->setSizeConstraint(QLayout::SetMinimumSize);
-    resize(playback_page_size_);
+    resize(540, 740);
 }
 
 playlist_window::~playlist_window()
@@ -476,8 +477,12 @@ void playlist_window::setup_ui()
 
     main_stack_ = new QStackedWidget(this);
     main_stack_->addWidget(playback_page);
-    main_stack_->addWidget(management_page_);
-    management_page_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    auto* management_scroll = new QScrollArea(this);
+    management_scroll->setFrameShape(QFrame::NoFrame);
+    management_scroll->setWidgetResizable(true);
+    management_page_->setMinimumWidth(720);
+    management_scroll->setWidget(management_page_);
+    main_stack_->addWidget(management_scroll);
 
     main_layout->addWidget(main_stack_, 1);
     resize_grip_ = new QSizeGrip(central_widget);
@@ -647,13 +652,7 @@ void playlist_window::switch_to_page(int page_index)
         return;
     }
 
-    const int previous_page = main_stack_->currentIndex();
-    if (previous_page == page_index) return;
-    if (previous_page == kPlaybackPageIndex) playback_page_size_ = size();
-    else management_page_size_ = size();
-    centralWidget()->setMinimumWidth(page_index == kPlaybackPageIndex ? 340 : 720);
     main_stack_->setCurrentIndex(page_index);
-    resize(page_index == kPlaybackPageIndex ? playback_page_size_ : management_page_size_);
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
