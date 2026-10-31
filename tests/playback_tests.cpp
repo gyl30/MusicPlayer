@@ -681,6 +681,20 @@ private slots:
         }
     }
 
+    void missing_file_notice()
+    {
+        playback_controller controller;
+        const QString missing = temp_.filePath("missing-notice.wav");
+        QSignalSpy started(&controller, &playback_controller::playback_started);
+        QSignalSpy errors(&controller, &playback_controller::playback_error);
+        controller.play_file(missing);
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(errors.first().first().toString().contains("音乐文件不存在"));
+        QVERIFY(errors.first().first().toString().contains(missing));
+        QCOMPARE(started.count(), 0);
+        QVERIFY(!controller.is_media_loaded());
+    }
+
     void invalid_files()
     {
         const QString corrupt = temp_.filePath("corrupt.mp3");

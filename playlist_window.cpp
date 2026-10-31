@@ -809,6 +809,20 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
 void playlist_window::handle_playback_error_strategy(const QString& error_message)
 {
     LOG_WARN("播放出错 (连续第 {} 次): {}", consecutive_failures_ + 1, error_message.toStdString());
+    if (error_message.startsWith(QStringLiteral("音乐文件不存在")))
+    {
+        auto* warning = findChild<QMessageBox*>("missingFileWarning");
+        if (warning == nullptr)
+        {
+            warning = new QMessageBox(QMessageBox::Warning, "音乐文件不可用", {}, QMessageBox::Ok, this);
+            warning->setObjectName("missingFileWarning");
+            warning->setAttribute(Qt::WA_DeleteOnClose);
+            warning->setModal(false);
+        }
+        warning->setText(error_message);
+        warning->show();
+        warning->raise();
+    }
 
     consecutive_failures_++;
 

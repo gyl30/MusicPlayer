@@ -48,6 +48,11 @@ void playback_controller::play_file(const QString& file_path, qint64 start_posit
 {
     LOG_INFO("播放流程二 控制中心收到文件播放请求");
     stop();
+    if (!QFileInfo(file_path).isFile())
+    {
+        emit playback_error(QString("音乐文件不存在或无法访问：%1").arg(file_path));
+        return;
+    }
     is_paused_ = false;
     playback_start_position_ms_ = qMax<qint64>(0, start_position_ms);
     LOG_INFO("重置暂停状态");
