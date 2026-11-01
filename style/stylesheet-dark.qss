@@ -33,7 +33,6 @@ QSlider#progressSlider::sub-page:horizontal { background: #7099C4; height: 3px; 
 QSlider#progressSlider::handle:horizontal { background: #7099C4; border: none; width: 6px; height: 6px; margin: -2px 0; border-radius: 3px; }
 QSlider#progressSlider::handle:horizontal:hover { background: #9ACBFB; }
 QSlider#progressSlider::handle:horizontal:pressed { background: #79B8F5; }
-QSlider#progressSlider:focus::handle:horizontal { border: 1px solid #9ACBFB; }
 QTreeWidget, QListWidget { background: #18222F; alternate-background-color: #18222F; border: none; border-radius: 0; padding: 4px; selection-background-color: #304862; selection-color: #E6EDF7; }
 QTreeWidget::item, QListWidget::item { min-height: 28px; padding: 3px 6px; }
 QTreeWidget::item:hover, QListWidget::item:hover { background: #293A4F; }

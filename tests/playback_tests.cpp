@@ -303,7 +303,9 @@ private slots:
         QCOMPARE(volume->value(), 0);
         auto* seek = window.findChild<QSlider*>("progressSlider");
         QVERIFY(seek != nullptr);
-        QCOMPARE(seek->focusPolicy(), Qt::TabFocus);
+        QCOMPARE(seek->focusPolicy(), Qt::NoFocus);
+        QTest::mouseClick(seek, Qt::LeftButton);
+        QVERIFY(!seek->hasFocus());
         QVERIFY(qApp->styleSheet().contains("QSlider#progressSlider::add-page:horizontal"));
         auto* lyrics = window.findChild<lyrics_widget*>();
         QVERIFY(lyrics != nullptr);
