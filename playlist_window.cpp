@@ -750,6 +750,7 @@ void playlist_window::set_lyrics_open(bool open)
 {
     if (lyrics_panel_ == nullptr) return;
     lyrics_open_ = open;
+    lyrics_button_->setIcon(QIcon(open ? ":/icons/lyrics-hide.svg" : ":/icons/lyrics.svg"));
     lyrics_button_->setAccessibleName(open ? "隐藏歌词" : "显示歌词");
     lyrics_button_->setToolTip(lyrics_button_->accessibleName());
     if (!open)
