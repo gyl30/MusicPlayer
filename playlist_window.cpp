@@ -414,10 +414,29 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
             {
                 const QPoint target = mouse->globalPosition().toPoint() - lyrics_drag_offset_;
                 const QPoint dock = docked_lyrics_position();
-                // Hysteresis: dragging beyond 48 px separates; releasing within 24 px attaches.
-                if (!lyrics_docked_ || qAbs(target.x() - dock.x()) > 48 || qAbs(target.y() - dock.y()) > 48)
+                // Approach snaps during dragging. Wider separation range prevents edge jitter.
+                const int dx = qAbs(target.x() - dock.x());
+                const int dy = qAbs(target.y() - dock.y());
+                if (lyrics_docked_)
                 {
-                    lyrics_docked_ = false;
+                    if (dx > 56 || dy > 56)
+                    {
+                        lyrics_docked_ = false;
+                        lyrics_snap_animation_->stop();
+                        lyrics_panel_->move(target);
+                    }
+                }
+                else if (dx <= 32 && dy <= 32)
+                {
+                    lyrics_docked_ = true;
+                    lyrics_panel_->resize(lyrics_panel_->width(), height());
+                    lyrics_snap_animation_->stop();
+                    lyrics_snap_animation_->setStartValue(lyrics_panel_->pos());
+                    lyrics_snap_animation_->setEndValue(dock);
+                    lyrics_snap_animation_->start();
+                }
+                else
+                {
                     lyrics_panel_->move(target);
                 }
                 return true;
@@ -429,17 +448,7 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
             if (mouse->button() == Qt::LeftButton)
             {
                 lyrics_dragging_ = false;
-                const QPoint dock = docked_lyrics_position();
-                const QPoint target = mouse->globalPosition().toPoint() - lyrics_drag_offset_;
-                if (!lyrics_docked_ && qAbs(target.x() - dock.x()) <= 24 && qAbs(target.y() - dock.y()) <= 24)
-                {
-                    lyrics_docked_ = true;
-                    lyrics_panel_->resize(lyrics_panel_->width(), height());
-                    lyrics_snap_animation_->setStartValue(lyrics_panel_->pos());
-                    lyrics_snap_animation_->setEndValue(dock);
-                    lyrics_snap_animation_->start();
-                }
-                else if (lyrics_docked_)
+                if (lyrics_docked_ && lyrics_snap_animation_->state() != QAbstractAnimation::Running)
                 {
                     sync_docked_lyrics();
                 }

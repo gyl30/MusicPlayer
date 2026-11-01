@@ -646,7 +646,7 @@ private slots:
         };
         QCOMPARE(panel->pos(), dock_point());
 
-        const auto drag_by = [&](QPoint delta)
+        const auto drag_by = [&](QPoint delta, bool expect_snap_while_dragging = false)
         {
             const QPoint from = bar->mapToGlobal(QPoint(12, 12));
             const QPoint to = from + delta;
@@ -656,6 +656,10 @@ private slots:
             QMouseEvent move(QEvent::MouseMove, QPointF(bar->mapFromGlobal(to)), QPointF(to),
                              Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
             QCoreApplication::sendEvent(bar, &move);
+            if (expect_snap_while_dragging)
+            {
+                QTRY_COMPARE(panel->pos(), dock_point()); // snap before mouse release
+            }
             QMouseEvent release(QEvent::MouseButtonRelease, QPointF(bar->mapFromGlobal(to)), QPointF(to),
                                 Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
             QCoreApplication::sendEvent(bar, &release);
@@ -668,7 +672,7 @@ private slots:
         window.move(window.pos() + QPoint(55, 20));
         QCOMPARE(panel->pos(), detached); // no movement after detachment
 
-        drag_by(dock_point() - panel->pos() + QPoint(12, 8));
+        drag_by(dock_point() - panel->pos() + QPoint(20, 12), true);
         QTRY_COMPARE(panel->pos(), dock_point());
         window.move(window.pos() + QPoint(40, 15));
         QCOMPARE(panel->pos(), dock_point()); // attached windows move together
