@@ -4,7 +4,8 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QScrollArea>
-#include <QScrollArea>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
 #include <QMessageBox>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -356,6 +357,10 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
     {
         management_overlay_->setGeometry(static_cast<QWidget*>(watched)->rect());
     }
+    if (watched == song_tree_widget_ && (event->type() == QEvent::Move || event->type() == QEvent::Resize))
+    {
+        update_playback_layout();
+    }
     if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonPress)
     {
         auto* mouse_event = static_cast<QMouseEvent*>(event);
@@ -453,6 +458,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->setAlternatingRowColors(false);
 
     auto* playback_page = new QWidget(this);
+    playback_page_ = playback_page;
     playback_layout_ = new QBoxLayout(QBoxLayout::TopToBottom, playback_page);
     playback_layout_->setContentsMargins(10, 8, 10, 10);
     playback_layout_->setSpacing(10);
@@ -489,13 +495,31 @@ void playlist_window::setup_ui()
     lyrics_button_->setObjectName("lyricsButton");
     lyrics_button_->setAccessibleName("显示歌词");
     lyrics_button_->setToolTip("显示歌词");
-    lyrics_button_->setCheckable(true);
+    lyrics_button_->setFocusPolicy(Qt::TabFocus);
     library_layout->addWidget(lyrics_button_);
-    connect(lyrics_button_, &QPushButton::toggled, this, [this](bool enabled)
+    connect(lyrics_button_, &QPushButton::clicked, this, [this]
     {
-        lyrics_button_->setAccessibleName(enabled ? "隐藏歌词" : "显示歌词");
-        lyrics_button_->setToolTip(enabled ? "隐藏歌词" : "显示歌词");
+        const QPoint start = lyrics_panel_->pos();
+        const bool was_hidden = lyrics_panel_->isHidden();
+        lyrics_visible_ = !lyrics_visible_;
+        lyrics_button_->setAccessibleName(lyrics_visible_ ? "隐藏歌词" : "显示歌词");
+        lyrics_button_->setToolTip(lyrics_button_->accessibleName());
+
         update_playback_layout();
+        const QPoint end = lyrics_panel_->pos();
+        if (was_hidden)
+        {
+            lyrics_panel_->move(end.x() + lyrics_panel_->width(), end.y());
+        }
+        else
+        {
+            lyrics_panel_->move(start);
+        }
+        lyrics_panel_->show();
+        lyrics_panel_->raise();
+        lyrics_animation_->setStartValue(lyrics_panel_->pos());
+        lyrics_animation_->setEndValue(end);
+        lyrics_animation_->start();
     });
     auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), "", playback_page);
     manage_button->setObjectName("manageButton");
@@ -518,8 +542,18 @@ void playlist_window::setup_ui()
     lyrics_view_ = new lyrics_widget(lyrics_panel_);
     lyrics_view_->setObjectName("lyricsView");
     lyric_layout->addWidget(lyrics_view_, 1);
-    playback_layout_->addWidget(lyrics_panel_, 2);
     lyrics_panel_->hide();
+    lyrics_animation_ = new QPropertyAnimation(lyrics_panel_, "pos", this);
+    lyrics_animation_->setDuration(220);
+    lyrics_animation_->setEasingCurve(QEasingCurve::OutCubic);
+    connect(lyrics_animation_, &QPropertyAnimation::finished, this, [this]
+    {
+        if (!lyrics_visible_)
+        {
+            lyrics_panel_->hide();
+        }
+    });
+    song_tree_widget_->installEventFilter(this);
 
     main_layout->addWidget(playback_page, 1);
     management_overlay_ = new QWidget(playback_page);
@@ -623,10 +657,21 @@ void playlist_window::update_resize_handles()
 
 void playlist_window::update_playback_layout()
 {
-    playback_layout_->setDirection(QBoxLayout::LeftToRight);
-    playback_layout_->setStretch(0, 3);
-    playback_layout_->setStretch(1, 2);
-    lyrics_panel_->setVisible(lyrics_button_->isChecked());
+    if (lyrics_panel_ == nullptr || song_tree_widget_ == nullptr || playback_page_ == nullptr)
+    {
+        return;
+    }
+
+    if (lyrics_animation_ != nullptr)
+    {
+        lyrics_animation_->stop();
+    }
+    const QPoint list_top = song_tree_widget_->mapTo(playback_page_, QPoint(0, 0));
+    const int list_width = song_tree_widget_->width();
+    const int panel_width = qMin(list_width, qMax(200, list_width * 45 / 100));
+    const int right = list_top.x() + list_width;
+    lyrics_panel_->setGeometry(lyrics_visible_ ? right - panel_width : right,
+                               list_top.y(), panel_width, song_tree_widget_->height());
     lyrics_view_->set_current_time(current_progress_ms_);
 }
 

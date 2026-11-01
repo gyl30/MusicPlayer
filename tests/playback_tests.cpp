@@ -308,12 +308,17 @@ private slots:
         auto* lyrics_button = window.findChild<QPushButton*>("lyricsButton");
         QVERIFY(lyrics_button != nullptr);
         QVERIFY(!lyrics->isVisible());
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
+        QVERIFY(tree != nullptr);
+        const QRect original_list(tree->mapTo(&window, QPoint()), tree->size());
+        QVERIFY(!lyrics_button->isCheckable());
         lyrics_button->click();
-        QTest::qWait(50);
         QVERIFY(lyrics->isVisible());
         QCOMPARE(window.size(), QSize(340, 400));
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         lyrics_button->click();
-        QVERIFY(!lyrics->isVisible());
+        QTRY_VERIFY(!lyrics->isVisible());
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         auto* mode = window.findChild<QPushButton*>("modeButton");
         auto* player = window.findChild<player_window*>();
         player->set_playback_mode(playback_mode::ListLoop);
@@ -577,16 +582,23 @@ private slots:
         auto* tree = window.findChild<QTreeWidget*>();
         auto* lyrics = window.findChild<lyrics_widget*>();
         auto* button = window.findChild<QPushButton*>("lyricsButton");
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
         QVERIFY(button != nullptr);
+        QVERIFY(panel != nullptr);
+        QVERIFY(!button->isCheckable());
         QVERIFY(!lyrics->isVisible());
 
         window.resize(860, 720);
+        QTest::qWait(50);
         const QSize wide_size = window.size();
+        const QRect initial_list(tree->mapTo(&window, QPoint()), tree->size());
         button->click();
-        QTRY_COMPARE(window.size(), wide_size);
-        QVERIFY(button->isChecked());
         QVERIFY(lyrics->isVisible());
-        QVERIFY(lyrics->mapTo(&window, QPoint()).x() > tree->mapTo(&window, QPoint(tree->width(), 0)).x());
+        QTRY_VERIFY(panel->pos().x() < tree->mapTo(panel->parentWidget(), QPoint(tree->width(), 0)).x());
+        QCOMPARE(window.size(), wide_size);
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), initial_list);
+        QVERIFY(!button->isChecked());
+        QCOMPARE(button->toolTip(), QString("隐藏歌词"));
 
         QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
         QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
@@ -596,15 +608,21 @@ private slots:
         QVERIFY(lyrics->isVisible());
 
         window.resize(540, 740);
+        QTest::qWait(50);
         const QSize narrow_size = window.size();
-        QTRY_COMPARE(window.size(), narrow_size);
-        QVERIFY(window.rect().contains(QRect(lyrics->mapTo(&window, QPoint()), lyrics->size())));
+        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
+        const QRect narrow_list(tree->mapTo(&window, QPoint()), tree->size());
         button->click();
-        QVERIFY(!lyrics->isVisible());
-        QTRY_COMPARE(window.size(), narrow_size);
+        QTRY_VERIFY(!lyrics->isVisible());
+        QCOMPARE(window.size(), narrow_size);
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), narrow_list);
+        QCOMPARE(button->toolTip(), QString("显示歌词"));
         button->click();
-        QVERIFY(lyrics->isVisible());
-        QTRY_COMPARE(window.size(), narrow_size);
+        QTRY_VERIFY(lyrics->isVisible());
+        QTRY_VERIFY(panel->pos().x() < tree->mapTo(panel->parentWidget(), QPoint(tree->width(), 0)).x());
+        QCOMPARE(window.size(), narrow_size);
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), narrow_list);
+        QVERIFY(!button->isChecked());
     }
 
     void playback_state_restore_ui()

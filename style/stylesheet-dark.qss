@@ -82,5 +82,4 @@ QLineEdit:focus { border-color: #61ACFA; }
 #manageButton:pressed, #addMusicButton:pressed, #lyricsButton:pressed { background: #405976; }
 #manageButton:disabled, #addMusicButton:disabled, #lyricsButton:disabled { background: #28384B; }
 #libraryTitle { color: #61ACFA; font-weight: 600; }
-#lyricsButton:checked { background: #304660; border-color: #608CC2; }
-#lyricsPanel { background: #223044; border-radius: 8px; }
+#lyricsPanel { background: #18222F; border-left: 1px solid #405167; }
