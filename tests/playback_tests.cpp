@@ -645,6 +645,7 @@ private slots:
         QVERIFY(panel != nullptr);
         QVERIFY(bar != nullptr);
         QVERIFY(close != nullptr);
+        QVERIFY(window.findChild<QLabel*>("lyricsWindowTitle") == nullptr);
         button->click();
         const auto dock_point = [&]()
         {

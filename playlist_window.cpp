@@ -617,10 +617,6 @@ void playlist_window::setup_ui()
     lyrics_title_bar_->installEventFilter(this);
     auto* lyric_header = new QHBoxLayout(lyrics_title_bar_);
     lyric_header->setContentsMargins(16, 0, 6, 0);
-    auto* lyric_title = new QLabel("歌词", lyrics_title_bar_);
-    lyric_title->setObjectName("lyricsWindowTitle");
-    lyric_title->setAttribute(Qt::WA_TransparentForMouseEvents);
-    lyric_header->addWidget(lyric_title);
     lyric_header->addStretch();
     auto* close_lyrics = new QPushButton(QIcon(":/icons/close.svg"), "", lyrics_title_bar_);
     close_lyrics->setObjectName("lyricsWindowCloseButton");

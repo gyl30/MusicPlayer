@@ -84,6 +84,5 @@ QLineEdit:focus { border-color: #61ACFA; }
 #libraryTitle { color: #61ACFA; font-weight: 600; }
 #lyricsWindow { background: #18222F; border: 1px solid #405167; }
 #lyricsTitleBar { background: #18222F; border-bottom: 1px solid #405167; }
-#lyricsWindowTitle { font-weight: 600; }
 #lyricsWindowCloseButton { min-width: 34px; max-width: 34px; min-height: 32px; max-height: 32px; padding: 0; border: none; background: transparent; }
 #lyricsWindowCloseButton:hover { background: #304660; }
