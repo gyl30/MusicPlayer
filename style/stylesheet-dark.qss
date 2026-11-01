@@ -9,8 +9,8 @@ QPushButton:hover { background: #304660; border-color: #608CC2; }
 QPushButton:pressed { background: #405976; }
 QPushButton:focus { border: 1px solid #61ACFA; }
 QPushButton:disabled { color: #8A9AAE; background: #28384B; border-color: #2B394B; }
-#windowMinButton, #windowCloseButton, #themeButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
-#windowMinButton:hover, #themeButton:hover { background: #304660; }
+#windowMinButton, #windowMaxButton, #windowCloseButton, #themeButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
+#windowMinButton:hover, #windowMaxButton:hover, #themeButton:hover { background: #304660; }
 #windowCloseButton:hover { background: #553A41; color: #F1A4A0; }
 #manageButton, #addMusicButton, #lyricsButton { min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; background: transparent; border-color: transparent; qproperty-iconSize: 20px 20px; }
 #manageButton:hover, #addMusicButton:hover, #lyricsButton:hover { background: #304660; }
@@ -82,7 +82,5 @@ QLineEdit:focus { border-color: #61ACFA; }
 #manageButton:pressed, #addMusicButton:pressed, #lyricsButton:pressed { background: #405976; }
 #manageButton:disabled, #addMusicButton:disabled, #lyricsButton:disabled { background: #28384B; }
 #libraryTitle { color: #61ACFA; font-weight: 600; }
-#lyricsWindow { background: #18222F; border: 1px solid #405167; }
-#lyricsTitleBar { background: #18222F; border-bottom: 1px solid #405167; }
-#lyricsWindowCloseButton { min-width: 34px; max-width: 34px; min-height: 32px; max-height: 32px; padding: 0; border: none; background: transparent; }
-#lyricsWindowCloseButton:hover { background: #304660; }
+#playerBody, #playbackPage { background: #18222F; }
+#lyricsPanel { background: #18222F; border-left: 1px solid #405167; }

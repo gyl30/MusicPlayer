@@ -3,6 +3,8 @@
     <file alias="icons/minimize.svg">icons/minimize.svg</file>
     <file alias="icons/close.svg">icons/close.svg</file>
     <file alias="icons/app_icon.svg">icons/app_icon.svg</file>
+    <file alias="icons/title-music.svg">icons/title-music.svg</file>
+    <file alias="icons/maximize.svg">icons/maximize.svg</file>
     <file alias="icons/chevron-right.svg">icons/chevron-right.svg</file>
     <file alias="icons/chevron-down.svg">icons/chevron-down.svg</file>
     <file alias="icons/volume.svg">icons/volume.svg</file>

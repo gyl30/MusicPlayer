@@ -322,7 +322,9 @@ private slots:
         QVERIFY(!lyrics_button->isCheckable());
         auto* panel = window.findChild<QWidget*>("lyricsWindow");
         QVERIFY(panel != nullptr);
-        QVERIFY(panel->isWindow());
+        QVERIFY(!panel->isWindow());
+        QVERIFY(window.findChild<QWidget*>("lyricsTitleBar") == nullptr);
+        QVERIFY(window.findChild<QPushButton*>("lyricsWindowCloseButton") == nullptr);
         const QImage hidden_lyrics_icon = lyrics_button->icon().pixmap(20, 20).toImage();
         QVERIFY(!hidden_lyrics_icon.isNull());
         QCOMPARE(hidden_lyrics_icon, QIcon(":/icons/lyrics-hide.svg").pixmap(20, 20).toImage());
@@ -335,12 +337,12 @@ private slots:
         QVERIFY(visible_lyrics_icon != hidden_lyrics_icon);
         QCOMPARE(lyrics_button->accessibleName(), QString("显示歌词"));
         QCOMPARE(window.size(), QSize(340, 400));
-        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
-        QVERIFY(panel->frameGeometry().left() > window.frameGeometry().right());
+        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
         lyrics_button->click();
         QTRY_VERIFY(!lyrics->isVisible());
+        QCOMPARE(window.size(), QSize(340, 400));
         QCOMPARE(lyrics_button->icon().pixmap(20, 20).toImage(), hidden_lyrics_icon);
-        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
+        QTRY_COMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         auto* mode = window.findChild<QPushButton*>("modeButton");
         auto* player = window.findChild<player_window*>();
         player->set_playback_mode(playback_mode::ListLoop);
@@ -639,7 +641,7 @@ private slots:
         expect_icon(visible_icon, "显示歌词", "隐藏歌词");
 
         button->click();
-        QVERIFY(!panel->isVisible());
+        QTRY_VERIFY(!panel->isVisible());
         expect_icon(hidden_icon, "隐藏歌词", "显示歌词");
 
         lines.clear();
@@ -664,26 +666,31 @@ private slots:
         playlist_window window;
         window.show();
         auto* controller = window.findChild<playback_controller*>();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* lyrics = window.findChild<lyrics_widget*>();
         auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* panel = window.findChild<QWidget*>("lyricsWindow");
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
+        QVERIFY(controller != nullptr);
+        QVERIFY(tree != nullptr);
+        QVERIFY(lyrics != nullptr);
         QVERIFY(button != nullptr);
         QVERIFY(panel != nullptr);
-        QVERIFY(panel->isWindow());
+        QVERIFY(!panel->isWindow());
         QVERIFY(!button->isCheckable());
         QVERIFY(!lyrics->isVisible());
 
-        window.resize(860, 720);
+        window.resize(960, 720);
         QTest::qWait(50);
-        const QSize main_size = window.size();
+        const QSize original_size = window.size();
         const QRect original_list(tree->mapTo(&window, QPoint()), tree->size());
         button->click();
         QVERIFY(lyrics->isVisible());
-        QCOMPARE(panel->frameGeometry().topLeft(), QPoint(window.frameGeometry().right() + 9, window.frameGeometry().top()));
-        QCOMPARE(panel->height(), window.height());
-        QCOMPARE(window.size(), main_size);
-        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
+        QTRY_VERIFY(panel->width() >= 300);
+        QCOMPARE(window.size(), original_size);
+        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
+        QVERIFY(panel->mapTo(&window, QPoint()).x()
+                >= tree->mapTo(&window, QPoint()).x() + tree->width());
+        QVERIFY(tree->width() < original_list.width());
         QVERIFY(!button->isChecked());
 
         QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
@@ -693,76 +700,71 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
         QVERIFY(lyrics->isVisible());
 
-        window.move(window.pos() + QPoint(38, 25));
-        QTRY_COMPARE(panel->frameGeometry().topLeft(), QPoint(window.frameGeometry().right() + 9, window.frameGeometry().top()));
         window.resize(540, 740);
-        QTRY_COMPARE(panel->height(), window.height());
+        QTest::qWait(50);
+        QCOMPARE(window.size(), QSize(540, 740));
+        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
+        button->click();
+        QTRY_VERIFY(!panel->isVisible());
         QCOMPARE(window.size(), QSize(540, 740));
         button->click();
-        QVERIFY(!panel->isVisible());
-        button->click();
         QVERIFY(panel->isVisible());
-        QCOMPARE(panel->frameGeometry().topLeft(), QPoint(window.frameGeometry().right() + 9, window.frameGeometry().top()));
+        QTRY_VERIFY(panel->width() > 0);
+        QCOMPARE(window.size(), QSize(540, 740));
         QVERIFY(!button->isChecked());
     }
 
-    void lyrics_docking()
+    void lyrics_integrated_layout()
     {
         playlist_window window;
-        window.move(50, 55);
         window.show();
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
         auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* panel = window.findChild<QWidget*>("lyricsWindow");
-        auto* bar = window.findChild<QWidget*>("lyricsTitleBar");
-        auto* close = window.findChild<QPushButton*>("lyricsWindowCloseButton");
-        QVERIFY(button != nullptr);
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
+        auto* body = window.findChild<QWidget*>("playerBody");
         QVERIFY(panel != nullptr);
-        QVERIFY(bar != nullptr);
-        QVERIFY(close != nullptr);
-        QVERIFY(window.findChild<QLabel*>("lyricsWindowTitle") == nullptr);
-        button->click();
-        const auto dock_point = [&]()
-        {
-            return QPoint(window.frameGeometry().right() + 9, window.frameGeometry().top());
-        };
-        QCOMPARE(panel->pos(), dock_point());
+        QVERIFY(button != nullptr);
+        QVERIFY(tree != nullptr);
+        QVERIFY(body != nullptr);
+        QVERIFY(!panel->isWindow());
+        QCOMPARE(panel->parentWidget(), body);
+        QVERIFY(window.findChild<QWidget*>("lyricsTitleBar") == nullptr);
+        QVERIFY(window.findChild<QPushButton*>("lyricsWindowCloseButton") == nullptr);
 
-        const auto drag_by = [&](QPoint delta, bool expect_snap_while_dragging = false)
-        {
-            const QPoint from = bar->mapToGlobal(QPoint(12, 12));
-            const QPoint to = from + delta;
-            QMouseEvent press(QEvent::MouseButtonPress, QPointF(bar->mapFromGlobal(from)), QPointF(from),
-                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-            QCoreApplication::sendEvent(bar, &press);
-            QMouseEvent move(QEvent::MouseMove, QPointF(bar->mapFromGlobal(to)), QPointF(to),
-                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
-            QCoreApplication::sendEvent(bar, &move);
-            if (expect_snap_while_dragging)
-            {
-                QTRY_COMPARE(panel->pos(), dock_point()); // snap before mouse release
-            }
-            QMouseEvent release(QEvent::MouseButtonRelease, QPointF(bar->mapFromGlobal(to)), QPointF(to),
-                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-            QCoreApplication::sendEvent(bar, &release);
-        };
-        drag_by(QPoint(18, 9));
-        QCOMPARE(panel->pos(), dock_point()); // magnetic resistance
-        drag_by(QPoint(110, 0));
-        QVERIFY(panel->pos().x() > dock_point().x() + 48);
-        const QPoint detached = panel->pos();
-        window.move(window.pos() + QPoint(55, 20));
-        QCOMPARE(panel->pos(), detached); // no movement after detachment
-
-        drag_by(dock_point() - panel->pos() + QPoint(20, 12), true);
-        QTRY_COMPARE(panel->pos(), dock_point());
-        window.move(window.pos() + QPoint(40, 15));
-        QCOMPARE(panel->pos(), dock_point()); // attached windows move together
-        close->click();
-        QVERIFY(!panel->isVisible());
-        QVERIFY(!button->isChecked());
+        window.resize(1000, 720);
+        QTest::qWait(50);
+        const QSize size_before = window.size();
+        const int list_width_before = tree->width();
         button->click();
         QVERIFY(panel->isVisible());
-        QCOMPARE(panel->pos(), dock_point());
+        QTRY_VERIFY(panel->width() >= 300);
+        QCOMPARE(window.size(), size_before);
+        QVERIFY(tree->width() < list_width_before);
+        QVERIFY(body->rect().contains(QRect(panel->mapTo(body, QPoint()), panel->size())));
+        QVERIFY(!button->isChecked());
+
+        const QRect original_panel_position(panel->mapTo(&window, QPoint()), panel->size());
+        window.move(window.pos() + QPoint(45, 25));
+        QCOMPARE(QRect(panel->mapTo(&window, QPoint()), panel->size()), original_panel_position);
+        QVERIFY(window.findChild<QPushButton*>("windowMaxButton") != nullptr);
+        QVERIFY(window.findChild<QLabel*>("appLogo") != nullptr);
+
+        button->click();
+        QTRY_VERIFY(!panel->isVisible());
+        QCOMPARE(window.size(), size_before);
+        QTRY_COMPARE(tree->width(), list_width_before);
+        button->click();
+        QTRY_VERIFY(panel->width() >= 300);
+        QCOMPARE(window.size(), size_before);
+
+        auto* manage = window.findChild<QPushButton*>("manageButton");
+        QVERIFY(manage != nullptr);
+        manage->click();
+        auto* overlay = window.findChild<QWidget*>("managementOverlay");
+        QVERIFY(overlay != nullptr);
+        QVERIFY(overlay->isVisible());
+        QCOMPARE(overlay->parentWidget(), body);
+        QVERIFY(body->rect().contains(QRect(overlay->mapTo(body, QPoint()), overlay->size())));
     }
 
     void playback_state_restore_ui()
