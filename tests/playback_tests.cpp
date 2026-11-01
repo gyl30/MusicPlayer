@@ -301,6 +301,10 @@ private slots:
         QCOMPARE(volume->value(), 100);
         QTest::keyClick(volume, Qt::Key_Home);
         QCOMPARE(volume->value(), 0);
+        auto* seek = window.findChild<QSlider*>("progressSlider");
+        QVERIFY(seek != nullptr);
+        QCOMPARE(seek->focusPolicy(), Qt::TabFocus);
+        QVERIFY(qApp->styleSheet().contains("QSlider#progressSlider::add-page:horizontal"));
         auto* lyrics = window.findChild<lyrics_widget*>();
         QVERIFY(lyrics != nullptr);
         lyrics->set_lyrics({{0, "第一行中文歌词"}, {1000, "第二行中文歌词"}});

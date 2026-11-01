@@ -151,6 +151,7 @@ void player_window::setup_ui()
     progress_slider_->setObjectName("progressSlider");
     progress_slider_->setRange(0, 100);
     progress_slider_->setFixedHeight(20);
+    progress_slider_->setFocusPolicy(Qt::TabFocus); // mouse seeking must not leave the slider focused
     progress_slider_->setAccessibleName("播放进度");
     progress_slider_->installEventFilter(this);
     details->addWidget(progress_slider_);
