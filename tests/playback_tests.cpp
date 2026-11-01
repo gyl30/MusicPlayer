@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QIcon>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
 #include <atomic>
@@ -322,19 +323,23 @@ private slots:
         auto* panel = window.findChild<QWidget*>("lyricsWindow");
         QVERIFY(panel != nullptr);
         QVERIFY(panel->isWindow());
-        const QImage show_lyrics_icon = lyrics_button->icon().pixmap(20, 20).toImage();
-        QVERIFY(!show_lyrics_icon.isNull());
+        const QImage hidden_lyrics_icon = lyrics_button->icon().pixmap(20, 20).toImage();
+        QVERIFY(!hidden_lyrics_icon.isNull());
+        QCOMPARE(hidden_lyrics_icon, QIcon(":/icons/lyrics-hide.svg").pixmap(20, 20).toImage());
+        QCOMPARE(lyrics_button->accessibleName(), QString("隐藏歌词"));
         lyrics_button->click();
         QVERIFY(lyrics->isVisible());
-        const QImage hide_lyrics_icon = lyrics_button->icon().pixmap(20, 20).toImage();
-        QVERIFY(!hide_lyrics_icon.isNull());
-        QVERIFY(hide_lyrics_icon != show_lyrics_icon);
+        const QImage visible_lyrics_icon = lyrics_button->icon().pixmap(20, 20).toImage();
+        QVERIFY(!visible_lyrics_icon.isNull());
+        QCOMPARE(visible_lyrics_icon, QIcon(":/icons/lyrics.svg").pixmap(20, 20).toImage());
+        QVERIFY(visible_lyrics_icon != hidden_lyrics_icon);
+        QCOMPARE(lyrics_button->accessibleName(), QString("显示歌词"));
         QCOMPARE(window.size(), QSize(340, 400));
         QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         QVERIFY(panel->frameGeometry().left() > window.frameGeometry().right());
         lyrics_button->click();
         QTRY_VERIFY(!lyrics->isVisible());
-        QCOMPARE(lyrics_button->icon().pixmap(20, 20).toImage(), show_lyrics_icon);
+        QCOMPARE(lyrics_button->icon().pixmap(20, 20).toImage(), hidden_lyrics_icon);
         QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         auto* mode = window.findChild<QPushButton*>("modeButton");
         auto* player = window.findChild<player_window*>();
@@ -589,6 +594,69 @@ private slots:
         QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
         window.findChild<QPushButton*>("cancelChangesButton")->click();
         QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
+    }
+
+    void lyrics_icon_states()
+    {
+        playlist_window window;
+        window.show();
+        auto* button = window.findChild<QPushButton*>("lyricsButton");
+        auto* panel = window.findChild<QWidget*>("lyricsWindow");
+        auto* lyrics = window.findChild<lyrics_widget*>();
+        auto* controller = window.findChild<playback_controller*>();
+        QVERIFY(button != nullptr);
+        QVERIFY(panel != nullptr);
+        QVERIFY(lyrics != nullptr);
+        QVERIFY(controller != nullptr);
+
+        const QImage unavailable_icon = QIcon(":/icons/lyrics-unavailable.svg").pixmap(20, 20).toImage();
+        const QImage visible_icon = QIcon(":/icons/lyrics.svg").pixmap(20, 20).toImage();
+        const QImage hidden_icon = QIcon(":/icons/lyrics-hide.svg").pixmap(20, 20).toImage();
+        QVERIFY(!unavailable_icon.isNull());
+        QVERIFY(!visible_icon.isNull());
+        QVERIFY(!hidden_icon.isNull());
+        QVERIFY(unavailable_icon != visible_icon);
+        QVERIFY(unavailable_icon != hidden_icon);
+        QVERIFY(visible_icon != hidden_icon);
+
+        const auto expect_icon = [button](const QImage& expected, const QString& label, const QString& tip)
+        {
+            QCOMPARE(button->icon().pixmap(20, 20).toImage(), expected);
+            QCOMPARE(button->accessibleName(), label);
+            QCOMPARE(button->toolTip(), tip);
+            QVERIFY(!button->isCheckable());
+            QVERIFY(!button->isChecked());
+        };
+
+        expect_icon(unavailable_icon, "无歌词", "当前歌曲没有歌词，点击显示歌词");
+        button->click();
+        QVERIFY(panel->isVisible());
+        expect_icon(unavailable_icon, "无歌词", "当前歌曲没有歌词，点击隐藏歌词");
+
+        QList<LyricLine> lines{{0, "第一句"}, {2000, "第二句"}};
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        QVERIFY(lyrics->has_lyrics());
+        expect_icon(visible_icon, "显示歌词", "隐藏歌词");
+
+        button->click();
+        QVERIFY(!panel->isVisible());
+        expect_icon(hidden_icon, "隐藏歌词", "显示歌词");
+
+        lines.clear();
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        QVERIFY(!lyrics->has_lyrics());
+        expect_icon(unavailable_icon, "无歌词", "当前歌曲没有歌词，点击显示歌词");
+
+        lines.append({0, "重新有歌词"});
+        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
+        expect_icon(hidden_icon, "隐藏歌词", "显示歌词");
+
+        button->click();
+        QVERIFY(panel->isVisible());
+        expect_icon(visible_icon, "显示歌词", "隐藏歌词");
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+        QVERIFY(!lyrics->has_lyrics());
+        expect_icon(unavailable_icon, "无歌词", "当前歌曲没有歌词，点击隐藏歌词");
     }
 
     void adaptive_lyrics()

@@ -75,6 +75,7 @@ class playlist_window : public QMainWindow
     void setup_connections();
     void switch_to_page(int page_index);
     void set_lyrics_open(bool open);
+    void update_lyrics_button();
     QPoint docked_lyrics_position() const;
     void sync_docked_lyrics();
     void update_resize_handles();

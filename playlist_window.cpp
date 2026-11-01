@@ -309,6 +309,7 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     management_page_ = new music_management_dialog(playlist_manager_, this);
 
     setup_ui();
+    update_lyrics_button();
     setup_connections();
 
     playlist_manager_->initialize_and_load();
@@ -585,10 +586,8 @@ void playlist_window::setup_ui()
         on_add_songs_action();
     });
     library_layout->addWidget(add_button);
-    lyrics_button_ = new QPushButton(QIcon(":/icons/lyrics.svg"), "", playback_page);
+    lyrics_button_ = new QPushButton(QIcon(":/icons/lyrics-unavailable.svg"), "", playback_page);
     lyrics_button_->setObjectName("lyricsButton");
-    lyrics_button_->setAccessibleName("显示歌词");
-    lyrics_button_->setToolTip("显示歌词");
     lyrics_button_->setFocusPolicy(Qt::TabFocus);
     library_layout->addWidget(lyrics_button_);
     connect(lyrics_button_, &QPushButton::clicked, this, [this] { set_lyrics_open(!lyrics_open_); });
@@ -746,13 +745,35 @@ void playlist_window::sync_docked_lyrics()
     lyrics_panel_->move(docked_lyrics_position());
 }
 
+void playlist_window::update_lyrics_button()
+{
+    if (lyrics_button_ == nullptr || lyrics_view_ == nullptr) return;
+
+    if (!lyrics_view_->has_lyrics())
+    {
+        lyrics_button_->setIcon(QIcon(":/icons/lyrics-unavailable.svg"));
+        lyrics_button_->setAccessibleName("无歌词");
+        lyrics_button_->setToolTip(lyrics_open_ ? "当前歌曲没有歌词，点击隐藏歌词" : "当前歌曲没有歌词，点击显示歌词");
+    }
+    else if (lyrics_open_)
+    {
+        lyrics_button_->setIcon(QIcon(":/icons/lyrics.svg"));
+        lyrics_button_->setAccessibleName("显示歌词");
+        lyrics_button_->setToolTip("隐藏歌词");
+    }
+    else
+    {
+        lyrics_button_->setIcon(QIcon(":/icons/lyrics-hide.svg"));
+        lyrics_button_->setAccessibleName("隐藏歌词");
+        lyrics_button_->setToolTip("显示歌词");
+    }
+}
+
 void playlist_window::set_lyrics_open(bool open)
 {
     if (lyrics_panel_ == nullptr) return;
     lyrics_open_ = open;
-    lyrics_button_->setIcon(QIcon(open ? ":/icons/lyrics-hide.svg" : ":/icons/lyrics.svg"));
-    lyrics_button_->setAccessibleName(open ? "隐藏歌词" : "显示歌词");
-    lyrics_button_->setToolTip(lyrics_button_->accessibleName());
+    update_lyrics_button();
     if (!open)
     {
         lyrics_dragging_ = false;
@@ -854,6 +875,7 @@ void playlist_window::setup_connections()
 
                 lyrics_view_->set_lyrics(lyrics);
                 lyrics_view_->set_current_time(current_progress_ms_);
+                update_lyrics_button();
             });
 
     connect(player_window_, &player_window::next_requested, this, &playlist_window::on_next_requested);
@@ -926,6 +948,7 @@ void playlist_window::on_stop_requested()
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
+        update_lyrics_button();
     }
 }
 
@@ -980,6 +1003,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     if (lyrics_view_ != nullptr)
     {
         lyrics_view_->clear();
+        update_lyrics_button();
     }
 
     if (clicked_song_item_ != nullptr && clicked_song_item_->data(0, Qt::UserRole).toString() == current_playing_file_path_)

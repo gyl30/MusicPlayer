@@ -20,6 +20,7 @@ class lyrics_widget : public QWidget
     void set_lyrics(const QList<LyricLine>& lyrics);
     void set_current_time(qint64 time_ms);
     void clear();
+    [[nodiscard]] bool has_lyrics() const { return !lyrics_.isEmpty(); }
 
    protected:
     void paintEvent(QPaintEvent* event) override;

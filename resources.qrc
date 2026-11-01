@@ -18,6 +18,7 @@
     <file alias="icons/manage.svg">icons/manage.svg</file>
     <file alias="icons/lyrics.svg">icons/lyrics.svg</file>
     <file alias="icons/lyrics-hide.svg">icons/lyrics-hide.svg</file>
+    <file alias="icons/lyrics-unavailable.svg">icons/lyrics-unavailable.svg</file>
     <file alias="icons/moon.svg">icons/moon.svg</file>
     <file alias="icons/sun.svg">icons/sun.svg</file>
     <file alias="icons/repeat.svg">icons/repeat.svg</file>
