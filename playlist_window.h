@@ -12,7 +12,6 @@
 class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
-class QBoxLayout;
 class QPushButton;
 class QPropertyAnimation;
 
@@ -64,6 +63,10 @@ class playlist_window : public QMainWindow
 
    protected:
     void closeEvent(QCloseEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void changeEvent(QEvent* event) override;
+    void moveEvent(QMoveEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -71,7 +74,9 @@ class playlist_window : public QMainWindow
     void setup_ui();
     void setup_connections();
     void switch_to_page(int page_index);
-    void update_playback_layout();
+    void set_lyrics_open(bool open);
+    QPoint docked_lyrics_position() const;
+    void sync_docked_lyrics();
     void update_resize_handles();
     void apply_theme(bool dark);
     void clear_playing_indicator();
@@ -91,12 +96,14 @@ class playlist_window : public QMainWindow
     music_management_dialog* management_page_ = nullptr;
     lyrics_widget* lyrics_view_ = nullptr;
     QWidget* lyrics_panel_ = nullptr;
-    QWidget* playback_page_ = nullptr;
-    QPropertyAnimation* lyrics_animation_ = nullptr;
+    QWidget* lyrics_title_bar_ = nullptr;
+    QPropertyAnimation* lyrics_snap_animation_ = nullptr;
     QPushButton* lyrics_button_ = nullptr;
-    bool lyrics_visible_ = false;
+    bool lyrics_open_ = false;
+    bool lyrics_docked_ = true;
+    bool lyrics_dragging_ = false;
+    QPoint lyrics_drag_offset_;
     QPushButton* theme_button_ = nullptr;
-    QBoxLayout* playback_layout_ = nullptr;
     QList<QWidget*> resize_handles_;
     tray_icon* tray_icon_ = nullptr;
 
