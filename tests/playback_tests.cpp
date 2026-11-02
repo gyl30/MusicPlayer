@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPropertyAnimation>
 #include <QIcon>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
@@ -765,6 +766,35 @@ private slots:
         QVERIFY(overlay->isVisible());
         QCOMPARE(overlay->parentWidget(), body);
         QVERIFY(body->rect().contains(QRect(overlay->mapTo(body, QPoint()), overlay->size())));
+    }
+
+    void lyrics_resize_during_animation()
+    {
+        playlist_window window;
+        window.show();
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
+        auto* body = window.findChild<QWidget*>("playerBody");
+        auto* button = window.findChild<QPushButton*>("lyricsButton");
+        auto* animation = window.findChild<QPropertyAnimation*>();
+        QVERIFY(panel != nullptr);
+        QVERIFY(body != nullptr);
+        QVERIFY(button != nullptr);
+        QVERIFY(animation != nullptr);
+        QCOMPARE(animation->targetObject(), static_cast<QObject*>(panel));
+
+        window.resize(1000, 720);
+        QTest::qWait(50);
+        button->click();
+        QCOMPARE(animation->state(), QAbstractAnimation::Running);
+        window.resize(540, 720);
+        QCOMPARE(window.size(), QSize(540, 720));
+        QTRY_VERIFY(animation->state() == QAbstractAnimation::Stopped);
+        QCOMPARE(panel->maximumWidth(), 200);
+        QVERIFY(body->rect().contains(QRect(panel->mapTo(body, QPoint()), panel->size())));
+
+        window.resize(340, 400);
+        QCOMPARE(window.size(), QSize(340, 400));
+        QCOMPARE(panel->maximumWidth(), 0);
     }
 
     void playback_state_restore_ui()

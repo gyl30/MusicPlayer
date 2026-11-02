@@ -375,8 +375,14 @@ void playlist_window::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
     update_resize_handles();
-    if (lyrics_open_ && lyrics_animation_ != nullptr && lyrics_animation_->state() != QAbstractAnimation::Running)
-        lyrics_panel_->setMaximumWidth(lyrics_target_width());
+    if (lyrics_open_ && lyrics_animation_ != nullptr)
+    {
+        const int target_width = lyrics_target_width();
+        if (lyrics_animation_->state() == QAbstractAnimation::Running)
+            lyrics_animation_->setEndValue(target_width);
+        else
+            lyrics_panel_->setMaximumWidth(target_width);
+    }
     if (song_tree_widget_ != nullptr && (event->oldSize().width() < 480) != (event->size().width() < 480))
         song_tree_widget_->doItemsLayout();
 }
