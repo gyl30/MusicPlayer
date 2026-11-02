@@ -320,7 +320,7 @@ private slots:
         QVERIFY(tree != nullptr);
         const QRect original_list(tree->mapTo(&window, QPoint()), tree->size());
         QVERIFY(!lyrics_button->isCheckable());
-        auto* panel = window.findChild<QWidget*>("lyricsWindow");
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
         QVERIFY(panel != nullptr);
         QVERIFY(!panel->isWindow());
         QVERIFY(window.findChild<QWidget*>("lyricsTitleBar") == nullptr);
@@ -603,7 +603,7 @@ private slots:
         playlist_window window;
         window.show();
         auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* panel = window.findChild<QWidget*>("lyricsWindow");
+        auto* panel = window.findChild<QWidget*>("lyricsPanel");
         auto* lyrics = window.findChild<lyrics_widget*>();
         auto* controller = window.findChild<playback_controller*>();
         QVERIFY(button != nullptr);
