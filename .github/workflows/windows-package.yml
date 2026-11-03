@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs for each branch or pull request.
+concurrency:
+  group: windows-nsis-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   nsis-installer:
     runs-on: windows-2025
@@ -19,14 +24,32 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: 缓存 vcpkg 编译产物
+      - name: 记录 vcpkg 和 MSVC 工具链版本
+        id: toolchain
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg installation root is missing' }
+          $revision = & git -C $env:VCPKG_INSTALLATION_ROOT rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-fA-F]{40}$') {
+            throw "Cannot identify vcpkg revision: $revision"
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vsPath = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vsPath) { throw 'Visual Studio installation was not found' }
+          $versionFile = Join-Path $vsPath 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt'
+          $toolset = (Get-Content -Path $versionFile -Raw).Trim()
+          if ($toolset -notmatch '^[0-9.]+$') { throw "Invalid MSVC toolset version: $toolset" }
+          "vcpkg=$revision" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "msvc=$toolset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "vcpkg: $revision"
+          Write-Host "MSVC toolset: $toolset"
+      - name: 恢复 vcpkg 二进制缓存
         id: vcpkg-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .vcpkg-archives
-          key: windows-2025-vcpkg-x64-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-          restore-keys: |
-            windows-2025-vcpkg-x64-windows-
+          # Do not restore binaries compiled with a different toolchain or vcpkg revision.
+          key: windows-2025-vcpkg-x64-windows-v2-${{ steps.toolchain.outputs.vcpkg }}-${{ steps.toolchain.outputs.msvc }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
       - name: 安装 Qt
         uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with:
@@ -38,10 +61,16 @@ jobs:
         run: |
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw 'vcpkg is not installed on this runner' }
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
-          Write-Host "Exact vcpkg cache hit: ${{ steps.vcpkg-cache.outputs.cache-hit }}"
+          Write-Host "Versioned vcpkg archive cache hit: ${{ steps.vcpkg-cache.outputs.cache-hit }}"
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install --triplet x64-windows
           if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed: $LASTEXITCODE" }
           "$PWD/vcpkg_installed/x64-windows/bin" | Add-Content $env:GITHUB_PATH
+      - name: 保存 vcpkg 二进制缓存
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .vcpkg-archives
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
       - name: 安装 NSIS
         shell: pwsh
         run: |
