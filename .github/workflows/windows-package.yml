@@ -103,7 +103,7 @@ jobs:
           Write-Host ("Test process exit: {0} (NTSTATUS 0x{1:X8})" -f $process.ExitCode, $status)
           if ($process.ExitCode -ne 0) { throw 'Test startup or smoke case failed; see QtTest log and exit status above' }
           Remove-Item Env:QT_DEBUG_PLUGINS
-          ctest --test-dir build -C Release --output-on-failure
+          ctest --test-dir build -C Release --output-on-failure -j2
           if ($LASTEXITCODE -ne 0) { throw "CTest failed: $LASTEXITCODE" }
       - name: 验证 Windows 部署目录及启动
         shell: pwsh

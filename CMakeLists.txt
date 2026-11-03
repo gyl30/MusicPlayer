@@ -155,7 +155,25 @@ set(MUSICPLAYER_SOURCES
     lyrics_widget.cpp
 )
 
-add_executable(MusicPlayer main.cpp ${MUSICPLAYER_SOURCES})
+# Compile Qt/FFmpeg/SDL2 application sources once for the player and QtTest.
+# Keep main.cpp and tests/playback_tests.cpp as separate translation units.
+add_library(musicplayer_core OBJECT ${MUSICPLAYER_SOURCES})
+target_compile_options(musicplayer_core PRIVATE
+    ${HARDENING_FLAGS_COMMON}
+    $<$<CONFIG:Release,RelWithDebInfo>:${HARDENING_FLAGS_PRODUCTION}>
+    ${SANITIZER_COMPILE_FLAGS}
+)
+target_include_directories(musicplayer_core SYSTEM PRIVATE
+    ${SDL2_INCLUDE_DIRS}
+    third/spdlog/include
+)
+target_link_libraries(musicplayer_core PRIVATE
+    Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql
+    SDL2::SDL2 Boost::boost FFmpeg
+)
+
+add_executable(MusicPlayer main.cpp)
+target_link_libraries(MusicPlayer PRIVATE musicplayer_core)
 
 target_compile_options(MusicPlayer PRIVATE
     ${HARDENING_FLAGS_COMMON}
@@ -205,7 +223,8 @@ include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     find_program(FFMPEG_EXECUTABLE ffmpeg REQUIRED)
-    add_executable(playback_tests tests/playback_tests.cpp ${MUSICPLAYER_SOURCES})
+    add_executable(playback_tests tests/playback_tests.cpp)
+    target_link_libraries(playback_tests PRIVATE musicplayer_core)
     target_include_directories(playback_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_include_directories(playback_tests SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} third/spdlog/include)
     target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql SDL2::SDL2 Boost::boost FFmpeg)
