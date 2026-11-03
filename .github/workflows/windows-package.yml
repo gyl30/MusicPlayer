@@ -54,6 +54,17 @@ jobs:
             if (-not (Test-Path $makensisPath)) { throw "makensis.exe was not installed in $nsisDir" }
             $nsisDir | Add-Content $env:GITHUB_PATH
           }
+      - name: 下载并验证 Microsoft 官方 VC++ x64 运行库
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $PWD 'vc_redist.x64.exe'
+          Invoke-WebRequest -Uri 'https://aka.ms/vc14/vc_redist.x64.exe' -OutFile $runtime
+          if ((Get-Item $runtime).Length -lt 1MB) { throw 'Incomplete Microsoft VC++ runtime download' }
+          $signature = Get-AuthenticodeSignature -FilePath $runtime
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*Microsoft Corporation*') {
+            throw "Microsoft VC++ runtime signature is invalid: $($signature.Status)"
+          }
+          Get-FileHash -Algorithm SHA256 -Path $runtime | Format-List
       - name: 配置、构建并运行 Qt 测试
         shell: pwsh
         run: |
@@ -62,7 +73,8 @@ jobs:
           $ffmpeg = Join-Path $installed 'x64-windows'
           cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_INSTALLED_DIR="$installed" `
-            -DFFMPEG_ROOT="$ffmpeg" -DBUILD_TESTING=ON
+            -DFFMPEG_ROOT="$ffmpeg" -DBUILD_TESTING=ON `
+            -DVC_REDIST_X64="$PWD/vc_redist.x64.exe"
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
           cmake --build build --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
@@ -111,7 +123,8 @@ jobs:
             '(?m)^Path = .*avformat-\d+\.dll$',
             '(?m)^Path = .*avcodec-\d+\.dll$',
             '(?m)^Path = .*avutil-\d+\.dll$',
-            '(?m)^Path = .*swresample-\d+\.dll$'
+            '(?m)^Path = .*swresample-\d+\.dll$',
+            '(?m)^Path = .*vc_redist\.x64\.exe$'
           )
           foreach ($pattern in $required) {
             if ($contents -notmatch $pattern) { throw "NSIS installer is missing required runtime file: $pattern" }
