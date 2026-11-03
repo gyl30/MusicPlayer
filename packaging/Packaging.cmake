@@ -31,37 +31,6 @@ if(WIN32)
     set(CPACK_NSIS_DISPLAY_NAME MusicPlayer)
     set(CPACK_PACKAGE_EXECUTABLES MusicPlayer MusicPlayer)
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY "${CMAKE_INSTALL_BINDIR}")
-    # Bundle Microsoft's signed installer, not loose MSVC runtime DLLs.
-    # Windows developer builds still configure without the redistributable.
-    set(VC_REDIST_X64 "" CACHE FILEPATH "Official Microsoft VC++ x64 Redistributable installer")
-    if(VC_REDIST_X64)
-        if(NOT EXISTS "${VC_REDIST_X64}")
-            message(FATAL_ERROR "VC_REDIST_X64 does not exist: ${VC_REDIST_X64}")
-        endif()
-        install(FILES "${VC_REDIST_X64}" DESTINATION . RENAME vc_redist.x64.exe)
-    else()
-        install(CODE [[message(FATAL_ERROR "NSIS packaging requires -DVC_REDIST_X64=<path to official vc_redist.x64.exe>")]])
-    endif()
-    set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS [=[
-        IfFileExists "$INSTDIR\vc_redist.x64.exe" vc_redist_install vc_redist_missing
-      vc_redist_install:
-        ExecWait '"$INSTDIR\vc_redist.x64.exe" /install /passive /norestart' $0
-        StrCmp $0 0 vc_redist_ok
-        StrCmp $0 1638 vc_redist_ok
-        StrCmp $0 3010 vc_redist_reboot
-        StrCmp $0 1641 vc_redist_reboot
-        MessageBox MB_OK|MB_ICONSTOP "Microsoft Visual C++ x64 Redistributable installation failed (code $0)."
-        Abort
-      vc_redist_reboot:
-        MessageBox MB_OK|MB_ICONINFORMATION "Restart Windows before launching MusicPlayer."
-      vc_redist_ok:
-        Delete "$INSTDIR\vc_redist.x64.exe"
-        Goto vc_redist_end
-      vc_redist_missing:
-        MessageBox MB_OK|MB_ICONSTOP "Microsoft Visual C++ x64 Redistributable is missing from this installer."
-        Abort
-      vc_redist_end:
-    ]=])
     set(notice_dir "${CMAKE_INSTALL_DATADIR}/MusicPlayer/licenses")
 elseif(APPLE)
     find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${qt_bin_dir}" NO_DEFAULT_PATH REQUIRED)

@@ -29,9 +29,9 @@ Boost 原文来源：<https://www.boost.org/LICENSE_1_0.txt>。
   应同时保留实际 Qt SQL 驱动和 SQLite 依赖包的版权声明。
 
 Linux DEB 不捆绑上述系统共享库，包管理器负责安装依赖及其许可文件。
-Windows NSIS 安装包包含微软数字签名的官方 x64 Visual C++ Redistributable 安装程序，
-由安装程序执行系统级运行库安装，不从开发机直接分发独立的 MSVC DLL。
-其再分发仍须符合 Microsoft Visual Studio 许可条款：
+Windows NSIS 参照 ImageViewer，从 Visual Studio 的 Microsoft.VC*.CRT 目录
+将 MSVC 可再分发运行库 DLL 部署到应用安装目录，不要求目标机器预装 VC++ 运行库。
+应用本地部署仍须符合 Microsoft Visual Studio 运行库再分发许可条款：
 <https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files>。
 
 Windows/macOS 若携带这些运行库，发布者须额外收集对应精确版本的许可、

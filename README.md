@@ -69,9 +69,11 @@ cmake --build build-windows --config Release
 cpack --config build-windows/CPackConfig.cmake -C Release -G NSIS -B dist
 ```
 
-CMake 扫描可执行文件的运行依赖；安装阶段调用同一 Qt 安装的 `windeployqt`，
-处理 Qt 插件及编译器运行库。发布前必须检查实际收集结果，尤其是 QSQLITE、SVG、
-SDL2、FFmpeg 和传递依赖。不要把静态查阅当作 MSVC 编译或 Windows 安装验证。
+CMake 扫描可执行文件的运行依赖；安装阶段调用同一 Qt 安装的 `windeployqt`
+部署 Qt 插件，并从 Visual Studio 的 `VCToolsRedistDir` 复制 MSVC 可再分发运行库，
+不依赖目标机器额外安装 VC++ Redistributable。打包前应启用 Visual Studio 开发环境
+或显式提供正确的 `VCToolsRedistDir`。CI 检查部署目录和安装包内的 MSVCP140、
+VCRUNTIME140 系列 DLL，并从部署目录启动程序。仍需在干净 Windows 上安装验收。
 
 ## macOS 构建准备（尚未实机验收）
 
