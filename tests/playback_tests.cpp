@@ -24,6 +24,7 @@
 #include <QIcon>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
+#include "lyrics_parser.h"
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
@@ -125,6 +126,24 @@ private slots:
             QVERIFY(QSqlDatabase::contains());
         }
         QVERIFY(!QSqlDatabase::contains());
+    }
+
+    void lyrics_parse_tags()
+    {
+        const auto lines = lyrics_parser::parse("[ti:标题]\n[1:02.50]一位分钟\n[100:00.00]三位分钟\n[00:03]无小数");
+        QCOMPARE(lines.size(), 3);
+        QCOMPARE(lines[0].timestamp_ms, qint64{3000});
+        QCOMPARE(lines[1].timestamp_ms, qint64{62500});
+        QCOMPARE(lines[1].text, QString("一位分钟"));
+        QCOMPARE(lines[2].timestamp_ms, qint64{6000000});
+
+        // offset 为正表示歌词提前显示。
+        const auto earlier = lyrics_parser::parse("[offset:+500]\n[00:01.00]提前\n[00:00.20]不早于零");
+        QCOMPARE(earlier.size(), 2);
+        QCOMPARE(earlier[0].timestamp_ms, qint64{0});
+        QCOMPARE(earlier[1].timestamp_ms, qint64{500});
+        const auto later = lyrics_parser::parse("[00:01.00]推后\n[offset:-250]");
+        QCOMPARE(later.first().timestamp_ms, qint64{1250});
     }
 
     void management_cancel()

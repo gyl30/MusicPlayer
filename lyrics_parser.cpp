@@ -12,11 +12,20 @@ QList<LyricLine> lyrics_parser::parse(const QString& raw_lyrics)
         return parsed_lyrics;
     }
 
-    QRegularExpression time_tag_regex(R"(\[(\d{2}):(\d{2})(?:[.:](\d{2,3}))?\])");
+    const QRegularExpression time_tag_regex(R"(\[(\d+):(\d{2})(?:[.:](\d{2,3}))?\])");
+    const QRegularExpression offset_tag_regex(R"(^\s*\[offset:\s*([+-]?\d+)\s*\])", QRegularExpression::CaseInsensitiveOption);
     const QStringList lines = raw_lyrics.split('\n');
+    qint64 offset_ms = 0;
 
     for (const QString& line : lines)
     {
+        const QRegularExpressionMatch offset_match = offset_tag_regex.match(line);
+        if (offset_match.hasMatch())
+        {
+            offset_ms = offset_match.captured(1).toLongLong();
+            continue;
+        }
+
         QRegularExpressionMatchIterator it = time_tag_regex.globalMatch(line);
         QList<qint64> timestamps_ms;
         qsizetype last_match_end_pos = 0;
@@ -50,6 +59,12 @@ QList<LyricLine> lyrics_parser::parse(const QString& raw_lyrics)
                 parsed_lyrics.append({ts, text});
             }
         }
+    }
+
+    // LRC 的正 offset 表示歌词提前显示。
+    for (LyricLine& lyric : parsed_lyrics)
+    {
+        lyric.timestamp_ms = qMax<qint64>(0, lyric.timestamp_ms - offset_ms);
     }
 
     std::sort(parsed_lyrics.begin(), parsed_lyrics.end(), [](const LyricLine& a, const LyricLine& b) { return a.timestamp_ms < b.timestamp_ms; });
