@@ -16,7 +16,7 @@ Boost 原文来源：<https://www.boost.org/LICENSE_1_0.txt>。
 
 运行库的许可取决于实际安装/打包的版本与配置：
 
-- Qt Widgets、Multimedia、SVG、SQL 使用共享库。本轮 Debian 包由系统包提供，
+- Qt Widgets、Multimedia、SVG、SQL、Core5Compat 使用共享库。本轮 Debian 包由系统包提供，
   其版权及第三方声明在 `/usr/share/doc/` 对应 Qt 包中；不能只凭模块名认定许可。
   参见 <https://doc.qt.io/qt-6/licensing.html>。
 - SDL2 的主要许可是 zlib，具体平台代码和第三方声明随所选 SDL 构建核查。

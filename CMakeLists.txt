@@ -109,7 +109,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg Sql)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia Svg Sql Core5Compat)
 find_package(SDL2 REQUIRED)
 find_package(Boost REQUIRED)
 if(WIN32)
@@ -169,7 +169,7 @@ target_include_directories(musicplayer_core SYSTEM PRIVATE
     third/spdlog/include
 )
 target_link_libraries(musicplayer_core PRIVATE
-    Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql
+    Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql Qt6::Core5Compat
     SDL2::SDL2 Boost::boost FFmpeg
 )
 
@@ -199,6 +199,7 @@ target_link_libraries(MusicPlayer PRIVATE
     Qt6::Multimedia
     Qt6::Svg
     Qt6::Sql
+    Qt6::Core5Compat
     SDL2::SDL2
     Boost::boost
     FFmpeg
@@ -228,11 +229,11 @@ if(BUILD_TESTING)
     target_link_libraries(playback_tests PRIVATE musicplayer_core)
     target_include_directories(playback_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_include_directories(playback_tests SYSTEM PRIVATE ${SDL2_INCLUDE_DIRS} third/spdlog/include)
-    target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql SDL2::SDL2 Boost::boost FFmpeg)
+    target_link_libraries(playback_tests PRIVATE Qt6::Test Qt6::Widgets Qt6::Multimedia Qt6::Svg Qt6::Sql Qt6::Core5Compat SDL2::SDL2 Boost::boost FFmpeg)
     target_compile_definitions(playback_tests PRIVATE FFMPEG_EXECUTABLE="${FFMPEG_EXECUTABLE}")
     target_compile_options(playback_tests PRIVATE ${HARDENING_FLAGS_COMMON} ${SANITIZER_COMPILE_FLAGS})
     target_link_options(playback_tests PRIVATE ${SANITIZER_LINK_FLAGS})
-    foreach(case database_connection_lifecycle lyrics_parse_tags unknown_duration latest_seek paused_seek exit_while_decoding rapid_switch formats invalid_files missing_file_notice startup_seek callback_ownership stale_errors short_packets shuffle_history shuffle_new_round mode_boundaries remove_playlist remove_song move_playing_song refresh_nodes storage_atomicity storage_minimal_writes transfer_songs song_search drag_songs drop_external_files transfer_failure library_store library_page cleanup_invalid_files storage_write_failure playback_failure_limit shuffle_manual_selection async_import metadata_removed metadata_update_failure metadata_scan_shutdown metadata_path_reuse close_without_tray tray_hint_once ui_controls keyboard_shortcuts stale_ready_seek_callbacks library_views lyrics_manual_scroll title_marquee slider_drag_preview title_bar_double_click window_resize_edges responsive_layout large_playlist_ui svg_library_actions add_button_target_menu lyrics_icon_states lyrics_popout playback_state_restore_ui playback_state_saved_while_playing)
+    foreach(case database_connection_lifecycle lyrics_parse_tags unknown_duration latest_seek paused_seek exit_while_decoding rapid_switch gbk_metadata formats invalid_files missing_file_notice startup_seek callback_ownership stale_errors short_packets shuffle_history shuffle_new_round mode_boundaries remove_playlist remove_song move_playing_song refresh_nodes storage_atomicity storage_minimal_writes transfer_songs song_search drag_songs drop_external_files transfer_failure library_store library_page cleanup_invalid_files storage_write_failure playback_failure_limit shuffle_manual_selection async_import metadata_removed metadata_update_failure metadata_scan_shutdown metadata_path_reuse close_without_tray tray_hint_once ui_controls keyboard_shortcuts stale_ready_seek_callbacks library_views lyrics_manual_scroll title_marquee slider_drag_preview title_bar_double_click window_resize_edges responsive_layout large_playlist_ui svg_library_actions add_button_target_menu lyrics_icon_states lyrics_popout playback_state_restore_ui playback_state_saved_while_playing)
         add_test(NAME ${case} COMMAND playback_tests ${case})
         set_tests_properties(${case} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;SDL_AUDIODRIVER=dummy")
     endforeach()

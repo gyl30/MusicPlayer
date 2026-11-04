@@ -1356,6 +1356,42 @@ private slots:
         controller.stop();
     }
 
+    void gbk_metadata()
+    {
+        // 老 MP3 常把 GBK 中文写进标为 ISO-8859-1 的 ID3 帧。
+        const QString plain = temp_.filePath("gbk-plain.mp3");
+        encode({"-i", tone_, "-t", "1", "-id3v2_version", "0", "-write_xing", "0", plain});
+        const auto frame = [](const char* id, const QByteArray& text)
+        {
+            QByteArray body = QByteArray(1, '\0') + text;
+            QByteArray result(id, 4);
+            for (int shift = 24; shift >= 0; shift -= 8) result.append(static_cast<char>((body.size() >> shift) & 0xFF));
+            return result + QByteArray(2, '\0') + body;
+        };
+        const QByteArray frames = frame("TIT2", QByteArray("\xB2\xE2\xCA\xD4\xB1\xEA\xCC\xE2"))
+                                + frame("TPE1", QByteArray("\xB2\xE2\xCA\xD4\xB8\xE8\xCA\xD6"))
+                                + frame("TALB", QByteArray("Caf\xE9"));
+        QByteArray tag("ID3\x03\x00\x00", 6);
+        for (int shift = 21; shift >= 0; shift -= 7) tag.append(static_cast<char>((frames.size() >> shift) & 0x7F));
+        QFile source(plain);
+        QVERIFY(source.open(QFile::ReadOnly));
+        const QString tagged = temp_.filePath("gbk-tagged.mp3");
+        QFile target(tagged);
+        QVERIFY(target.open(QFile::WriteOnly));
+        target.write(tag + frames + source.readAll());
+        target.close();
+
+        playback_controller controller;
+        QSignalSpy metadata(&controller, &playback_controller::metadata_ready);
+        controller.play_file(tagged);
+        QTRY_VERIFY_WITH_TIMEOUT(!metadata.isEmpty(), 3000);
+        const auto values = metadata.last().first().value<QMap<QString, QString>>();
+        QCOMPARE(values.value("title"), QString("测试标题"));
+        QCOMPARE(values.value("artist"), QString("测试歌手"));
+        QCOMPARE(values.value("album"), QString("Café"));
+        controller.stop();
+    }
+
     void formats()
     {
         for (const QString& extension : {QString("wav"), QString("flac"), QString("mp3"), QString("aac")})
