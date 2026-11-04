@@ -836,8 +836,25 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
 }
 
+static const char* playback_mode_name(playback_mode mode)
+{
+    switch (mode)
+    {
+        case playback_mode::ListLoop:
+            return "列表循环";
+        case playback_mode::SingleLoop:
+            return "单曲循环";
+        case playback_mode::Shuffle:
+            return "随机";
+        case playback_mode::Sequential:
+            return "顺序";
+    }
+    return "未知";
+}
+
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
 {
+    LOG_INFO("播放模式 mode {}", playback_mode_name(new_mode));
     current_mode_ = new_mode;
     if (current_mode_ == playback_mode::Shuffle && currently_playing_item_ != nullptr)
     {
@@ -1973,6 +1990,7 @@ void playlist_window::on_tree_item_double_clicked(QTreeWidgetItem* item, int col
 
 void playlist_window::on_next_requested()
 {
+    LOG_INFO("请求下一首 mode {}", playback_mode_name(current_mode_));
     if (currently_playing_item_ == nullptr)
     {
         if (detached_index_ < 0)
@@ -2056,6 +2074,7 @@ void playlist_window::on_next_requested()
 
 void playlist_window::on_previous_requested()
 {
+    LOG_INFO("请求上一首 mode {}", playback_mode_name(current_mode_));
     if (currently_playing_item_ == nullptr)
     {
         if (detached_index_ < 0)
@@ -2120,6 +2139,7 @@ void playlist_window::on_previous_requested()
 
 void playlist_window::handle_playback_finished()
 {
+    LOG_INFO("自然播完 mode {}", playback_mode_name(current_mode_));
     switch (current_mode_)
     {
         case playback_mode::ListLoop:

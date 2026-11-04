@@ -73,6 +73,11 @@ class audio_player : public QObject
     std::atomic<bool> low_water_mark_triggered_{false};
 
     std::atomic<int> volume_{128};
+
+    // 欠载只在回调线程计数，由播放器线程写日志，避免在音频回调里做 IO。
+    std::atomic<int> underrun_count_{0};
+    int reported_underruns_ = 0;
+    bool callback_had_data_ = false;
 };
 
 #endif

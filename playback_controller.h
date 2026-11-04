@@ -73,6 +73,7 @@ class playback_controller : public QObject
     bool is_playing_ = false;
     bool is_media_loaded_ = false;
     qint64 total_duration_ms_ = 0;
+    qint64 last_position_ms_ = 0;
     std::atomic<qint64> session_id_counter_{0};
     qint64 current_session_id_ = 0;
     bool is_paused_ = false;

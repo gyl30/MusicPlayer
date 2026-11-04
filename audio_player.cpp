@@ -123,6 +123,9 @@ void audio_player::start_playback(qint64 session_id, const QAudioFormat& format)
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
     playback_drained_ = false;
+    underrun_count_ = 0;
+    reported_underruns_ = 0;
+    callback_had_data_ = false;
     is_playing_ = true;
 
     qint64 bytes_per_second = static_cast<qint64>(audio_spec_.freq) * audio_spec_.channels * static_cast<qint64>(sizeof(qint16));
@@ -216,6 +219,7 @@ void audio_player::handle_seek(qint64 session_id, qint64 actual_seek_ms)
     bytes_processed_by_device_ = 0;
     decoder_finished_ = false;
     playback_drained_ = false;
+    callback_had_data_ = false;
     low_water_mark_triggered_.store(true, std::memory_order_relaxed);
     SDL_UnlockAudioDevice(device_id_);
 
@@ -292,6 +296,14 @@ void audio_player::fill_audio_buffer(Uint8* stream, int len)
         }
     }
 
+    // 起播和跳转后队列本来为空，只有播过数据之后取空才算欠载。
+    const bool starved = bytes_to_fill > 0 && !decoder_finished_.load(std::memory_order_acquire);
+    if (starved && callback_had_data_)
+    {
+        underrun_count_.fetch_add(1, std::memory_order_relaxed);
+    }
+    callback_had_data_ = bytes_to_fill < len;
+
     bool queue_empty = (packet_queue_.read_available() == 0) && (!current_packet_);
 
     if (queue_empty && bytes_to_fill == len && decoder_finished_.load(std::memory_order_acquire))
@@ -334,6 +346,17 @@ void audio_player::update_progress_ui()
     qint64 processed_ms = (processed_bytes * 1000) / bytes_per_second;
     qint64 current_playback_ms = playback_start_offset_ms_ + processed_ms - buffer_latency_ms;
     current_playback_ms = std::max<qint64>(current_playback_ms, 0);
+
+    const int underruns = underrun_count_.load(std::memory_order_relaxed);
+    if (underruns != reported_underruns_)
+    {
+        reported_underruns_ = underruns;
+        LOG_WARN("播放缓冲欠载 session {} count {} position_ms {} buffered_bytes {}",
+                 session_id_,
+                 underruns,
+                 current_playback_ms,
+                 approx_buffered_bytes_.load(std::memory_order_relaxed));
+    }
 
     LOG_TRACE("播放时钟 session {} start_offset_ms {} processed_ms {} latency_ms {} position_ms {}",
               session_id_,

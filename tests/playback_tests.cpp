@@ -1670,6 +1670,67 @@ private slots:
         QVERIFY2(text.contains("解码器错误 session 1 error"), qPrintable(text));
     }
 
+    void playback_underrun_log()
+    {
+        // 播放中缓冲区被取空会造成卡顿，以前日志里没有任何痕迹。
+        std::ostringstream output;
+        auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+        auto& sinks = spdlog::default_logger()->sinks();
+        sinks.push_back(sink);
+        DEFER(sinks.pop_back());
+        audio_player player;
+        QAudioFormat format;
+        format.setSampleRate(44100);
+        format.setChannelCount(1);
+        player.start_playback(1, format);
+        // 起播时队列本来就是空的，不算欠载。
+        QTest::qWait(300);
+        QVERIFY2(!QString::fromStdString(output.str()).contains("播放缓冲欠载"), output.str().c_str());
+        auto packet = std::make_shared<audio_packet>();
+        packet->ms = 0;
+        packet->data.resize(44100 * 2 / 5);
+        player.enqueue_packet(1, packet);
+        QTRY_VERIFY2_WITH_TIMEOUT(QString::fromStdString(output.str()).contains("播放缓冲欠载 session 1 count 1 position_ms"), output.str().c_str(), 3000);
+        player.stop_playback();
+    }
+
+    void playback_events_log()
+    {
+        std::ostringstream output;
+        auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+        auto& sinks = spdlog::default_logger()->sinks();
+        sinks.push_back(sink);
+        spdlog::set_level(spdlog::level::info);
+        DEFER(sinks.pop_back(); spdlog::set_level(spdlog::level::warn));
+        const QString short_tone = temp_.filePath("short-tone.wav");
+        encode({"-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=0.5", short_tone});
+        {
+            playback_controller controller;
+            QSignalSpy finished(&controller, &playback_controller::playback_finished);
+            controller.play_file(short_tone);
+            QTRY_VERIFY_WITH_TIMEOUT(!finished.isEmpty(), 3000);
+        }
+        const QRegularExpression completed("播放完成 session 1 position_ms \\d+ duration_ms 500");
+        QVERIFY2(QString::fromStdString(output.str()).contains(completed), output.str().c_str());
+
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        manager->add_songs_to_playlist(id, {tone_, short_tone});
+        auto* list = window.findChild<QTreeWidget*>("songTreeWidget")->topLevelItem(0);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, list->child(0)), Q_ARG(int, 0)));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_previous_requested"));
+        QVERIFY(QMetaObject::invokeMethod(&window, "handle_playback_finished"));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+        const QString text = QString::fromStdString(output.str());
+        QVERIFY2(text.contains("播放模式 mode 列表循环"), qPrintable(text));
+        QVERIFY2(text.contains("请求下一首 mode 列表循环"), qPrintable(text));
+        QVERIFY2(text.contains("请求上一首 mode 列表循环"), qPrintable(text));
+        QVERIFY2(text.contains("自然播完 mode 列表循环"), qPrintable(text));
+    }
+
     void log_forwarding()
     {
         const auto previous = spdlog::default_logger();

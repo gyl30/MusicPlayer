@@ -83,6 +83,7 @@ void playback_controller::stop()
     cleanup_player();
 
     total_duration_ms_ = 0;
+    last_position_ms_ = 0;
     is_seeking_ = false;
     pending_seek_ms_ = -1;
     playback_start_position_ms_ = 0;
@@ -254,6 +255,7 @@ void playback_controller::on_progress_update(qint64 session_id, qint64 current_m
     {
         return;
     }
+    last_position_ms_ = current_ms;
     emit progress_updated(current_ms, total_duration_ms_);
 }
 
@@ -264,7 +266,7 @@ void playback_controller::on_playback_completed(qint64 session_id)
         LOG_DEBUG("忽略过期会话的播放结束 session {} current {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("播放完成 session {}", session_id);
+    LOG_INFO("播放完成 session {} position_ms {} duration_ms {}", session_id, last_position_ms_, total_duration_ms_);
     is_playing_ = false;
     is_media_loaded_ = false;
     emit playback_finished();
