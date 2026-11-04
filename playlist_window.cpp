@@ -19,6 +19,7 @@
 #include <QTimer>
 #include <QSettings>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QWindow>
@@ -602,6 +603,12 @@ void playlist_window::setup_ui()
     connect(lyrics_button_, &QPushButton::clicked, this, [this] { set_lyrics_open(!lyrics_open_); });
 
     library->addLayout(library_layout);
+    search_edit_ = new QLineEdit(library_panel);
+    search_edit_->setObjectName("songSearchEdit");
+    search_edit_->setPlaceholderText("搜索歌曲（Esc 关闭）");
+    search_edit_->setClearButtonEnabled(true);
+    search_edit_->hide();
+    library->addWidget(search_edit_);
     song_tree_widget_->setMinimumHeight(80);
     library->addWidget(song_tree_widget_, 1);
     playback_layout->addWidget(library_panel, 1);
@@ -745,6 +752,35 @@ void playlist_window::setup_connections()
 {
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &playlist_window::on_tree_item_double_clicked);
 
+    connect(search_edit_, &QLineEdit::textChanged, this, &playlist_window::apply_song_filter);
+    connect(new QShortcut(QKeySequence::Find, this), &QShortcut::activated, this, [this]
+    {
+        search_edit_->show();
+        search_edit_->setFocus();
+        search_edit_->selectAll();
+    });
+    connect(new QShortcut(Qt::Key_Escape, search_edit_, nullptr, nullptr, Qt::WidgetShortcut), &QShortcut::activated, this, [this]
+    {
+        search_edit_->clear();
+        search_edit_->hide();
+        song_tree_widget_->setFocus();
+    });
+    connect(search_edit_, &QLineEdit::returnPressed, this, [this]
+    {
+        for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+        {
+            QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
+            for (int j = 0; j < playlist_item->childCount(); ++j)
+            {
+                if (!playlist_item->child(j)->isHidden())
+                {
+                    song_tree_widget_->setCurrentItem(playlist_item->child(j));
+                    song_tree_widget_->setFocus();
+                    return;
+                }
+            }
+        }
+    });
     connect(new QShortcut(Qt::Key_Space, this), &QShortcut::activated, this, &playlist_window::toggle_playback);
     connect(new QShortcut(Qt::Key_Left, this), &QShortcut::activated, this, [this] { seek_relative(-kSeekStepMs); });
     connect(new QShortcut(Qt::Key_Right, this), &QShortcut::activated, this, [this] { seek_relative(kSeekStepMs); });
@@ -1275,6 +1311,7 @@ void playlist_window::on_playlist_added(const Playlist& new_playlist)
     playlist_item->setData(0, Qt::UserRole, new_playlist.id);
     playlist_item->setExpanded(false);
     song_tree_widget_->blockSignals(false);
+    apply_song_filter();
 }
 
 void playlist_window::on_playlist_removed(qint64 playlist_id)
@@ -1342,6 +1379,7 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
     }
     set_item_text_with_tooltip(item, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
     update_duration_column_width(song_tree_widget_);
+    apply_song_filter();
 
     const bool detached = currently_playing_item_ == nullptr && detached_index_ >= 0;
     if (current_playing_file_path_.isEmpty() || (playing_index < 0 && !detached))
@@ -1375,6 +1413,47 @@ void playlist_window::on_songs_changed(qint64 playlist_id)
         return;
     }
     detached_index_ = playing_index;
+}
+
+void playlist_window::apply_song_filter()
+{
+    const QString keyword = search_edit_->text().trimmed();
+    for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
+        const qint64 id = playlist_item->data(0, Qt::UserRole).toLongLong();
+        if (keyword.isEmpty())
+        {
+            playlist_item->setHidden(false);
+            for (int j = 0; j < playlist_item->childCount(); ++j)
+            {
+                playlist_item->child(j)->setHidden(false);
+            }
+            if (expansion_before_filter_.contains(id))
+            {
+                playlist_item->setExpanded(expansion_before_filter_.value(id));
+            }
+            continue;
+        }
+        if (!expansion_before_filter_.contains(id))
+        {
+            expansion_before_filter_.insert(id, playlist_item->isExpanded());
+        }
+        int matches = 0;
+        for (int j = 0; j < playlist_item->childCount(); ++j)
+        {
+            QTreeWidgetItem* song_item = playlist_item->child(j);
+            const bool match = song_item->text(0).contains(keyword, Qt::CaseInsensitive);
+            song_item->setHidden(!match);
+            matches += match ? 1 : 0;
+        }
+        playlist_item->setHidden(matches == 0);
+        playlist_item->setExpanded(matches > 0);
+    }
+    if (keyword.isEmpty())
+    {
+        expansion_before_filter_.clear();
+    }
 }
 
 void playlist_window::attach_playing_item(QTreeWidgetItem* item)

@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QList>
 #include <QMap>
+#include <QHash>
 #include <QPoint>
 #include <QUrl>
 
@@ -14,6 +15,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QCloseEvent;
 class QPushButton;
+class QLineEdit;
 class QPropertyAnimation;
 
 class playback_controller;
@@ -101,6 +103,7 @@ class playlist_window : public QMainWindow
     QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;
     // position 为目标歌单中的插入位置，-1 表示追加到末尾。
     void transfer_selected_songs(qint64 target_id, song_transfer transfer, int position = -1);
+    void apply_song_filter();
 
    private:
     playback_controller* controller_ = nullptr;
@@ -116,6 +119,9 @@ class playlist_window : public QMainWindow
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
+    QLineEdit* search_edit_ = nullptr;
+    // 开始过滤前各歌单的展开状态，清除关键字后恢复。
+    QHash<qint64, bool> expansion_before_filter_;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;

@@ -252,6 +252,60 @@ private slots:
         QCOMPARE(tree->topLevelItem(1)->childCount(), 3);
     }
 
+    void song_search()
+    {
+        playlist_window window;
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 first_id = manager->get_all_playlists().first().id;
+        QVERIFY(manager->create_new_playlist("其他"));
+        QVERIFY(manager->create_new_playlist("空"));
+        const qint64 other_id = manager->get_all_playlists().at(1).id;
+        QVERIFY(manager->add_songs_to_playlist(first_id, {temp_.filePath("alpha.wav"), temp_.filePath("beta.wav")}));
+        QVERIFY(manager->add_songs_to_playlist(other_id, {temp_.filePath("Alphabet.wav")}));
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* first = tree->topLevelItem(0);
+        auto* other = tree->topLevelItem(1);
+        auto* empty = tree->topLevelItem(2);
+        other->setExpanded(true);
+        auto* search = window.findChild<QLineEdit*>("songSearchEdit");
+        QVERIFY(search != nullptr);
+        QVERIFY(!search->isVisible());
+
+        QTest::keyClick(&window, Qt::Key_F, Qt::ControlModifier);
+        QVERIFY(search->isVisible());
+        QVERIFY(search->hasFocus());
+        QTest::keyClicks(search, "ALPHA");
+        QVERIFY(!first->isHidden());
+        QVERIFY(first->isExpanded());
+        QVERIFY(!first->child(0)->isHidden());
+        QVERIFY(first->child(1)->isHidden());
+        QVERIFY(!other->isHidden());
+        QVERIFY(empty->isHidden());
+
+        // 过滤期间歌单刷新，新节点同样按关键字过滤。
+        QVERIFY(manager->add_songs_to_playlist(first_id, {temp_.filePath("alpha2.wav"), temp_.filePath("gamma.wav")}));
+        first = tree->topLevelItem(0);
+        QCOMPARE(first->childCount(), 4);
+        QVERIFY(!first->child(2)->isHidden());
+        QVERIFY(first->child(3)->isHidden());
+
+        QTest::keyClick(search, Qt::Key_Return);
+        QCOMPARE(tree->currentItem(), first->child(0));
+        QVERIFY(tree->hasFocus());
+
+        search->setFocus();
+        QTest::keyClick(search, Qt::Key_Escape);
+        QVERIFY(!search->isVisible());
+        QVERIFY(search->text().isEmpty());
+        QVERIFY(!empty->isHidden());
+        QVERIFY(!first->child(1)->isHidden());
+        QVERIFY(!first->isExpanded());
+        QVERIFY(other->isExpanded());
+    }
+
     void drag_songs()
     {
         playlist_window window;
