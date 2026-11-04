@@ -25,6 +25,10 @@ class database_manager : public QObject
     Playlist get_playlist_with_songs(qint64 playlist_id);
 
     bool add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);
+    QList<LibrarySong> get_library_songs();
+    bool add_songs_to_library(const QStringList& file_paths);
+    // 删除歌曲记录并移出所有歌单，affected_playlist_ids 返回受影响的歌单。
+    bool delete_songs(const QStringList& file_paths, QList<qint64>& affected_playlist_ids);
     bool save_playlists(const QMap<qint64, Playlist>& playlists, QList<qint64>& changed_ids);
 
     QStringList pending_duration_paths();

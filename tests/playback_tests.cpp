@@ -26,6 +26,7 @@
 #include "lyrics_widget.h"
 #include "lyrics_parser.h"
 #include "scrolling_text_label.h"
+#include "music_library_view.h"
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
@@ -159,6 +160,149 @@ private slots:
         timer.start(10);
     }
 
+    void library_store()
+    {
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const qint64 first = manager.get_all_playlists().first().id;
+        QVERIFY(manager.create_new_playlist("目标"));
+        const qint64 target = manager.get_all_playlists().last().id;
+        const QString a = temp_.filePath("library-a.wav");
+        const QString b = temp_.filePath("library-b.wav");
+        const QString c = temp_.filePath("library-c.wav");
+        QVERIFY(manager.add_songs_to_playlist(first, {a, b}));
+        QVERIFY(manager.add_songs_to_playlist(target, {b}));
+        const auto find = [&](const QString& path)
+        {
+            for (const auto& entry : manager.get_library_songs())
+            {
+                if (entry.song.file_path == path) return entry;
+            }
+            return LibrarySong{};
+        };
+
+        // 从歌单移除不影响音乐库。
+        QVERIFY(manager.remove_songs_from_playlist(first, {0}));
+        QCOMPARE(find(a).song.file_path, a);
+        QVERIFY(find(a).playlists.isEmpty());
+        QStringList b_lists = find(b).playlists;
+        b_lists.sort();
+        QStringList expected{"默认列表", "目标"};
+        expected.sort();
+        QCOMPARE(b_lists, expected);
+
+        QSignalSpy library_changed(&manager, &playlist_manager::library_changed);
+        QVERIFY(manager.add_songs_to_library({c, a}));
+        QCOMPARE(manager.get_library_songs().size(), 3);
+        QVERIFY(find(c).playlists.isEmpty());
+        QCOMPARE(library_changed.count(), 1);
+
+        QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
+        QVERIFY(manager.delete_songs_from_library({b}));
+        QCOMPARE(manager.get_library_songs().size(), 2);
+        QVERIFY(manager.get_playlist_by_id(first).songs.isEmpty());
+        QVERIFY(manager.get_playlist_by_id(target).songs.isEmpty());
+        QList<qint64> changed_ids;
+        for (const auto& args : changed) changed_ids.append(args.first().toLongLong());
+        std::sort(changed_ids.begin(), changed_ids.end());
+        QCOMPARE(changed_ids, QList<qint64>({first, target}));
+        QCOMPARE(library_changed.count(), 2);
+    }
+
+    void library_page()
+    {
+        playlist_window window;
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 first = manager->get_all_playlists().first().id;
+        QVERIFY(manager->create_new_playlist("目标"));
+        const qint64 target = manager->get_all_playlists().last().id;
+        const QString extra = temp_.filePath("library-extra.wav");
+        QVERIFY(QFile::copy(tone_, extra));
+        const QString missing = temp_.filePath("library-missing.wav");
+        QVERIFY(manager->add_songs_to_playlist(first, {tone_, missing}));
+        QVERIFY(manager->add_songs_to_library({extra}));
+
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
+        auto* view = window.findChild<music_library_view*>("musicLibraryView");
+        QVERIFY(view != nullptr);
+        QVERIFY(!view->isVisible());
+        window.findChild<QPushButton*>("libraryTabButton")->click();
+        QVERIFY(view->isVisible());
+        QVERIFY(!tree->isVisible());
+        const auto row_paths = [&]
+        {
+            QStringList paths;
+            for (int i = 0; i < view->topLevelItemCount(); ++i)
+            {
+                if (!view->topLevelItem(i)->isHidden()) paths.append(view->topLevelItem(i)->data(0, Qt::UserRole).toString());
+            }
+            return paths;
+        };
+        QCOMPARE(row_paths(), QStringList({extra, missing, tone_}));
+        const auto select = [&](const QString& path)
+        {
+            view->clearSelection();
+            for (int i = 0; i < view->topLevelItemCount(); ++i)
+            {
+                auto* item = view->topLevelItem(i);
+                if (item->data(0, Qt::UserRole).toString() == path)
+                {
+                    item->setSelected(true);
+                    view->setCurrentItem(item, 0, QItemSelectionModel::Select);
+                }
+            }
+        };
+
+        select(extra);
+        QVERIFY(QMetaObject::invokeMethod(view, "add_selected_to_playlist", Q_ARG(qint64, target)));
+        QCOMPARE(manager->get_playlist_by_id(target).songs.size(), 1);
+        QCOMPARE(manager->get_playlist_by_id(target).songs.first().file_path, extra);
+
+        QTest::keyClick(&window, Qt::Key_F, Qt::ControlModifier);
+        QTest::keyClicks(window.findChild<QLineEdit*>("songSearchEdit"), "extra");
+        QCOMPARE(row_paths(), QStringList({extra}));
+        QTest::keyClick(window.findChild<QLineEdit*>("songSearchEdit"), Qt::Key_Escape);
+        QCOMPARE(row_paths().size(), 3);
+
+        // 从音乐库删除会同时移出所有歌单。
+        select(missing);
+        view->setFocus();
+        QTimer confirm;
+        accept_question_boxes(confirm, &window);
+        QTest::keyClick(view, Qt::Key_Delete);
+        confirm.stop();
+        QCOMPARE(row_paths(), QStringList({extra, tone_}));
+        QCOMPARE(manager->get_playlist_by_id(first).songs.size(), 1);
+        QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
+
+        const QString gone = temp_.filePath("library-gone.wav");
+        QVERIFY(manager->add_songs_to_library({gone}));
+        QTRY_COMPARE(row_paths().size(), 3);
+        QTimer confirm_cleanup;
+        accept_question_boxes(confirm_cleanup, &window);
+        QVERIFY(QMetaObject::invokeMethod(view, "on_cleanup_invalid_action"));
+        confirm_cleanup.stop();
+        QCOMPARE(row_paths(), QStringList({extra, tone_}));
+
+        auto* controller = window.findChild<playback_controller*>();
+        QSignalSpy started(controller, &playback_controller::playback_started);
+        for (int i = 0; i < view->topLevelItemCount(); ++i)
+        {
+            auto* item = view->topLevelItem(i);
+            if (item->data(0, Qt::UserRole).toString() == tone_) emit view->itemDoubleClicked(item, 0);
+        }
+        QCOMPARE(started.count(), 1);
+        QCOMPARE(started.last().first().toString(), tone_);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+
+        window.findChild<QPushButton*>("playlistTabButton")->click();
+        QVERIFY(tree->isVisible());
+        QVERIFY(!view->isVisible());
+    }
+
     void cleanup_invalid_files()
     {
         playlist_window window;
@@ -180,7 +324,7 @@ private slots:
         QCOMPARE(kept.songs.first().file_path, tone_);
         QCOMPARE(manager->get_playlist_by_id(second).songs.size(), 0);
         QVERIFY(QFileInfo::exists(tone_));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
         QCOMPARE(tree->topLevelItem(1)->childCount(), 0);
     }
@@ -200,7 +344,7 @@ private slots:
         }
         QVERIFY(manager->add_songs_to_playlist(source_id, paths));
         QVERIFY(manager->add_songs_to_playlist(target_id, {paths[2]}));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* source = tree->topLevelItem(0);
 
         window.show();
@@ -266,7 +410,7 @@ private slots:
         const qint64 other_id = manager->get_all_playlists().at(1).id;
         QVERIFY(manager->add_songs_to_playlist(first_id, {temp_.filePath("alpha.wav"), temp_.filePath("beta.wav")}));
         QVERIFY(manager->add_songs_to_playlist(other_id, {temp_.filePath("Alphabet.wav")}));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* first = tree->topLevelItem(0);
         auto* other = tree->topLevelItem(1);
         auto* empty = tree->topLevelItem(2);
@@ -323,7 +467,7 @@ private slots:
             paths.append(temp_.filePath(QString("drag-%1.wav").arg(i)));
         }
         QVERIFY(manager->add_songs_to_playlist(source_id, paths));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* source = tree->topLevelItem(0);
         source->setExpanded(true);
         QTest::qWait(50);
@@ -379,7 +523,7 @@ private slots:
         QFile note(root.filePath("drop/readme.txt"));
         QVERIFY(note.open(QFile::WriteOnly));
         note.close();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         const QPoint target_row = tree->visualItemRect(tree->topLevelItem(1)).center();
         const QList<QUrl> urls{QUrl::fromLocalFile(root.filePath("drop")), QUrl::fromLocalFile(single)};
         QVERIFY(QMetaObject::invokeMethod(&window, "handle_file_drop", Q_ARG(QList<QUrl>, urls), Q_ARG(QPoint, target_row)));
@@ -401,7 +545,7 @@ private slots:
         const auto lists = manager->get_all_playlists();
         QVERIFY(manager->add_songs_to_playlist(lists.first().id, {tone_}));
         QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
-        window.findChild<QTreeWidget*>()->topLevelItem(0)->child(0)->setSelected(true);
+        window.findChild<QTreeWidget*>("songTreeWidget")->topLevelItem(0)->child(0)->setSelected(true);
         const auto before = database_snapshot();
         QSqlQuery query;
         QVERIFY(query.exec("CREATE TRIGGER reject_move BEFORE INSERT ON PlaylistSongs "
@@ -411,7 +555,7 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&window, "on_move_songs_action", Q_ARG(qint64, lists.last().id)));
         close_warning.stop();
         QCOMPARE(database_snapshot(), before);
-        QCOMPARE(window.findChild<QTreeWidget*>()->topLevelItem(0)->childCount(), 1);
+        QCOMPARE(window.findChild<QTreeWidget*>("songTreeWidget")->topLevelItem(0)->childCount(), 1);
     }
 
     void theme_toggle()
@@ -550,7 +694,7 @@ private slots:
         window.activateWindow();
         QVERIFY(QTest::qWaitForWindowActive(&window));
         auto* controller = window.findChild<playback_controller*>();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QSignalSpy started(controller, &playback_controller::playback_started);
         QSignalSpy paused(controller, &playback_controller::playback_paused);
         QSignalSpy seek(controller, &playback_controller::seek_completed);
@@ -639,7 +783,7 @@ private slots:
         QCOMPARE(duration->text(), QString("--:--"));
         player->update_track_info(266000);
         QCOMPARE(duration->text(), QString("04:26"));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QTest::qWait(50);
         QVERIFY(tree->columnWidth(0) > tree->columnWidth(1) * 2);
         auto* controller = window.findChild<playback_controller*>();
@@ -661,7 +805,7 @@ private slots:
         auto* progress_slider = window.findChild<QSlider*>("progressSlider");
         QTRY_VERIFY_WITH_TIMEOUT(progress_slider->value() >= 2900, 1000);
         QCOMPARE(window.findChild<lyrics_widget*>()->accessibleDescription(), QString("第二行"));
-        QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
+        QVERIFY(window.findChild<QTreeWidget*>("songTreeWidget")->isVisible());
         QVERIFY(QMetaObject::invokeMethod(window.findChild<lyrics_widget*>(), "line_clicked", Q_ARG(qint64, 6000)));
         QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 2, 1000);
         QVERIFY(seek.last().first().toLongLong() >= 6000);
@@ -829,7 +973,7 @@ private slots:
         }
         playlist_window window;
         window.show();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* manager = window.findChild<playlist_manager*>();
         const auto id = manager->get_all_playlists().first().id;
         const int children = tree->viewport()->findChildren<QWidget*>().count();
@@ -1075,7 +1219,7 @@ private slots:
             const auto id = manager->get_all_playlists().first().id;
             QVERIFY(manager->add_songs_to_playlist(id, {tone_}));
             auto* controller = window.findChild<playback_controller*>();
-            auto* tree = window.findChild<QTreeWidget*>();
+            auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
             QSignalSpy progress(controller, &playback_controller::progress_updated);
             QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
                 Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
@@ -1100,7 +1244,7 @@ private slots:
         QCOMPARE(restored.findChild<volume_meter*>()->value(), 100);
         QCOMPARE(restored.findChild<QPushButton*>("modeButton")->toolTip(), QString("随机播放"));
         QVERIFY(!restored.findChild<playback_controller*>()->is_media_loaded());
-        QCOMPARE(restored.findChild<QTreeWidget*>()->currentItem()->data(0, Qt::UserRole).toString(), tone_);
+        QCOMPARE(restored.findChild<QTreeWidget*>("songTreeWidget")->currentItem()->data(0, Qt::UserRole).toString(), tone_);
     }
 
     void playback_state_saved_while_playing()
@@ -1109,7 +1253,7 @@ private slots:
         auto* manager = window.findChild<playlist_manager*>();
         QVERIFY(manager->add_songs_to_playlist(manager->get_all_playlists().first().id, {tone_}));
         auto* controller = window.findChild<playback_controller*>();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QSignalSpy progress(controller, &playback_controller::progress_updated);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
                                           Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
@@ -1620,7 +1764,7 @@ private slots:
                 [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
         QVERIFY(manager->add_songs_to_playlist(id, paths));
         QVERIFY(pending_durations() > 0);
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QVERIFY(manager->add_songs_to_playlist(id, paths));
         auto* first = tree->topLevelItem(0)->child(0);
         QSignalSpy removed(tree->model(), &QAbstractItemModel::rowsRemoved);
@@ -1849,7 +1993,7 @@ private slots:
         }
         QVERIFY(manager->add_songs_to_playlist(id, paths));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QSignalSpy decode_errors(controller, &playback_controller::playback_error);
         QSignalSpy unavailable(controller, &playback_controller::file_unavailable);
         const auto failures = [&] { return decode_errors.count() + unavailable.count(); };
@@ -1895,8 +2039,8 @@ private slots:
             paths.append(path);
         }
         QVERIFY(manager->add_songs_to_playlist(id, paths));
-        auto* list = window.findChild<QTreeWidget*>()->topLevelItem(0);
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* list = window.findChild<QTreeWidget*>("songTreeWidget")->topLevelItem(0);
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Shuffle)));
         for (int selected : {0, 3, 1, 5})
         {
@@ -1918,7 +2062,7 @@ private slots:
         const QString second_path = temp_.filePath("second.wav");
         QVERIFY(QFile::copy(tone_, second_path));
         manager->add_songs_to_playlist(id, {tone_, second_path});
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* list = tree->topLevelItem(0);
         auto* first = list->child(0);
         auto* second = list->child(1);
@@ -1976,7 +2120,7 @@ private slots:
             paths.append(path);
         }
         manager->add_songs_to_playlist(playlist.id, paths);
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* first = tree->topLevelItem(0)->child(0);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Shuffle)));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, first), Q_ARG(int, 0)));
@@ -1999,7 +2143,7 @@ private slots:
         QVERIFY(QFile::copy(tone_, second));
         QVERIFY(manager->add_songs_to_playlist(id, {tone_, second}));
         auto* controller = window.findChild<playback_controller*>();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Shuffle)));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
                                           Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
@@ -2024,7 +2168,7 @@ private slots:
         const auto playlist = manager->get_all_playlists().first();
         manager->create_new_playlist("保留列表");
         manager->add_songs_to_playlist(playlist.id, {tone_});
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* song = tree->topLevelItem(0)->child(0);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, song), Q_ARG(int, 0)));
         auto* controller = window.findChild<playback_controller*>();
@@ -2042,7 +2186,7 @@ private slots:
         const QString second = temp_.filePath("remove-song-second.wav");
         QVERIFY(QFile::copy(tone_, second));
         manager->add_songs_to_playlist(playlist.id, {tone_, second});
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* song = tree->topLevelItem(0)->child(0);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, song), Q_ARG(int, 0)));
@@ -2072,7 +2216,7 @@ private slots:
         QVERIFY(QFile::copy(tone_, target_song));
         QVERIFY(manager->add_songs_to_playlist(source_id, {tone_, kept}));
         QVERIFY(manager->add_songs_to_playlist(target_id, {target_song}));
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         auto* controller = window.findChild<playback_controller*>();
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
@@ -2107,7 +2251,7 @@ private slots:
         playlist_window window;
         auto* manager = window.findChild<playlist_manager*>();
         const auto playlist = manager->get_all_playlists().first();
-        auto* tree = window.findChild<QTreeWidget*>();
+        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
         new tracked_item(tree->topLevelItem(0), destroyed);
         manager->add_songs_to_playlist(playlist.id, {tone_});
         QCOMPARE(destroyed, 1);

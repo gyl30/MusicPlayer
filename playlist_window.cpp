@@ -19,6 +19,8 @@
 #include <QSettings>
 #include <QLabel>
 #include <QLineEdit>
+#include <QStackedWidget>
+#include <QButtonGroup>
 #include <QPushButton>
 #include <QMouseEvent>
 #include <QWindow>
@@ -41,6 +43,8 @@
 #include "playlist_manager.h"
 #include "playback_controller.h"
 #include "lyrics_widget.h"
+#include "song_delegate.h"
+#include "music_library_view.h"
 
 class window_resize_handle final : public QWidget
 {
@@ -65,55 +69,6 @@ protected:
 
 private:
     Qt::Edges edges_;
-};
-
-// 标记正在播放的歌曲节点，由 song_delegate 绘制高亮。
-constexpr int kPlayingRole = Qt::UserRole + 1;
-
-class song_delegate final : public QStyledItemDelegate
-{
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex&) const override
-    {
-        return QSize(80, option.widget != nullptr && option.widget->width() >= 460 ? 40 : 34);
-    }
-
-    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override
-    {
-        painter->save();
-        const bool song = index.parent().isValid();
-        const bool playing = song && index.siblingAtColumn(0).data(kPlayingRole).toBool();
-        const bool selected = option.state & QStyle::State_Selected;
-        const bool hovered = option.state & QStyle::State_MouseOver;
-        const bool dark = qApp->property("darkMode").toBool();
-        if (playing || selected || hovered)
-            painter->fillRect(option.rect, playing ? QColor(dark ? "#304D6C" : "#E4F0FF")
-                                                      : selected ? QColor(dark ? "#30445F" : "#E1E7F0")
-                                                                 : QColor(dark ? "#29394D" : "#EEF3FA"));
-        QFont font = option.font;
-        font.setPointSize(option.widget != nullptr && option.widget->width() >= 460 ? 11 : 10);
-        font.setBold(playing || !song);
-        painter->setFont(font);
-        painter->setPen(playing ? QColor(dark ? "#74B6FF" : "#1478E8")
-                                : song && index.column() == 0 ? QColor(dark ? "#E6EDF7" : "#26364E")
-                                                              : QColor(dark ? "#A2B2C7" : "#64758D"));
-        QRect text = option.rect.adjusted(4, 0, -12, 0);
-        painter->drawText(text, Qt::AlignVCenter | (index.column() == 1 ? Qt::AlignRight : Qt::AlignLeft),
-                          painter->fontMetrics().elidedText(index.data().toString(), Qt::ElideRight, text.width()));
-        if (song)
-        {
-            painter->setPen(QColor(dark ? "#3B4C61" : "#E8EDF5"));
-            painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
-        }
-        if (option.state & QStyle::State_HasFocus)
-        {
-            painter->setPen(QPen(QColor(dark ? "#83ACD8" : "#7899C2"), 1, Qt::DotLine));
-            painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
-        }
-        painter->restore();
-    }
 };
 
 class song_tree_widget final : public QTreeWidget
@@ -188,16 +143,6 @@ static QTreeWidgetItem* find_item_by_id(QTreeWidget* tree, qint64 id)
     return nullptr;
 }
 
-static QString normalize_display_text(const QString& text)
-{
-    QString display_text = text.trimmed();
-    display_text.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-    display_text.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-    display_text.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-    display_text.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-    return display_text;
-}
-
 static void set_item_text_with_tooltip(QTreeWidgetItem* item, const QString& text)
 {
     if (item == nullptr)
@@ -220,25 +165,6 @@ static void set_song_item_text_with_tooltip(QTreeWidgetItem* item, const QString
     const QString display_text = normalize_display_text(file_name);
     item->setText(0, display_text);
     item->setToolTip(0, file_name);
-}
-
-static QString format_duration_ms(qint64 duration_ms)
-{
-    if (duration_ms <= 0)
-    {
-        return QStringLiteral("--:--");
-    }
-
-    const qint64 total_seconds = duration_ms / 1000;
-    const qint64 hours = total_seconds / 3600;
-    const qint64 minutes = (total_seconds % 3600) / 60;
-    const qint64 seconds = total_seconds % 60;
-    if (hours > 0)
-    {
-        return QString("%1:%2:%3").arg(hours).arg(minutes, 2, 10, QLatin1Char('0')).arg(seconds, 2, 10, QLatin1Char('0'));
-    }
-
-    return QString("%1:%2").arg(minutes).arg(seconds, 2, 10, QLatin1Char('0'));
 }
 
 static void set_song_duration_text(QTreeWidgetItem* item, qint64 duration_ms)
@@ -501,7 +427,7 @@ void playlist_window::setup_ui()
     song_tree_widget_ = song_tree;
     song_tree_widget_->setObjectName("songTreeWidget");
     song_tree_widget_->setColumnCount(2);
-    song_tree_widget_->setItemDelegate(new song_delegate(song_tree_widget_));
+    song_tree_widget_->setItemDelegate(new song_delegate(song_delegate::rows::nested_in_playlists, song_tree_widget_));
     song_tree_widget_->setUniformRowHeights(true);
     song_tree_widget_->setMouseTracking(true);
     song_tree_widget_->setAllColumnsShowFocus(true);
@@ -539,15 +465,31 @@ void playlist_window::setup_ui()
     library->addWidget(player_window_);
     auto* library_layout = new QHBoxLayout();
     library_layout->setSpacing(6);
-    auto* list_title = new QLabel("播放列表", library_panel);
-    list_title->setObjectName("libraryTitle");
-    library_layout->addWidget(list_title);
+    // 音乐库管理所有导入的文件，播放列表组织播放顺序；两者在同一位置切换显示。
+    auto* library_tab = new QPushButton("音乐库", library_panel);
+    library_tab->setObjectName("libraryTabButton");
+    auto* playlist_tab = new QPushButton("播放列表", library_panel);
+    playlist_tab->setObjectName("playlistTabButton");
+    auto* tab_group = new QButtonGroup(library_panel);
+    for (auto* tab : {library_tab, playlist_tab})
+    {
+        tab->setCheckable(true);
+        tab->setFocusPolicy(Qt::TabFocus);
+        tab_group->addButton(tab);
+        library_layout->addWidget(tab);
+    }
+    playlist_tab->setChecked(true);
     library_layout->addStretch();
     auto* add_button = new QPushButton(QIcon(":/icons/add.svg"), "", playback_page);
     add_button->setObjectName("addMusicButton");
     add_button->setAccessibleName("添加音乐");
     connect(add_button, &QPushButton::clicked, this, [this, add_button]
     {
+        if (library_page_active())
+        {
+            import_files_to_library();
+            return;
+        }
         auto* item = song_tree_widget_->currentItem();
         if (item == nullptr) item = song_tree_widget_->topLevelItem(0);
         if (item == nullptr)
@@ -592,7 +534,16 @@ void playlist_window::setup_ui()
     search_edit_->hide();
     library->addWidget(search_edit_);
     song_tree_widget_->setMinimumHeight(80);
-    library->addWidget(song_tree_widget_, 1);
+    list_stack_ = new QStackedWidget(library_panel);
+    list_stack_->addWidget(song_tree_widget_);
+    library_view_ = new music_library_view(playlist_manager_, list_stack_);
+    list_stack_->addWidget(library_view_);
+    library->addWidget(list_stack_, 1);
+    connect(library_tab, &QPushButton::toggled, this, [this](bool checked)
+    {
+        list_stack_->setCurrentWidget(checked ? static_cast<QWidget*>(library_view_) : song_tree_widget_);
+    });
+    connect(library_view_, &music_library_view::play_requested, this, &playlist_window::play_library_song);
     playback_layout->addWidget(library_panel, 1);
 
     body_layout->addWidget(playback_page, 1);
@@ -757,6 +708,7 @@ void playlist_window::setup_connections()
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &playlist_window::on_tree_item_double_clicked);
 
     connect(search_edit_, &QLineEdit::textChanged, this, &playlist_window::apply_song_filter);
+    connect(search_edit_, &QLineEdit::textChanged, library_view_, &music_library_view::set_filter);
     connect(new QShortcut(QKeySequence::Find, this), &QShortcut::activated, this, [this]
     {
         search_edit_->show();
@@ -767,10 +719,23 @@ void playlist_window::setup_connections()
     {
         search_edit_->clear();
         search_edit_->hide();
-        song_tree_widget_->setFocus();
+        list_stack_->currentWidget()->setFocus();
     });
     connect(search_edit_, &QLineEdit::returnPressed, this, [this]
     {
+        if (library_page_active())
+        {
+            for (int i = 0; i < library_view_->topLevelItemCount(); ++i)
+            {
+                if (!library_view_->topLevelItem(i)->isHidden())
+                {
+                    library_view_->setCurrentItem(library_view_->topLevelItem(i));
+                    library_view_->setFocus();
+                    return;
+                }
+            }
+            return;
+        }
         for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
         {
             QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
@@ -1659,6 +1624,30 @@ void playlist_window::on_add_songs_action()
     const QStringList files =
         QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", QString("音频文件 (%1)").arg(kAudioFilePatterns.join(' ')));
     add_files_to_playlist(playlist_id, files);
+}
+
+bool playlist_window::library_page_active() const { return list_stack_->currentWidget() == library_view_; }
+
+void playlist_window::import_files_to_library()
+{
+    const QStringList files =
+        QFileDialog::getOpenFileNames(this, "选择要导入音乐库的文件", "", QString("音频文件 (%1)").arg(kAudioFilePatterns.join(' ')));
+    if (!files.isEmpty() && !playlist_manager_->add_songs_to_library(files))
+    {
+        QMessageBox::warning(this, "保存失败", "音乐库修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+    }
+}
+
+void playlist_window::play_library_song(const QString& file_path)
+{
+    // 播放顺序由歌单决定，因此在包含该歌曲的第一个歌单中播放。
+    QTreeWidgetItem* item = find_song_item_by_path(file_path);
+    if (item == nullptr)
+    {
+        QMessageBox::information(this, "尚未加入歌单", "这首歌还没有加入歌单，请先通过右键菜单添加到歌单后播放。");
+        return;
+    }
+    on_tree_item_double_clicked(item, 0);
 }
 
 void playlist_window::add_files_to_playlist(qint64 playlist_id, const QStringList& files)

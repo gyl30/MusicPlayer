@@ -16,6 +16,8 @@ class QTreeWidgetItem;
 class QCloseEvent;
 class QPushButton;
 class QLineEdit;
+class QStackedWidget;
+class music_library_view;
 
 class playback_controller;
 class playlist_manager;
@@ -100,6 +102,9 @@ class playlist_window : public QMainWindow
         move
     };
     void add_files_to_playlist(qint64 playlist_id, const QStringList& files);
+    void import_files_to_library();
+    void play_library_song(const QString& file_path);
+    [[nodiscard]] bool library_page_active() const;
     QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;
     // position 为目标歌单中的插入位置，-1 表示追加到末尾。
     void transfer_selected_songs(qint64 target_id, song_transfer transfer, int position = -1);
@@ -122,6 +127,8 @@ class playlist_window : public QMainWindow
 
     QTreeWidget* song_tree_widget_ = nullptr;
     QLineEdit* search_edit_ = nullptr;
+    QStackedWidget* list_stack_ = nullptr;
+    music_library_view* library_view_ = nullptr;
     // 开始过滤前各歌单的展开状态，清除关键字后恢复。
     QHash<qint64, bool> expansion_before_filter_;
 

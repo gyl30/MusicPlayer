@@ -4,6 +4,7 @@
 #include <QSqlError>
 #include <QVariant>
 #include <QFileInfo>
+#include <algorithm>
 #include <QtGlobal>
 #include <QSet>
 #include "scoped_exit.h"
@@ -289,6 +290,116 @@ qint64 database_manager::get_or_create_song_id(const QString& file_path)
     }
     LOG_ERROR("创建歌曲条目 {} 失败 {}", file_path.toStdString(), query.lastError().text().toStdString());
     return -1;
+}
+
+QList<LibrarySong> database_manager::get_library_songs()
+{
+    (void)this;
+    QList<LibrarySong> songs;
+    QSqlQuery query(R"(
+        SELECT s.file_path, s.file_name, s.duration_ms, p.name
+        FROM Songs s
+        LEFT JOIN PlaylistSongs ps ON ps.song_id = s.song_id
+        LEFT JOIN Playlists p ON p.playlist_id = ps.playlist_id
+        ORDER BY s.song_id, p.playlist_id
+    )");
+    if (!query.exec())
+    {
+        LOG_ERROR("读取音乐库失败 {}", query.lastError().text().toStdString());
+        return songs;
+    }
+    while (query.next())
+    {
+        const QString path = query.value(0).toString();
+        if (songs.isEmpty() || songs.last().song.file_path != path)
+        {
+            LibrarySong entry;
+            entry.song.file_path = path;
+            entry.song.file_name = query.value(1).toString();
+            const QVariant duration_value = query.value(2);
+            entry.song.duration_ms = duration_value.isNull() ? 0 : qMax<qint64>(0, duration_value.toLongLong());
+            songs.append(entry);
+        }
+        if (!query.value(3).isNull())
+        {
+            songs.last().playlists.append(query.value(3).toString());
+        }
+    }
+    return songs;
+}
+
+bool database_manager::add_songs_to_library(const QStringList& file_paths)
+{
+    if (!db_.transaction())
+    {
+        LOG_ERROR("开启数据库事务失败");
+        return false;
+    }
+    for (const QString& path : file_paths)
+    {
+        if (get_or_create_song_id(path) == -1)
+        {
+            db_.rollback();
+            return false;
+        }
+    }
+    if (!db_.commit())
+    {
+        LOG_ERROR("提交数据库事务失败");
+        db_.rollback();
+        return false;
+    }
+    return true;
+}
+
+bool database_manager::delete_songs(const QStringList& file_paths, QList<qint64>& affected_playlist_ids)
+{
+    affected_playlist_ids.clear();
+    if (!db_.transaction())
+    {
+        LOG_ERROR("开启数据库事务失败");
+        return false;
+    }
+    QSqlQuery query_playlists;
+    query_playlists.prepare(R"(
+        SELECT DISTINCT ps.playlist_id
+        FROM PlaylistSongs ps
+        JOIN Songs s ON s.song_id = ps.song_id
+        WHERE s.file_path = :path
+    )");
+    QSqlQuery query_delete;
+    query_delete.prepare("DELETE FROM Songs WHERE file_path = :path");
+    for (const QString& path : file_paths)
+    {
+        query_playlists.bindValue(":path", path);
+        if (!query_playlists.exec())
+        {
+            LOG_ERROR("查询歌曲 {} 所在歌单失败 {}", path.toStdString(), query_playlists.lastError().text().toStdString());
+            db_.rollback();
+            return false;
+        }
+        while (query_playlists.next())
+        {
+            const qint64 id = query_playlists.value(0).toLongLong();
+            if (!affected_playlist_ids.contains(id)) affected_playlist_ids.append(id);
+        }
+        query_delete.bindValue(":path", path);
+        if (!query_delete.exec())
+        {
+            LOG_ERROR("删除歌曲 {} 失败 {}", path.toStdString(), query_delete.lastError().text().toStdString());
+            db_.rollback();
+            return false;
+        }
+    }
+    if (!db_.commit())
+    {
+        LOG_ERROR("提交数据库事务失败");
+        db_.rollback();
+        affected_playlist_ids.clear();
+        return false;
+    }
+    std::sort(affected_playlist_ids.begin(), affected_playlist_ids.end());
+    return true;
 }
 
 bool database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths)

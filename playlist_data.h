@@ -3,6 +3,7 @@
 
 #include <QString>
 #include <QList>
+#include <QStringList>
 
 struct Song
 {
@@ -12,6 +13,13 @@ struct Song
 };
 
 inline bool operator==(const Song& left, const Song& right) { return left.file_path == right.file_path && left.file_name == right.file_name; }
+
+// 音乐库中的一首歌及包含它的歌单名称。
+struct LibrarySong
+{
+    Song song;
+    QStringList playlists;
+};
 
 struct Playlist
 {

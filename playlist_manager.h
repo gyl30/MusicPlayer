@@ -20,6 +20,7 @@ class playlist_manager : public QObject
 
     [[nodiscard]] QList<Playlist> get_all_playlists() const;
     [[nodiscard]] Playlist get_playlist_by_id(qint64 id) const;
+    [[nodiscard]] QList<LibrarySong> get_library_songs() const;
     void increment_play_count(const QString& file_path);
 
    public slots:
@@ -30,6 +31,8 @@ class playlist_manager : public QObject
     bool rename_playlist(qint64 id, const QString& new_name);
     bool sort_playlist(qint64 id);
     bool save_playlists(const QMap<qint64, Playlist>& playlists);
+    bool add_songs_to_library(const QStringList& file_paths);
+    bool delete_songs_from_library(const QStringList& file_paths);
 
    signals:
     void playlist_added(const Playlist& new_playlist);
@@ -37,6 +40,7 @@ class playlist_manager : public QObject
     void playlist_renamed(qint64 playlist_id);
     void songs_changed_in_playlist(qint64 playlist_id);
     void durations_updated(const QMap<QString, qint64>& durations);
+    void library_changed();
 
    private:
     void perform_migration();

@@ -61,15 +61,17 @@ QLineEdit:focus { border-color: #61ACFA; }
 #playerView[compact="false"] #albumLabel { font-size: 10pt; }
 #playerView[compact="false"] #controlsContainer #playPauseButton { min-width: 54px; max-width: 54px; min-height: 54px; max-height: 54px; border-radius: 27px; qproperty-iconSize: 28px 28px; }
 #playerView[compact="false"] #controlsContainer QPushButton { qproperty-iconSize: 22px 22px; }
-#songTreeWidget { padding: 0; }
-#songTreeWidget::item { padding: 0; border: none; }
-#songTreeWidget::item:focus { border: none; }
+#songTreeWidget, #musicLibraryView { padding: 0; }
+#songTreeWidget::item, #musicLibraryView::item { padding: 0; border: none; }
+#songTreeWidget::item:focus, #musicLibraryView::item:focus { border: none; }
 
 #songTreeWidget::branch:has-children:closed { image: url(:/icons/chevron-right.svg); }
 #songTreeWidget::branch:has-children:open { image: url(:/icons/chevron-down.svg); }
 
 #addMusicButton:pressed, #lyricsButton:pressed { background: #405976; }
 #addMusicButton:disabled, #lyricsButton:disabled { background: #28384B; }
-#libraryTitle { color: #61ACFA; font-weight: 600; }
+#libraryTabButton, #playlistTabButton { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 2px 4px; min-height: 0; color: #A2B2C7; font-weight: 600; }
+#libraryTabButton:hover, #playlistTabButton:hover { color: #E6EDF7; }
+#libraryTabButton:checked, #playlistTabButton:checked { color: #61ACFA; border-bottom: 2px solid #61ACFA; }
 #playerBody, #playbackPage { background: #18222F; }
 #lyricsPanel { background: #18222F; border-left: 1px solid #405167; }

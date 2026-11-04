@@ -235,3 +235,33 @@ bool playlist_manager::save_playlists(const QMap<qint64, Playlist>& playlists)
     }
     return true;
 }
+
+QList<LibrarySong> playlist_manager::get_library_songs() const { return db_manager_->get_library_songs(); }
+
+bool playlist_manager::add_songs_to_library(const QStringList& file_paths)
+{
+    LOG_INFO("向音乐库导入 {} 首歌曲", file_paths.count());
+    if (!db_manager_->add_songs_to_library(file_paths))
+    {
+        return false;
+    }
+    scanner_->enqueue(db_manager_->pending_duration_paths());
+    emit library_changed();
+    return true;
+}
+
+bool playlist_manager::delete_songs_from_library(const QStringList& file_paths)
+{
+    LOG_INFO("从音乐库删除 {} 首歌曲", file_paths.count());
+    QList<qint64> affected_ids;
+    if (!db_manager_->delete_songs(file_paths, affected_ids))
+    {
+        return false;
+    }
+    for (qint64 id : affected_ids)
+    {
+        emit songs_changed_in_playlist(id);
+    }
+    emit library_changed();
+    return true;
+}
