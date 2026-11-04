@@ -38,12 +38,6 @@ playback_controller::~playback_controller()
     LOG_INFO("播放控制器已销毁");
 }
 
-void playback_controller::set_playback_mode(playback_mode mode)
-{
-    LOG_INFO("播放模式已设置为 {}", static_cast<int>(mode));
-    current_mode_ = mode;
-}
-
 void playback_controller::play_file(const QString& file_path, qint64 start_position_ms)
 {
     LOG_INFO("播放流程二 控制中心收到文件播放请求");

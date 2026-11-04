@@ -229,8 +229,6 @@ void player_window::setup_connections()
 
     if (controller_ != nullptr)
     {
-        connect(this, &player_window::playback_mode_changed, controller_, &playback_controller::set_playback_mode);
-
         connect(controller_, &playback_controller::track_info_ready, this, &player_window::update_track_info);
         connect(controller_, &playback_controller::playback_started, this, &player_window::on_playback_started);
         connect(controller_, &playback_controller::progress_updated, this, &player_window::update_progress);

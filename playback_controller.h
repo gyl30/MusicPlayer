@@ -32,7 +32,6 @@ class playback_controller : public QObject
     void stop();
     void pause_resume();
     void set_volume(int volume_percent);
-    void set_playback_mode(playback_mode mode);
 
    signals:
     void track_info_ready(qint64 duration_ms);
@@ -80,7 +79,6 @@ class playback_controller : public QObject
     bool is_seeking_ = false;
     qint64 pending_seek_ms_ = -1;
     qint64 playback_start_position_ms_ = 0;
-    playback_mode current_mode_ = playback_mode::ListLoop;
     int cached_volume_ = 80;
 };
 
