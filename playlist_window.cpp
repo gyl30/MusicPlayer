@@ -725,15 +725,7 @@ void playlist_window::setup_connections()
     {
         if (library_page_active())
         {
-            for (int i = 0; i < library_view_->topLevelItemCount(); ++i)
-            {
-                if (!library_view_->topLevelItem(i)->isHidden())
-                {
-                    library_view_->setCurrentItem(library_view_->topLevelItem(i));
-                    library_view_->setFocus();
-                    return;
-                }
-            }
+            library_view_->focus_first_match();
             return;
         }
         for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
@@ -784,7 +776,7 @@ void playlist_window::setup_connections()
     connect(playlist_manager_, &playlist_manager::playlist_renamed, this, &playlist_window::on_playlist_renamed);
     connect(playlist_manager_, &playlist_manager::songs_changed_in_playlist, this, &playlist_window::on_songs_changed);
 
-    connect(playlist_manager_, &playlist_manager::durations_updated, this, [this](const QMap<QString, qint64>& durations)
+    connect(playlist_manager_, &playlist_manager::songs_scanned, this, [this](const QMap<QString, qint64>& durations)
     {
         for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
         {

@@ -9,7 +9,7 @@ constexpr int kPlayingRole = Qt::UserRole + 1;
 class song_delegate final : public QStyledItemDelegate
 {
    public:
-    // 歌单列表中歌曲是歌单的子节点；音乐库中每一行都是歌曲。
+    // 歌单列表和分组的音乐库中，歌曲是分组节点的子节点；不分组的音乐库每一行都是歌曲。
     enum class rows
     {
         nested_in_playlists,
@@ -17,6 +17,7 @@ class song_delegate final : public QStyledItemDelegate
     };
 
     explicit song_delegate(rows layout, QObject* parent = nullptr);
+    void set_layout(rows layout) { layout_ = layout; }
 
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;

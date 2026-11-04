@@ -8,20 +8,20 @@
 #include "log.h"
 #include "playlist_manager.h"
 #include "database_manager.h"
-#include "duration_scanner.h"
+#include "song_scanner.h"
 
 playlist_manager::playlist_manager(QObject* parent) : QObject(parent)
 {
     db_manager_ = new database_manager(this);
-    scanner_ = new duration_scanner(this);
-    connect(scanner_, &duration_scanner::durations_ready, this, [this](const QMap<QString, qint64>& durations)
+    scanner_ = new song_scanner(this);
+    connect(scanner_, &song_scanner::songs_scanned, this, [this](const QMap<QString, scanned_song>& results)
     {
         QMap<QString, qint64> updated;
-        if (db_manager_->update_durations(durations, updated) && !updated.isEmpty())
+        if (db_manager_->update_scan_results(results, updated) && !updated.isEmpty())
         {
-            emit durations_updated(updated);
+            emit songs_scanned(updated);
         }
-        scanner_->acknowledge(durations.keys());
+        scanner_->acknowledge(results.keys());
     }, Qt::QueuedConnection);
 }
 
@@ -35,7 +35,7 @@ void playlist_manager::initialize_and_load()
         return;
     }
     perform_migration();
-    scanner_->enqueue(db_manager_->pending_duration_paths());
+    scanner_->enqueue(db_manager_->pending_scan_paths());
 }
 
 void playlist_manager::perform_migration()
@@ -163,7 +163,7 @@ bool playlist_manager::add_songs_to_playlist(qint64 playlist_id, const QStringLi
     {
         return false;
     }
-    scanner_->enqueue(db_manager_->pending_duration_paths());
+    scanner_->enqueue(db_manager_->pending_scan_paths());
     emit songs_changed_in_playlist(playlist_id);
     return true;
 }
@@ -228,7 +228,7 @@ bool playlist_manager::save_playlists(const QMap<qint64, Playlist>& playlists)
     {
         return false;
     }
-    scanner_->enqueue(db_manager_->pending_duration_paths());
+    scanner_->enqueue(db_manager_->pending_scan_paths());
     for (qint64 id : changed_ids)
     {
         emit songs_changed_in_playlist(id);
@@ -245,7 +245,7 @@ bool playlist_manager::add_songs_to_library(const QStringList& file_paths)
     {
         return false;
     }
-    scanner_->enqueue(db_manager_->pending_duration_paths());
+    scanner_->enqueue(db_manager_->pending_scan_paths());
     emit library_changed();
     return true;
 }

@@ -34,7 +34,7 @@
 #include "playlist_manager.h"
 #include "database_manager.h"
 #include "playlist_window.h"
-#include "duration_scanner.h"
+#include "song_scanner.h"
 #include "scoped_exit.h"
 #include "log.h"
 #include <sstream>
@@ -308,6 +308,79 @@ private slots:
         window.findChild<QPushButton*>("playlistTabButton")->click();
         QVERIFY(tree->isVisible());
         QVERIFY(!view->isVisible());
+    }
+
+    void library_grouping()
+    {
+        const QString a1 = temp_.filePath("group-a1.mp3");
+        const QString a2 = temp_.filePath("group-a2.mp3");
+        const QString b1 = temp_.filePath("group-b1.mp3");
+        const QString none = temp_.filePath("group-none.wav");
+        encode({"-i", tone_, "-t", "1", "-metadata", "artist=歌手甲", "-metadata", "album=专辑一", a1});
+        encode({"-i", tone_, "-t", "1", "-metadata", "artist=歌手甲", "-metadata", "album=专辑二", a2});
+        encode({"-i", tone_, "-t", "1", "-metadata", "artist=Beta", "-metadata", "album=专辑一", b1});
+        QVERIFY(QFile::copy(tone_, none));
+
+        playlist_window window;
+        window.show();
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->add_songs_to_library({a1, a2, b1, none}));
+        const auto scanned = []
+        {
+            QSqlQuery query("SELECT COUNT(*) FROM Songs WHERE title IS NULL");
+            return query.next() && query.value(0).toInt() == 0;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(scanned(), 3000);
+        window.findChild<QPushButton*>("libraryTabButton")->click();
+        auto* view = window.findChild<music_library_view*>("musicLibraryView");
+        const auto top_texts = [&]
+        {
+            QStringList texts;
+            for (int i = 0; i < view->topLevelItemCount(); ++i)
+            {
+                if (!view->topLevelItem(i)->isHidden()) texts.append(view->topLevelItem(i)->text(0));
+            }
+            return texts;
+        };
+        QTRY_COMPARE(top_texts(), QStringList({"group-a1.mp3", "group-a2.mp3", "group-b1.mp3", "group-none.wav"}));
+
+        // 搜索同时匹配标签，列表仍显示文件名。
+        view->set_filter("歌手甲");
+        QCOMPARE(top_texts(), QStringList({"group-a1.mp3", "group-a2.mp3"}));
+        view->set_filter("专辑一");
+        QCOMPARE(top_texts(), QStringList({"group-a1.mp3", "group-b1.mp3"}));
+        view->set_filter({});
+
+        view->set_grouping(music_library_view::grouping::artist);
+        QCOMPARE(top_texts(), QStringList({"Beta [1]", "歌手甲 [2]", "未知歌手 [1]"}));
+        QVERIFY(!(view->topLevelItem(0)->flags() & Qt::ItemIsSelectable));
+        view->set_filter("专辑二");
+        QCOMPARE(top_texts(), QStringList({"歌手甲 [2]"}));
+        view->focus_first_match();
+        QCOMPARE(view->currentItem()->data(0, Qt::UserRole).toString(), a2);
+        view->set_filter({});
+
+        // 折叠的分组在刷新后保持折叠，里面的歌曲不参与全选后的批量操作。
+        QTreeWidgetItem* group = view->topLevelItem(1);
+        QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, view->visualItemRect(group).center());
+        QVERIFY(!group->isExpanded());
+        QVERIFY(manager->create_new_playlist("刷新"));
+        QVERIFY(!view->topLevelItem(1)->isExpanded());
+        view->selectAll();
+        const qint64 target = manager->get_all_playlists().last().id;
+        view->add_selected_to_playlist(target);
+        QStringList added;
+        for (const auto& song : manager->get_playlist_by_id(target).songs) added.append(song.file_path);
+        added.sort();
+        QCOMPARE(added, QStringList({b1, none}));
+
+        view->set_grouping(music_library_view::grouping::album);
+        QCOMPARE(top_texts(), QStringList({"专辑一 [2]", "专辑二 [1]", "未知专辑 [1]"}));
+        music_library_view restored(manager);
+        QCOMPARE(QSettings("MusicPlayer", "MusicPlayer").value("library/grouping").toString(), QString("album"));
+        restored.show();
+        QCOMPARE(restored.topLevelItem(0)->text(0), QString("专辑一 [2]"));
+        view->set_grouping(music_library_view::grouping::none);
     }
 
     void cleanup_invalid_files()
@@ -1845,8 +1918,8 @@ private slots:
         auto* manager = window.findChild<playlist_manager*>();
         const qint64 id = manager->get_all_playlists().first().id;
         int probes = 0;
-        connect(manager->findChild<duration_scanner*>(), &duration_scanner::durations_ready, manager,
-                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        connect(manager->findChild<song_scanner*>(), &song_scanner::songs_scanned, manager,
+                [&](const QMap<QString, scanned_song>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
         QVERIFY(manager->add_songs_to_playlist(id, paths));
         QVERIFY(pending_durations() > 0);
         auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
@@ -1886,11 +1959,11 @@ private slots:
         manager.initialize_and_load();
         const qint64 id = manager.get_all_playlists().first().id;
         int probes = 0;
-        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
-                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
-        QSignalSpy updates(&manager, &playlist_manager::durations_updated);
+        connect(manager.findChild<song_scanner*>(), &song_scanner::songs_scanned, &manager,
+                [&](const QMap<QString, scanned_song>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QSignalSpy updates(&manager, &playlist_manager::songs_scanned);
         QVERIFY(manager.add_songs_to_playlist(id, {tone_, temp_.filePath("removed-missing.wav")}));
-        QVERIFY(manager.remove_songs_from_playlist(id, {0, 1}));
+        QVERIFY(manager.delete_songs_from_library({tone_, temp_.filePath("removed-missing.wav")}));
         QTRY_COMPARE_WITH_TIMEOUT(probes, 2, 1000);
         QCOMPARE(updates.count(), 0);
         QSqlQuery query("SELECT COUNT(*) FROM Songs WHERE duration_ms IS NOT NULL");
@@ -1899,6 +1972,57 @@ private slots:
         QVERIFY(manager.add_songs_to_playlist(id, {tone_}));
         QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 1000);
         QVERIFY(manager.get_playlist_by_id(id).songs.first().duration_ms > 0);
+    }
+
+    void library_only_scan()
+    {
+        // 只导入音乐库、不在任何歌单中的歌曲也要扫描出时长。
+        playlist_manager manager;
+        manager.initialize_and_load();
+        const QString path = temp_.filePath("library-only.wav");
+        QVERIFY(QFile::copy(tone_, path));
+        QVERIFY(manager.add_songs_to_library({path}));
+        QTRY_VERIFY_WITH_TIMEOUT(manager.get_library_songs().size() == 1 && manager.get_library_songs().first().song.duration_ms > 0, 3000);
+    }
+
+    void song_tags_scanned()
+    {
+        const QString tagged = temp_.filePath("tagged.mp3");
+        encode({"-i", tone_, "-t", "1", "-metadata", "title=夜曲", "-metadata", "artist=周杰伦", "-metadata", "album=十一月的萧邦", tagged});
+        const QString plain = temp_.filePath("plain.wav");
+        QVERIFY(QFile::copy(tone_, plain));
+        const auto song_of = [](const QList<LibrarySong>& songs, const QString& path)
+        {
+            for (const auto& entry : songs)
+            {
+                if (entry.song.file_path == path) return entry.song;
+            }
+            return Song{};
+        };
+        const auto unscanned = []
+        {
+            QSqlQuery query("SELECT COUNT(*) FROM Songs WHERE duration_ms IS NULL OR title IS NULL");
+            return query.next() ? query.value(0).toInt() : -1;
+        };
+        {
+            playlist_manager manager;
+            manager.initialize_and_load();
+            QVERIFY(manager.add_songs_to_library({tagged, plain}));
+            QTRY_COMPARE_WITH_TIMEOUT(unscanned(), 0, 3000);
+            const Song song = song_of(manager.get_library_songs(), tagged);
+            QCOMPARE(song.title, QString("夜曲"));
+            QCOMPARE(song.artist, QString("周杰伦"));
+            QCOMPARE(song.album, QString("十一月的萧邦"));
+            // 没有标签的文件记为已扫描，不会每次启动都重扫。
+            QCOMPARE(song_of(manager.get_library_songs(), plain).artist, QString());
+            // 模拟升级前只扫描过时长的老数据库。
+            QSqlQuery reset;
+            QVERIFY(reset.exec("UPDATE Songs SET title = NULL, artist = NULL, album = NULL"));
+        }
+        playlist_manager manager;
+        manager.initialize_and_load();
+        QTRY_COMPARE_WITH_TIMEOUT(unscanned(), 0, 3000);
+        QCOMPARE(song_of(manager.get_library_songs(), tagged).artist, QString("周杰伦"));
     }
 
     void metadata_update_failure()
@@ -1918,9 +2042,9 @@ private slots:
                            "WHEN NEW.file_path LIKE '%duration-2.wav' "
                            "BEGIN SELECT RAISE(ABORT, 'injected duration failure'); END"));
         int probes = 0;
-        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
-                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
-        QSignalSpy updates(&manager, &playlist_manager::durations_updated);
+        connect(manager.findChild<song_scanner*>(), &song_scanner::songs_scanned, &manager,
+                [&](const QMap<QString, scanned_song>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        QSignalSpy updates(&manager, &playlist_manager::songs_scanned);
         QVERIFY(manager.add_songs_to_playlist(id, paths));
         QTRY_COMPARE_WITH_TIMEOUT(probes, 4, 1000);
         QCOMPARE(pending_durations(), 4);
@@ -1946,8 +2070,8 @@ private slots:
         {
             playlist_manager manager;
             manager.initialize_and_load();
-            auto* scanner = manager.findChild<duration_scanner*>();
-            connect(scanner, &duration_scanner::durations_ready, scanner, [&](const QMap<QString, qint64>&)
+            auto* scanner = manager.findChild<song_scanner*>();
+            connect(scanner, &song_scanner::songs_scanned, scanner, [&](const QMap<QString, scanned_song>&)
             {
                 first_batch = true;
                 while (!release)
@@ -2035,8 +2159,8 @@ private slots:
         manager.initialize_and_load();
         const qint64 id = manager.get_all_playlists().first().id;
         int probes = 0;
-        connect(manager.findChild<duration_scanner*>(), &duration_scanner::durations_ready, &manager,
-                [&](const QMap<QString, qint64>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
+        connect(manager.findChild<song_scanner*>(), &song_scanner::songs_scanned, &manager,
+                [&](const QMap<QString, scanned_song>& values) { probes += static_cast<int>(values.size()); }, Qt::QueuedConnection);
         QVERIFY(manager.add_songs_to_playlist(id, {tone_}));
         QVERIFY(manager.remove_songs_from_playlist(id, {0}));
         QVERIFY(manager.add_songs_to_playlist(id, {tone_}));

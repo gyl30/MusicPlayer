@@ -2,8 +2,9 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QMenu>
+#include <QMap>
 #include <QMessageBox>
-#include <QSet>
+#include <QSettings>
 #include <QShortcut>
 #include <algorithm>
 
@@ -11,16 +12,22 @@
 #include "playlist_manager.h"
 #include "song_delegate.h"
 
+// 文件名、标题、歌手、专辑拼成的搜索文本。
+constexpr int kSearchTextRole = Qt::UserRole + 2;
+constexpr auto kGroupingSettingKey = "library/grouping";
+
 music_library_view::music_library_view(playlist_manager* manager, QWidget* parent) : QTreeWidget(parent), manager_(manager)
 {
     setObjectName("musicLibraryView");
     setColumnCount(2);
-    setItemDelegate(new song_delegate(song_delegate::rows::all_songs, this));
+    delegate_ = new song_delegate(song_delegate::rows::all_songs, this);
+    setItemDelegate(delegate_);
     setUniformRowHeights(true);
     setMouseTracking(true);
     setAllColumnsShowFocus(true);
     setRootIsDecorated(false);
     setIndentation(0);
+    setExpandsOnDoubleClick(false);
     header()->hide();
     header()->setStretchLastSection(false);
     header()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -32,14 +39,34 @@ music_library_view::music_library_view(playlist_manager* manager, QWidget* paren
     setContextMenuPolicy(Qt::CustomContextMenu);
 
     connect(this, &QTreeWidget::customContextMenuRequested, this, &music_library_view::show_context_menu);
-    connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) { emit play_requested(item->data(0, Qt::UserRole).toString()); });
+    // 分组节点单击展开或折叠，歌曲双击或回车播放。
+    const auto activate = [this](QTreeWidgetItem* item, bool from_click)
+    {
+        if (item == nullptr) return;
+        if (item->childCount() > 0)
+        {
+            item->setExpanded(!item->isExpanded());
+            return;
+        }
+        if (!from_click) emit play_requested(item->data(0, Qt::UserRole).toString());
+    };
+    connect(this, &QTreeWidget::itemClicked, this, [activate](QTreeWidgetItem* item, int)
+    {
+        if (item->childCount() > 0) activate(item, true);
+    });
+    connect(this, &QTreeWidget::itemDoubleClicked, this, [activate](QTreeWidgetItem* item, int)
+    {
+        if (item->childCount() == 0) activate(item, false);
+    });
     for (const auto key : {Qt::Key_Return, Qt::Key_Enter})
     {
-        connect(new QShortcut(key, this, nullptr, nullptr, Qt::WidgetShortcut), &QShortcut::activated, this, [this]
+        connect(new QShortcut(key, this, nullptr, nullptr, Qt::WidgetShortcut), &QShortcut::activated, this, [this, activate]
         {
-            if (currentItem() != nullptr) emit play_requested(currentItem()->data(0, Qt::UserRole).toString());
+            activate(currentItem(), false);
         });
     }
+    connect(this, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) { collapsed_groups_.insert(item->data(0, Qt::UserRole).toString()); });
+    connect(this, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) { collapsed_groups_.remove(item->data(0, Qt::UserRole).toString()); });
     connect(new QShortcut(QKeySequence::Delete, this, nullptr, nullptr, Qt::WidgetShortcut), &QShortcut::activated, this, &music_library_view::on_delete_action);
 
     connect(manager_, &playlist_manager::library_changed, this, &music_library_view::refresh_when_visible);
@@ -47,7 +74,26 @@ music_library_view::music_library_view(playlist_manager* manager, QWidget* paren
     connect(manager_, &playlist_manager::playlist_added, this, &music_library_view::refresh_when_visible);
     connect(manager_, &playlist_manager::playlist_removed, this, &music_library_view::refresh_when_visible);
     connect(manager_, &playlist_manager::playlist_renamed, this, &music_library_view::refresh_when_visible);
-    connect(manager_, &playlist_manager::durations_updated, this, &music_library_view::refresh_when_visible);
+    connect(manager_, &playlist_manager::songs_scanned, this, &music_library_view::refresh_when_visible);
+
+    const QString saved = QSettings("MusicPlayer", "MusicPlayer").value(kGroupingSettingKey).toString();
+    grouping_ = saved == "artist" ? grouping::artist : saved == "album" ? grouping::album : grouping::none;
+    delegate_->set_layout(grouping_ == grouping::none ? song_delegate::rows::all_songs : song_delegate::rows::nested_in_playlists);
+    setIndentation(grouping_ == grouping::none ? 0 : 6);
+}
+
+void music_library_view::set_grouping(grouping mode)
+{
+    if (mode == grouping_)
+    {
+        return;
+    }
+    grouping_ = mode;
+    collapsed_groups_.clear();
+    QSettings("MusicPlayer", "MusicPlayer").setValue(kGroupingSettingKey, mode == grouping::artist ? "artist" : mode == grouping::album ? "album" : "none");
+    delegate_->set_layout(mode == grouping::none ? song_delegate::rows::all_songs : song_delegate::rows::nested_in_playlists);
+    setIndentation(mode == grouping::none ? 0 : 6);
+    refresh();
 }
 
 void music_library_view::showEvent(QShowEvent* event)
@@ -77,19 +123,82 @@ void music_library_view::refresh()
         return collator.compare(left.song.file_name, right.song.file_name) < 0;
     });
 
+    const QString unknown_group = grouping_ == grouping::artist ? QStringLiteral("未知歌手") : QStringLiteral("未知专辑");
+    QMap<QString, QTreeWidgetItem*> groups;
+    const auto group_item = [&](const Song& song) -> QTreeWidgetItem*
+    {
+        if (grouping_ == grouping::none) return nullptr;
+        const QString name = grouping_ == grouping::artist ? song.artist : song.album;
+        const QString key = name.isEmpty() ? unknown_group : name;
+        QTreeWidgetItem*& group = groups[key];
+        if (group == nullptr)
+        {
+            group = new QTreeWidgetItem;
+            group->setData(0, Qt::UserRole, key);
+            group->setFlags(Qt::ItemIsEnabled);
+        }
+        return group;
+    };
+
     clear();
+    QList<QTreeWidgetItem*> rows;
     for (const auto& entry : songs)
     {
-        auto* item = new QTreeWidgetItem(this);
-        const bool available = QFileInfo(entry.song.file_path).isFile();
-        item->setText(0, normalize_display_text(entry.song.file_name));
-        item->setText(1, available ? format_duration_ms(entry.song.duration_ms) : QStringLiteral("失效"));
+        const Song& song = entry.song;
+        auto* item = new QTreeWidgetItem;
+        const bool available = QFileInfo(song.file_path).isFile();
+        item->setText(0, normalize_display_text(song.file_name));
+        item->setText(1, available ? format_duration_ms(song.duration_ms) : QStringLiteral("失效"));
         item->setTextAlignment(1, Qt::AlignRight | Qt::AlignVCenter);
-        item->setData(0, Qt::UserRole, entry.song.file_path);
-        const QString lists = entry.playlists.isEmpty() ? QStringLiteral("未加入歌单") : QString("所在歌单：%1").arg(entry.playlists.join("、"));
-        item->setToolTip(0, QString("%1\n%2%3").arg(entry.song.file_path, lists, available ? QString() : QStringLiteral("\n文件不存在或无法访问")));
-        item->setSelected(selected.contains(entry.song.file_path));
-        if (entry.song.file_path == current) setCurrentItem(item, 0, QItemSelectionModel::NoUpdate);
+        item->setData(0, Qt::UserRole, song.file_path);
+        item->setData(0, kSearchTextRole, QStringList{song.file_name, song.title, song.artist, song.album}.join('\n'));
+        QStringList tip{song.file_path};
+        if (!song.title.isEmpty()) tip.append(QString("标题：%1").arg(song.title));
+        if (!song.artist.isEmpty()) tip.append(QString("歌手：%1").arg(song.artist));
+        if (!song.album.isEmpty()) tip.append(QString("专辑：%1").arg(song.album));
+        tip.append(entry.playlists.isEmpty() ? QStringLiteral("未加入歌单") : QString("所在歌单：%1").arg(entry.playlists.join("、")));
+        if (!available) tip.append(QStringLiteral("文件不存在或无法访问"));
+        item->setToolTip(0, tip.join('\n'));
+        if (QTreeWidgetItem* group = group_item(song))
+        {
+            group->addChild(item);
+        }
+        else
+        {
+            rows.append(item);
+        }
+    }
+
+    if (grouping_ != grouping::none)
+    {
+        QStringList names = groups.keys();
+        std::sort(names.begin(), names.end(), [&](const QString& left, const QString& right)
+        {
+            // 未知分组放在最后。
+            if ((left == unknown_group) != (right == unknown_group)) return right == unknown_group;
+            return collator.compare(left, right) < 0;
+        });
+        for (const QString& name : names)
+        {
+            QTreeWidgetItem* group = groups.value(name);
+            group->setText(0, QString("%1 [%2]").arg(name).arg(group->childCount()));
+            rows.append(group);
+        }
+    }
+    addTopLevelItems(rows);
+
+    for (int i = 0; i < topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem* top = topLevelItem(i);
+        if (top->childCount() > 0) top->setExpanded(!collapsed_groups_.contains(top->data(0, Qt::UserRole).toString()));
+        const auto restore = [&](QTreeWidgetItem* item)
+        {
+            const QString path = item->data(0, Qt::UserRole).toString();
+            item->setSelected(selected.contains(path));
+            if (path == current) setCurrentItem(item, 0, QItemSelectionModel::NoUpdate);
+        };
+        if (top->childCount() == 0) restore(top);
+        for (int j = 0; j < top->childCount(); ++j) restore(top->child(j));
     }
     set_filter(filter_);
 }
@@ -97,10 +206,45 @@ void music_library_view::refresh()
 void music_library_view::set_filter(const QString& keyword)
 {
     filter_ = keyword.trimmed();
+    const auto matches = [this](const QTreeWidgetItem* item)
+    {
+        return filter_.isEmpty() || item->data(0, kSearchTextRole).toString().contains(filter_, Qt::CaseInsensitive);
+    };
     for (int i = 0; i < topLevelItemCount(); ++i)
     {
-        QTreeWidgetItem* item = topLevelItem(i);
-        item->setHidden(!filter_.isEmpty() && !item->text(0).contains(filter_, Qt::CaseInsensitive));
+        QTreeWidgetItem* top = topLevelItem(i);
+        if (top->childCount() == 0)
+        {
+            top->setHidden(!matches(top));
+            continue;
+        }
+        bool any_visible = false;
+        for (int j = 0; j < top->childCount(); ++j)
+        {
+            const bool visible = matches(top->child(j));
+            top->child(j)->setHidden(!visible);
+            any_visible = any_visible || visible;
+        }
+        top->setHidden(!any_visible);
+    }
+}
+
+void music_library_view::focus_first_match()
+{
+    for (int i = 0; i < topLevelItemCount(); ++i)
+    {
+        QTreeWidgetItem* top = topLevelItem(i);
+        if (top->isHidden()) continue;
+        QTreeWidgetItem* song = top;
+        for (int j = 0; song == top && j < top->childCount(); ++j)
+        {
+            if (!top->child(j)->isHidden()) song = top->child(j);
+        }
+        if (song->childCount() > 0) continue;
+        if (song->parent() != nullptr) song->parent()->setExpanded(true);
+        setCurrentItem(song);
+        setFocus();
+        return;
     }
 }
 
@@ -109,7 +253,9 @@ QStringList music_library_view::selected_paths() const
     QStringList paths;
     for (QTreeWidgetItem* item : selectedItems())
     {
-        if (!item->isHidden()) paths.append(item->data(0, Qt::UserRole).toString());
+        // 分组节点不可选；折叠分组中的歌曲看不到，不参与批量操作。
+        const bool collapsed = item->parent() != nullptr && !item->parent()->isExpanded();
+        if (!item->isHidden() && !collapsed && item->childCount() == 0) paths.append(item->data(0, Qt::UserRole).toString());
     }
     return paths;
 }
@@ -117,6 +263,10 @@ QStringList music_library_view::selected_paths() const
 void music_library_view::show_context_menu(const QPoint& position)
 {
     QTreeWidgetItem* item = itemAt(position);
+    if (item != nullptr && item->childCount() > 0)
+    {
+        item = nullptr;
+    }
     if (item != nullptr && !item->isSelected())
     {
         setCurrentItem(item);
@@ -134,6 +284,13 @@ void music_library_view::show_context_menu(const QPoint& position)
         add_menu->setEnabled(!add_menu->isEmpty());
         menu.addAction("从音乐库删除", this, &music_library_view::on_delete_action);
         menu.addSeparator();
+    }
+    QMenu* grouping_menu = menu.addMenu("分组方式");
+    for (const auto& [mode, label] : {std::pair{grouping::none, "不分组"}, std::pair{grouping::artist, "按歌手"}, std::pair{grouping::album, "按专辑"}})
+    {
+        QAction* action = grouping_menu->addAction(label, this, [this, mode = mode] { set_grouping(mode); });
+        action->setCheckable(true);
+        action->setChecked(grouping_ == mode);
     }
     menu.addAction("清理失效文件", this, &music_library_view::on_cleanup_invalid_action);
     menu.exec(viewport()->mapToGlobal(position));

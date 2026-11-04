@@ -1,36 +1,34 @@
-#ifndef DURATION_SCANNER_H
-#define DURATION_SCANNER_H
+#ifndef SONG_SCANNER_H
+#define SONG_SCANNER_H
 
 #include <QObject>
 #include <QMap>
 #include <QSet>
 #include <QStringList>
+#include "playlist_data.h"
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
 
-// 文件无法打开时的探测结果，区别于能打开但没有时长信息的 0。
-constexpr qint64 kDurationProbeFailed = -1;
-
-class duration_scanner : public QObject
+class song_scanner : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit duration_scanner(QObject* parent = nullptr);
-    ~duration_scanner() override;
+    explicit song_scanner(QObject* parent = nullptr);
+    ~song_scanner() override;
     void enqueue(const QStringList& paths);
     void acknowledge(const QStringList& paths);
     void shutdown();
 
 signals:
-    void durations_ready(const QMap<QString, qint64>& durations);
+    void songs_scanned(const QMap<QString, scanned_song>& results);
 
 private:
     void scan_loop();
-    qint64 probe_duration(const QString& path);
+    scanned_song scan(const QString& path);
     static int interrupt(void* context);
 
     std::atomic<bool> stopped_{false};

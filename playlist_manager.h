@@ -6,7 +6,7 @@
 #include "playlist_data.h"
 
 class database_manager;
-class duration_scanner;
+class song_scanner;
 
 class playlist_manager : public QObject
 {
@@ -39,13 +39,14 @@ class playlist_manager : public QObject
     void playlist_removed(qint64 playlist_id);
     void playlist_renamed(qint64 playlist_id);
     void songs_changed_in_playlist(qint64 playlist_id);
-    void durations_updated(const QMap<QString, qint64>& durations);
+    // 后台扫描写入了时长和标签的歌曲及其时长。
+    void songs_scanned(const QMap<QString, qint64>& durations);
     void library_changed();
 
    private:
     void perform_migration();
     database_manager* db_manager_ = nullptr;
-    duration_scanner* scanner_ = nullptr;
+    song_scanner* scanner_ = nullptr;
 };
 
 #endif

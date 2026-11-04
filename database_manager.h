@@ -31,8 +31,9 @@ class database_manager : public QObject
     bool delete_songs(const QStringList& file_paths, QList<qint64>& affected_playlist_ids);
     bool save_playlists(const QMap<qint64, Playlist>& playlists, QList<qint64>& changed_ids);
 
-    QStringList pending_duration_paths();
-    bool update_durations(const QMap<QString, qint64>& durations, QMap<QString, qint64>& updated);
+    QStringList pending_scan_paths();
+    // updated 返回实际写入的歌曲及其时长。
+    bool update_scan_results(const QMap<QString, scanned_song>& results, QMap<QString, qint64>& updated);
 
     void increment_play_count(const QString& file_path);
 

@@ -297,7 +297,7 @@ QList<LibrarySong> database_manager::get_library_songs()
     (void)this;
     QList<LibrarySong> songs;
     QSqlQuery query(R"(
-        SELECT s.file_path, s.file_name, s.duration_ms, p.name
+        SELECT s.file_path, s.file_name, s.duration_ms, p.name, s.title, s.artist, s.album
         FROM Songs s
         LEFT JOIN PlaylistSongs ps ON ps.song_id = s.song_id
         LEFT JOIN Playlists p ON p.playlist_id = ps.playlist_id
@@ -318,6 +318,9 @@ QList<LibrarySong> database_manager::get_library_songs()
             entry.song.file_name = query.value(1).toString();
             const QVariant duration_value = query.value(2);
             entry.song.duration_ms = duration_value.isNull() ? 0 : qMax<qint64>(0, duration_value.toLongLong());
+            entry.song.title = query.value(4).toString();
+            entry.song.artist = query.value(5).toString();
+            entry.song.album = query.value(6).toString();
             songs.append(entry);
         }
         if (!query.value(3).isNull())
@@ -568,13 +571,13 @@ bool database_manager::save_playlists(const QMap<qint64, Playlist>& playlists, Q
     return true;
 }
 
-QStringList database_manager::pending_duration_paths()
+QStringList database_manager::pending_scan_paths()
 {
     QSqlQuery query(db_);
-    if (!query.exec("SELECT DISTINCT s.file_path FROM PlaylistSongs ps JOIN Songs s ON s.song_id = ps.song_id "
-                    "WHERE s.duration_ms IS NULL"))
+    // 标签缺失时保存为空字符串，NULL 表示还没扫描过，包括升级前已有时长的歌曲。
+    if (!query.exec("SELECT file_path FROM Songs WHERE duration_ms IS NULL OR title IS NULL"))
     {
-        LOG_ERROR("读取待探测歌曲失败 {}", query.lastError().text().toStdString());
+        LOG_ERROR("读取待扫描歌曲失败 {}", query.lastError().text().toStdString());
         return {};
     }
     QStringList paths;
@@ -585,12 +588,12 @@ QStringList database_manager::pending_duration_paths()
     return paths;
 }
 
-bool database_manager::update_durations(const QMap<QString, qint64>& durations, QMap<QString, qint64>& updated)
+bool database_manager::update_scan_results(const QMap<QString, scanned_song>& results, QMap<QString, qint64>& updated)
 {
     updated.clear();
     if (!db_.transaction())
     {
-        LOG_ERROR("开启时长更新事务失败 {}", db_.lastError().text().toStdString());
+        LOG_ERROR("开启扫描结果事务失败 {}", db_.lastError().text().toStdString());
         return false;
     }
     auto rollback = make_scoped_exit([&]
@@ -599,31 +602,36 @@ bool database_manager::update_durations(const QMap<QString, qint64>& durations, 
         updated.clear();
     });
     QSqlQuery query(db_);
-    // 已移出所有歌单或已完成探测的记录，不再接受排队中的旧结果。
-    query.prepare("UPDATE Songs SET duration_ms = :duration WHERE file_path = :path AND duration_ms IS NULL "
-                  "AND EXISTS (SELECT 1 FROM PlaylistSongs ps WHERE ps.song_id = Songs.song_id)");
-    for (auto it = durations.constBegin(); it != durations.constEnd(); ++it)
+    // 已从音乐库删除或已完成扫描的记录，不再接受排队中的旧结果。
+    query.prepare("UPDATE Songs SET duration_ms = COALESCE(duration_ms, :duration), "
+                  "title = :title, artist = :artist, album = :album "
+                  "WHERE file_path = :path AND (duration_ms IS NULL OR title IS NULL)");
+    for (auto it = results.constBegin(); it != results.constEnd(); ++it)
     {
-        if (it.value() < 0)
+        if (it.value().duration_ms == kSongScanFailed)
         {
-            // 打开失败保持未知，文件恢复后下次入队重新探测。
+            // 打开失败保持未扫描，文件恢复后下次入队重新扫描。
             continue;
         }
         query.bindValue(":path", it.key());
-        query.bindValue(":duration", it.value());
+        query.bindValue(":duration", it.value().duration_ms);
+        // 空字符串而不是 NULL，标记为已扫描。
+        query.bindValue(":title", it.value().title.isNull() ? QString("") : it.value().title);
+        query.bindValue(":artist", it.value().artist.isNull() ? QString("") : it.value().artist);
+        query.bindValue(":album", it.value().album.isNull() ? QString("") : it.value().album);
         if (!query.exec())
         {
-            LOG_ERROR("更新歌曲时长失败 {}", query.lastError().text().toStdString());
+            LOG_ERROR("更新扫描结果失败 file {} error {}", it.key().toStdString(), query.lastError().text().toStdString());
             return false;
         }
         if (query.numRowsAffected() > 0)
         {
-            updated.insert(it.key(), it.value());
+            updated.insert(it.key(), it.value().duration_ms);
         }
     }
     if (!db_.commit())
     {
-        LOG_ERROR("提交时长更新失败 {}", db_.lastError().text().toStdString());
+        LOG_ERROR("提交扫描结果失败 {}", db_.lastError().text().toStdString());
         return false;
     }
     rollback.cancel();
