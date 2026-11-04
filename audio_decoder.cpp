@@ -158,7 +158,7 @@ void audio_decoder::decoding_loop()
 {
     if (!open_audio_context(file_path_))
     {
-        emit decoding_error(session_id_, "Failed to open audio file");
+        emit decoding_error(session_id_, QStringLiteral("无法打开音频文件"));
         return;
     }
 
@@ -255,7 +255,7 @@ void audio_decoder::decoding_loop()
 
         if (receive_ret != AVERROR(EAGAIN))
         {
-            emit decoding_error(session_id_, QString::fromStdString(ffmpeg_error_string(receive_ret)));
+            emit decoding_error(session_id_, QString("音频解码失败：%1").arg(QString::fromStdString(ffmpeg_error_string(receive_ret))));
             break;
         }
 
@@ -271,7 +271,7 @@ void audio_decoder::decoding_loop()
             {
                 break;
             }
-            emit decoding_error(session_id_, QString::fromStdString(ffmpeg_error_string(read_ret)));
+            emit decoding_error(session_id_, QString("读取音频数据失败：%1").arg(QString::fromStdString(ffmpeg_error_string(read_ret))));
             break;
         }
 

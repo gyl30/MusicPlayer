@@ -981,6 +981,7 @@ private slots:
         QSignalSpy errors(&controller, &playback_controller::playback_error);
         controller.play_file(corrupt);
         QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 1000);
+        QCOMPARE(errors.first().first().toString(), QString("无法打开音频文件"));
         QVERIFY(!controller.is_media_loaded());
         QSignalSpy progress(&controller, &playback_controller::progress_updated);
         controller.play_file(tone_);
