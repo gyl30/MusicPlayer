@@ -215,7 +215,7 @@ void audio_decoder::decoding_loop()
                         start_time_offset_ms_ = static_cast<qint64>(av_q2d(time_base_) * 1000 * static_cast<double>(audio_stream->start_time));
                     }
                     first_frame_processed_ = true;
-                    LOG_INFO("播放状态调试 初始跳转固定时间基准 offset {}ms", start_time_offset_ms_);
+                    LOG_DEBUG("跳转时间基准 session {} offset_ms {}", session_id_, start_time_offset_ms_);
                 }
 
                 const qint64 seek_target_ts = av_rescale_q(target_ms + start_time_offset_ms_, {1, 1000}, time_base_);
@@ -230,7 +230,7 @@ void audio_decoder::decoding_loop()
 
                 if (ret < 0)
                 {
-                    LOG_WARN("avformat_seek_file failed: {}", ffmpeg_error_string(ret));
+                    LOG_WARN("解码器跳转失败 session {} target_ms {} error {}", target_sess, target_ms, ffmpeg_error_string(ret));
                     actual_ms = -1;
                     seek_target_exact_ms_ = -1;
                 }
@@ -241,7 +241,6 @@ void audio_decoder::decoding_loop()
                     seek_target_exact_ms_ = target_ms;
                 }
 
-                LOG_INFO("播放状态调试 解码器跳转结束 target {}ms actual {}ms ret {}", target_ms, actual_ms, ret);
                 emit seek_finished(target_sess, actual_ms);
             }
             continue;
@@ -295,7 +294,7 @@ void audio_decoder::decoding_loop()
             int send_ret = avcodec_send_packet(codec_ctx_, packet_);
             if (send_ret < 0)
             {
-                LOG_WARN("avcodec_send_packet failed {}", ffmpeg_error_string(send_ret));
+                LOG_WARN("送入解码器失败 session {} error {}", session_id_, ffmpeg_error_string(send_ret));
             }
         }
     }
@@ -304,11 +303,16 @@ bool audio_decoder::open_audio_context(const QString& file_path)
 {
     close_audio_context();
     auto guard = make_scoped_exit([this]() { close_audio_context(); });
+    const auto fail = [this, &file_path](const char* step, const std::string& error = {})
+    {
+        LOG_ERROR("打开音频失败 session {} file {} step {} error {}", session_id_, file_path.toStdString(), step, error);
+        return false;
+    };
 
     format_ctx_ = avformat_alloc_context();
     if (format_ctx_ == nullptr)
     {
-        return false;
+        return fail("avformat_alloc_context");
     }
 
     format_ctx_->interrupt_callback.callback = decode_interrupt_cb;
@@ -317,15 +321,13 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     int ret = avformat_open_input(&format_ctx_, file_path.toUtf8().constData(), nullptr, nullptr);
     if (ret != 0)
     {
-        LOG_ERROR("Failed to open input {} {}", file_path.toStdString(), ffmpeg_error_string(ret));
-        return false;
+        return fail("avformat_open_input", ffmpeg_error_string(ret));
     }
 
     ret = avformat_find_stream_info(format_ctx_, nullptr);
     if (ret < 0)
     {
-        LOG_ERROR("Failed to find stream info {}", ffmpeg_error_string(ret));
-        return false;
+        return fail("avformat_find_stream_info", ffmpeg_error_string(ret));
     }
 
     for (unsigned int i = 0; i < format_ctx_->nb_streams; i++)
@@ -345,7 +347,7 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     audio_stream_index_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (audio_stream_index_ < 0)
     {
-        return false;
+        return fail("av_find_best_stream", ffmpeg_error_string(audio_stream_index_));
     }
 
     AVStream* audio_stream = format_ctx_->streams[audio_stream_index_];
@@ -356,23 +358,25 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
     if (codec == nullptr)
     {
-        return false;
+        return fail("avcodec_find_decoder", avcodec_get_name(audio_stream->codecpar->codec_id));
     }
 
     codec_ctx_ = avcodec_alloc_context3(codec);
     if (codec_ctx_ == nullptr)
     {
-        return false;
+        return fail("avcodec_alloc_context3");
     }
 
-    if (avcodec_parameters_to_context(codec_ctx_, audio_stream->codecpar) < 0)
+    ret = avcodec_parameters_to_context(codec_ctx_, audio_stream->codecpar);
+    if (ret < 0)
     {
-        return false;
+        return fail("avcodec_parameters_to_context", ffmpeg_error_string(ret));
     }
 
-    if (avcodec_open2(codec_ctx_, codec, nullptr) < 0)
+    ret = avcodec_open2(codec_ctx_, codec, nullptr);
+    if (ret < 0)
     {
-        return false;
+        return fail("avcodec_open2", ffmpeg_error_string(ret));
     }
 
     target_format_.setSampleRate(codec_ctx_->sample_rate);
@@ -394,25 +398,26 @@ bool audio_decoder::open_audio_context(const QString& file_path)
                               nullptr);
     if (ret != 0)
     {
-        return false;
+        return fail("swr_alloc_set_opts2", ffmpeg_error_string(ret));
     }
-    if (swr_init(swr_ctx_) != 0)
+    ret = swr_init(swr_ctx_);
+    if (ret != 0)
     {
-        return false;
+        return fail("swr_init", ffmpeg_error_string(ret));
     }
 
     int alloc_ret =
         av_samples_alloc(&swr_data_, &swr_data_linesize_, target_format_.channelCount(), target_format_.sampleRate(), target_ffmpeg_fmt_, 0);
     if (alloc_ret < 0)
     {
-        return false;
+        return fail("av_samples_alloc", ffmpeg_error_string(alloc_ret));
     }
 
     frame_ = av_frame_alloc();
     packet_ = av_packet_alloc();
     if (frame_ == nullptr || packet_ == nullptr)
     {
-        return false;
+        return fail("av_frame_alloc");
     }
 
     qint64 duration_ms = 0;
@@ -424,6 +429,14 @@ bool audio_decoder::open_audio_context(const QString& file_path)
     {
         duration_ms = av_rescale_q(audio_stream->duration, time_base_, {1, 1000});
     }
+    LOG_INFO("音频已打开 session {} format {} codec {} sample_rate {} channels {} sample_fmt {} duration_ms {}",
+             session_id_,
+             format_ctx_->iformat->name,
+             codec->name,
+             codec_ctx_->sample_rate,
+             codec_ctx_->ch_layout.nb_channels,
+             av_get_sample_fmt_name(codec_ctx_->sample_fmt),
+             duration_ms);
     emit duration_ready(session_id_, duration_ms, target_format_);
 
     guard.cancel();

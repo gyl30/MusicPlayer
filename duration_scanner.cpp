@@ -9,6 +9,13 @@ extern "C"
 
 constexpr int kDurationBatchSize = 64;
 
+static std::string ffmpeg_error_string(int error_code)
+{
+    char buffer[AV_ERROR_MAX_STRING_SIZE] = {0};
+    av_strerror(error_code, buffer, sizeof(buffer));
+    return buffer;
+}
+
 duration_scanner::duration_scanner(QObject* parent) : QObject(parent)
 {
     qRegisterMetaType<QMap<QString, qint64>>("QMap<QString,qint64>");
@@ -70,14 +77,16 @@ qint64 duration_scanner::probe_duration(const QString& path)
     }
     DEFER(avformat_close_input(&context));
     context->interrupt_callback = {interrupt, this};
-    if (avformat_open_input(&context, path.toUtf8().constData(), nullptr, nullptr) < 0)
+    int ret = avformat_open_input(&context, path.toUtf8().constData(), nullptr, nullptr);
+    if (ret < 0)
     {
-        LOG_WARN("读取歌曲时长失败 {}", path.toStdString());
+        LOG_WARN("读取歌曲时长失败 file {} error {}", path.toStdString(), ffmpeg_error_string(ret));
         return kDurationProbeFailed;
     }
-    if (avformat_find_stream_info(context, nullptr) < 0)
+    ret = avformat_find_stream_info(context, nullptr);
+    if (ret < 0)
     {
-        LOG_WARN("读取歌曲流信息失败 {}", path.toStdString());
+        LOG_WARN("读取歌曲流信息失败 file {} error {}", path.toStdString(), ffmpeg_error_string(ret));
     }
     if (context->duration != AV_NOPTS_VALUE && context->duration > 0)
     {

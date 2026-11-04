@@ -809,11 +809,7 @@ void playlist_window::setup_connections()
     connect(controller_,
             &playback_controller::track_info_ready,
             this,
-            [this](qint64 duration_ms)
-            {
-                current_duration_ms_ = qMax<qint64>(0, duration_ms);
-                LOG_INFO("播放状态调试 UI收到时长信息 duration {}ms 当前内存进度 {}ms", current_duration_ms_, current_progress_ms_);
-            });
+            [this](qint64 duration_ms) { current_duration_ms_ = qMax<qint64>(0, duration_ms); });
     connect(controller_,
             &playback_controller::progress_updated,
             this,
@@ -825,15 +821,6 @@ void playlist_window::setup_connections()
                 }
                 current_progress_ms_ = current_ms;
                 current_duration_ms_ = qMax<qint64>(0, total_ms);
-                if (last_logged_progress_ms_ < 0 || current_ms < last_logged_progress_ms_ || current_ms - last_logged_progress_ms_ >= 5000)
-                {
-                    LOG_INFO("播放状态调试 UI收到进度更新 current {}ms total {}ms 当前内存进度 {}ms 当前内存时长 {}ms",
-                             current_ms,
-                             total_ms,
-                             current_progress_ms_,
-                             current_duration_ms_);
-                    last_logged_progress_ms_ = current_ms;
-                }
                 if (qAbs(current_ms - last_saved_progress_ms_) >= kPlaybackStateSaveIntervalMs)
                 {
                     save_playback_state();
@@ -850,12 +837,7 @@ void playlist_window::setup_connections()
             [this](qint64 actual_ms)
             {
                 current_progress_ms_ = qMax<qint64>(0, actual_ms);
-                last_logged_progress_ms_ = current_progress_ms_;
                 lyrics_view_->set_current_time(current_progress_ms_);
-                LOG_INFO("播放状态调试 UI收到跳转完成 actual {}ms 当前内存进度 {}ms 当前内存时长 {}ms",
-                         actual_ms,
-                         current_progress_ms_,
-                         current_duration_ms_);
                 save_playback_state();
             });
     connect(controller_,
@@ -947,30 +929,23 @@ void playlist_window::seek_relative(qint64 offset_ms)
 
 void playlist_window::on_play_requested()
 {
-    LOG_INFO("播放状态调试 UI收到播放按钮请求 restored {} current {} current_progress {}ms file {}",
+    LOG_DEBUG("播放按钮 restored {} current {} progress_ms {} file {}",
              restored_song_item_ != nullptr,
              currently_playing_item_ != nullptr,
              current_progress_ms_,
              current_playing_file_path_.toStdString());
     if (restored_song_item_ != nullptr)
     {
-        LOG_INFO("播放状态调试 走恢复歌曲路径 title {} restore_position {}ms",
-                 restored_song_item_->text(0).toStdString(),
-                 current_progress_ms_);
         play_song_item(restored_song_item_, true, current_progress_ms_);
         return;
     }
 
     if (currently_playing_item_ != nullptr)
     {
-        LOG_INFO("播放状态调试 走当前歌曲路径 title {} restore_position {}ms",
-                 currently_playing_item_->text(0).toStdString(),
-                 current_progress_ms_);
         play_song_item(currently_playing_item_, true, current_progress_ms_);
         return;
     }
 
-    LOG_INFO("播放状态调试 无恢复歌曲和当前歌曲 尝试播放第一个可用歌曲");
     if (!play_first_song_in_list())
     {
         QMessageBox::information(this, "没有可播放歌曲", "请先在播放列表中添加歌曲。");
@@ -982,15 +957,11 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     (void)file_path;
     (void)file_name;
 
-    LOG_INFO("播放状态调试 UI收到播放开始 pending_restore_seek {}ms current_progress {}ms",
-             pending_restore_seek_ms_,
-             current_progress_ms_);
     if (pending_restore_seek_ms_ <= 0)
     {
         current_progress_ms_ = 0;
     }
     pending_restore_seek_ms_ = -1;
-    last_logged_progress_ms_ = -1;
 
     clear_playing_indicator();
     if (lyrics_view_ != nullptr)
@@ -1040,12 +1011,12 @@ void playlist_window::on_file_unavailable(const QString& file_path)
 
 void playlist_window::handle_playback_error_strategy(const QString& error_message)
 {
-    LOG_WARN("播放出错 (连续第 {} 次): {}", consecutive_failures_ + 1, error_message.toStdString());
+    LOG_WARN("播放出错 consecutive {} file {} error {}", consecutive_failures_ + 1, current_playing_file_path_.toStdString(), error_message.toStdString());
     consecutive_failures_++;
 
     if (consecutive_failures_ >= MAX_CONSECUTIVE_FAILURES)
     {
-        LOG_ERROR("达到最大连续错误次数 ({})，停止自动播放。", MAX_CONSECUTIVE_FAILURES);
+        LOG_ERROR("连续失败达到上限 停止播放 consecutive {}", MAX_CONSECUTIVE_FAILURES);
         on_stop_requested();
 
         QMessageBox::warning(
@@ -1055,7 +1026,7 @@ void playlist_window::handle_playback_error_strategy(const QString& error_messag
         return;
     }
 
-    LOG_INFO("尝试自动跳转到下一首...");
+    LOG_INFO("播放出错 自动跳到下一首");
 
     QTimer::singleShot(200, this, [this]() { this->on_next_requested(); });
 }
@@ -1098,7 +1069,7 @@ void playlist_window::restore_playback_state()
     const qint64 position_ms = qMax<qint64>(0, settings.value("playback/positionMs", 0).toLongLong());
     qint64 duration_ms = qMax<qint64>(0, settings.value("playback/durationMs", 0).toLongLong());
     const int saved_mode = settings.value("playback/mode", static_cast<int>(playback_mode::ListLoop)).toInt();
-    LOG_INFO("播放状态调试 恢复状态读取 配置文件 {} file {} position {}ms duration {}ms mode {}",
+    LOG_DEBUG("读取播放状态 config {} file {} position_ms {} duration_ms {} mode {}",
              settings.fileName().toStdString(),
              file_path.toStdString(),
              position_ms,
@@ -1113,21 +1084,19 @@ void playlist_window::restore_playback_state()
 
     if (file_path.isEmpty())
     {
-        LOG_INFO("播放状态调试 未恢复播放状态 原因 filePath 为空");
         return;
     }
 
     QTreeWidgetItem* song_item = find_song_item_by_path(file_path);
     if (song_item == nullptr)
     {
-        LOG_INFO("播放状态调试 未恢复播放状态 原因 找不到歌曲 file {}", file_path.toStdString());
+        LOG_INFO("上次播放的歌曲已不在歌单中 不恢复 file {}", file_path.toStdString());
         return;
     }
 
     if (duration_ms <= 0)
     {
         duration_ms = qMax<qint64>(0, song_item->data(1, Qt::UserRole).toLongLong());
-        LOG_INFO("播放状态调试 从播放列表补充恢复时长 file {} duration {}ms", file_path.toStdString(), duration_ms);
     }
 
     current_playing_file_path_ = file_path;
@@ -1138,7 +1107,7 @@ void playlist_window::restore_playback_state()
     clicked_song_item_ = song_item;
     mark_restored_song_item(song_item);
     player_window_->restore_idle_state(song_item->text(0), position_ms, duration_ms);
-    LOG_INFO("播放状态调试 已标记恢复歌曲 title {} position {}ms duration {}ms", song_item->text(0).toStdString(), position_ms, duration_ms);
+    LOG_INFO("恢复上次播放 file {} position_ms {} duration_ms {}", file_path.toStdString(), position_ms, duration_ms);
 }
 
 void playlist_window::save_playback_state()
@@ -1149,9 +1118,6 @@ void playlist_window::save_playback_state()
 
     if (current_playing_file_path_.isEmpty())
     {
-        LOG_INFO("播放状态调试 清理保存状态 配置文件 {} mode {} 原因 current file 为空",
-                 settings.fileName().toStdString(),
-                 static_cast<int>(current_mode_));
         settings.remove("playback/filePath");
         settings.remove("playback/positionMs");
         settings.remove("playback/durationMs");
@@ -1163,7 +1129,7 @@ void playlist_window::save_playback_state()
     settings.setValue("playback/positionMs", current_progress_ms_);
     settings.setValue("playback/durationMs", current_duration_ms_);
     settings.sync();
-    LOG_INFO("播放状态调试 保存播放状态 配置文件 {} file {} position {}ms duration {}ms mode {}",
+    LOG_DEBUG("保存播放状态 config {} file {} position_ms {} duration_ms {} mode {}",
              settings.fileName().toStdString(),
              current_playing_file_path_.toStdString(),
              current_progress_ms_,
@@ -1231,7 +1197,6 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
     restored_song_item_ = nullptr;
     current_progress_ms_ = restore_position_ms > 0 ? restore_position_ms : 0;
     pending_restore_seek_ms_ = restore_position_ms > 0 ? restore_position_ms : -1;
-    last_logged_progress_ms_ = -1;
 
     if (increment_play_count)
     {
@@ -1239,12 +1204,11 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
     }
 
     const qint64 start_position_ms = restore_position_ms > 0 ? restore_position_ms : 0;
-    LOG_INFO("播放状态调试 准备播放歌曲 title {} file {} restore_position {}ms start_position {}ms pending_restore {}ms",
-             item->text(0).toStdString(),
-             current_playing_file_path_.toStdString(),
-             restore_position_ms,
-             start_position_ms,
-             pending_restore_seek_ms_);
+    LOG_DEBUG("选中歌曲 playlist {} index {} file {} start_ms {}",
+              current_playing_playlist_id_,
+              item->parent()->indexOfChild(item),
+              current_playing_file_path_.toStdString(),
+              start_position_ms);
     controller_->play_file(current_playing_file_path_, start_position_ms);
 }
 

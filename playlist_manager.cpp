@@ -31,7 +31,7 @@ void playlist_manager::initialize_and_load()
 {
     if (!db_manager_->initialize())
     {
-        LOG_ERROR("数据库管理器初始化失败！");
+        LOG_ERROR("数据库管理器初始化失败");
         return;
     }
     perform_migration();
@@ -49,13 +49,13 @@ void playlist_manager::perform_migration()
     {
         if (get_all_playlists().isEmpty())
         {
-            LOG_WARN("未找到播放列表，将创建一个默认列表");
+            LOG_WARN("未找到播放列表 创建默认列表");
             create_new_playlist("默认列表");
         }
         return;
     }
 
-    LOG_INFO("检测到旧的 playlists.txt 文件 开始迁移到数据库");
+    LOG_INFO("检测到旧的播放列表文本文件 开始迁移到数据库");
 
     if (!old_file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
@@ -116,10 +116,10 @@ void playlist_manager::perform_migration()
     }
     else
     {
-        LOG_ERROR("备份旧的播放列表文件失败！");
+        LOG_ERROR("备份旧的播放列表文件失败");
     }
 
-    LOG_INFO("数据迁移完成。");
+    LOG_INFO("数据迁移完成");
 }
 
 QList<Playlist> playlist_manager::get_all_playlists() const { return db_manager_->get_all_playlist_summaries(); }

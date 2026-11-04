@@ -28,37 +28,34 @@ playback_controller::playback_controller(QObject* parent) : QObject(parent)
     connect(decoder_thread_, &QThread::finished, decoder_, &QObject::deleteLater);
 
     decoder_thread_->start();
-    LOG_INFO("播放控制器已初始化解码器线程已启动");
+    LOG_DEBUG("播放控制器已初始化");
 }
 playback_controller::~playback_controller()
 {
     stop();
     decoder_thread_->quit();
     decoder_thread_->wait();
-    LOG_INFO("播放控制器已销毁");
+    LOG_DEBUG("播放控制器已销毁");
 }
 
 void playback_controller::play_file(const QString& file_path, qint64 start_position_ms)
 {
-    LOG_INFO("播放流程二 控制中心收到文件播放请求");
     stop();
     if (!QFileInfo(file_path).isFile())
     {
+        LOG_WARN("文件不存在 file {}", file_path.toStdString());
         emit file_unavailable(file_path);
         return;
     }
     is_paused_ = false;
     playback_start_position_ms_ = qMax<qint64>(0, start_position_ms);
-    LOG_INFO("重置暂停状态");
     current_session_id_ = ++session_id_counter_;
-    LOG_INFO("生成新会话id {}", current_session_id_);
+    LOG_INFO("开始播放 session {} file {} start_ms {}", current_session_id_, file_path.toStdString(), playback_start_position_ms_);
 
     QFileInfo file_info(file_path);
     QString file_name = file_info.fileName();
-    LOG_INFO("控制器发出playbackstarted信号");
     emit playback_started(file_path, file_name);
 
-    LOG_INFO("播放流程三 通知解码器开始处理文件");
     QMetaObject::invokeMethod(decoder_,
                               "start_decoding",
                               Qt::QueuedConnection,
@@ -72,20 +69,17 @@ void playback_controller::stop()
     {
         return;
     }
-    LOG_INFO("停止流程一 控制中心收到停止请求");
+    LOG_INFO("停止播放 session {}", current_session_id_);
     is_playing_ = false;
     is_media_loaded_ = false;
     is_paused_ = false;
-    LOG_INFO("重置暂停状态");
 
-    LOG_INFO("停止流程二 通知解码器关闭");
     if (player_ != nullptr)
     {
         player_->request_stop();
     }
     QMetaObject::invokeMethod(decoder_, "shutdown", Qt::BlockingQueuedConnection);
 
-    LOG_INFO("停止流程三 通知播放器停止并清理");
     cleanup_player();
 
     total_duration_ms_ = 0;
@@ -99,19 +93,19 @@ void playback_controller::pause_resume()
 {
     if (!is_media_loaded_)
     {
-        LOG_WARN("媒体未加载无法暂停或恢复");
+        LOG_DEBUG("忽略暂停或恢复 媒体未加载");
         return;
     }
     is_paused_ = !is_paused_;
 
     if (is_paused_)
     {
-        LOG_INFO("请求暂停播放会话id {}", current_session_id_);
+        LOG_INFO("暂停 session {}", current_session_id_);
         QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
     }
     else
     {
-        LOG_INFO("请求恢复播放会话id {}", current_session_id_);
+        LOG_INFO("恢复 session {}", current_session_id_);
         QMetaObject::invokeMethod(player_, "resume_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
     }
     emit playback_paused(is_paused_);
@@ -119,15 +113,15 @@ void playback_controller::pause_resume()
 
 void playback_controller::seek(qint64 position_ms)
 {
-    LOG_INFO("跳转流程二 控制中心收到跳转请求");
     if (!is_media_loaded_)
     {
+        LOG_DEBUG("忽略跳转 媒体未加载 target_ms {}", position_ms);
         return;
     }
 
     if (is_seeking_)
     {
-        LOG_INFO("跳转正忙将新的跳转请求置为待处理");
+        LOG_DEBUG("跳转排队 session {} target_ms {}", current_session_id_, position_ms);
         pending_seek_ms_ = position_ms;
         return;
     }
@@ -139,7 +133,7 @@ void playback_controller::seek(qint64 position_ms)
         QMetaObject::invokeMethod(player_, "pause_feeding", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_));
     }
 
-    LOG_INFO("跳转流程三 通知解码器执行跳转");
+    LOG_INFO("跳转 session {} target_ms {}", current_session_id_, position_ms);
     QMetaObject::invokeMethod(decoder_, "seek", Qt::QueuedConnection, Q_ARG(qint64, current_session_id_), Q_ARG(qint64, position_ms));
 }
 
@@ -156,10 +150,10 @@ void playback_controller::on_duration_ready(qint64 session_id, qint64 duration_m
 {
     if (session_id != current_session_id_)
     {
-        LOG_WARN("忽略已过时会话的durationready信号");
+        LOG_DEBUG("忽略过期会话的音频信息 session {} current {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("播放流程六 从解码器收到音频信息");
+    LOG_DEBUG("收到音频信息 session {} duration_ms {}", session_id, duration_ms);
     total_duration_ms_ = duration_ms;
     is_media_loaded_ = true;
     emit track_info_ready(duration_ms);
@@ -207,7 +201,7 @@ void playback_controller::on_player_ready(qint64 session_id)
         return;
     }
 
-    LOG_INFO("播放流程十 收到播放器的就绪信号");
+    LOG_DEBUG("播放器就绪 session {}", session_id);
     resume_decoding(session_id);
 }
 
@@ -217,7 +211,7 @@ void playback_controller::resume_decoding(qint64 session_id)
     {
         return;
     }
-    LOG_INFO("播放流程十三 数据链路建立完成通知解码器开始填充缓冲区");
+    LOG_DEBUG("开始填充缓冲区 session {}", session_id);
     is_playing_ = true;
     QMetaObject::invokeMethod(decoder_, "resume_decoding", Qt::QueuedConnection);
 }
@@ -228,7 +222,7 @@ void playback_controller::on_player_error(qint64 session_id, const QString& erro
     {
         return;
     }
-    LOG_ERROR("收到播放器错误 {}", error_message.toStdString());
+    LOG_ERROR("播放器错误 session {} error {}", session_id, error_message.toStdString());
     emit playback_error(error_message);
     stop();
 }
@@ -239,7 +233,7 @@ void playback_controller::on_decoding_error(qint64 session_id, const QString& er
     {
         return;
     }
-    LOG_ERROR("收到解码器错误 {}", error_message.toStdString());
+    LOG_ERROR("解码器错误 session {} error {}", session_id, error_message.toStdString());
     emit playback_error(error_message);
     stop();
 }
@@ -250,7 +244,7 @@ void playback_controller::on_buffer_level_low(qint64 session_id)
     {
         return;
     }
-    LOG_TRACE("缓冲区事件 触发低水位线请求解码器继续解码");
+    LOG_TRACE("缓冲区低水位 继续解码 session {}", session_id);
     QMetaObject::invokeMethod(decoder_, "resume_decoding", Qt::QueuedConnection);
 }
 
@@ -267,10 +261,10 @@ void playback_controller::on_playback_completed(qint64 session_id)
 {
     if (session_id != current_session_id_)
     {
-        LOG_INFO("忽略已过时会话的播放结束信号");
+        LOG_DEBUG("忽略过期会话的播放结束 session {} current {}", session_id, current_session_id_);
         return;
     }
-    LOG_INFO("结束流程三 从播放器收到播放完成信号");
+    LOG_INFO("播放完成 session {}", session_id);
     is_playing_ = false;
     is_media_loaded_ = false;
     emit playback_finished();
@@ -284,6 +278,7 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
     }
     if (actual_seek_ms < 0)
     {
+        LOG_WARN("跳转失败 session {}", session_id);
         is_seeking_ = false;
         pending_seek_ms_ = -1;
         resume_decoding(session_id);
@@ -295,6 +290,7 @@ void playback_controller::on_decoder_seek_finished(qint64 session_id, qint64 act
         return;
     }
 
+    LOG_DEBUG("解码器跳转完成 session {} actual_ms {}", session_id, actual_seek_ms);
     emit seek_completed(actual_seek_ms);
     QMetaObject::invokeMethod(player_, "handle_seek", Qt::QueuedConnection,
                               Q_ARG(qint64, session_id), Q_ARG(qint64, actual_seek_ms));
@@ -329,7 +325,7 @@ void playback_controller::on_metadata_ready(qint64 session_id, const QMap<QStrin
     {
         return;
     }
-    LOG_DEBUG("控制器收到元数据 转发至UI");
+    LOG_DEBUG("收到元数据 session {} tags {}", session_id, metadata.size());
     emit metadata_ready(metadata);
 }
 
@@ -339,7 +335,7 @@ void playback_controller::on_cover_art_ready(qint64 session_id, const QByteArray
     {
         return;
     }
-    LOG_DEBUG("控制器收到封面数据 转发至UI");
+    LOG_DEBUG("收到封面 session {} bytes {}", session_id, image_data.size());
     emit cover_art_ready(image_data);
 }
 
@@ -349,7 +345,7 @@ void playback_controller::on_lyrics_ready(qint64 session_id, const QList<LyricLi
     {
         return;
     }
-    LOG_DEBUG("控制器收到歌词数据 转发至UI");
+    LOG_DEBUG("收到歌词 session {} lines {}", session_id, lyrics.size());
     emit lyrics_updated(lyrics);
 }
 
@@ -366,6 +362,6 @@ void playback_controller::cleanup_player()
         player_thread_->deleteLater();
         player_thread_ = nullptr;
         player_ = nullptr;
-        LOG_DEBUG("播放器和播放器线程已清理");
+        LOG_DEBUG("播放器线程已清理");
     }
 }

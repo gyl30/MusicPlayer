@@ -37,6 +37,13 @@
 #include "duration_scanner.h"
 #include "scoped_exit.h"
 #include "log.h"
+#include <sstream>
+#include <spdlog/sinks/ostream_sink.h>
+
+extern "C"
+{
+#include <libavutil/log.h>
+}
 
 class playback_tests : public QObject
 {
@@ -1421,6 +1428,48 @@ private slots:
         QCOMPARE(errors.count(), 0);
         QCOMPARE(started.count(), 0);
         QVERIFY(!controller.is_media_loaded());
+    }
+
+    void decoder_open_failure_log()
+    {
+        // 没有音频流的文件以前只提示“无法打开音频文件”，日志里看不出失败在哪一步。
+        const QString image = temp_.filePath("no-audio.png");
+        encode({"-f", "lavfi", "-i", "color=c=red:s=16x16", "-frames:v", "1", image});
+        std::ostringstream output;
+        auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+        auto& sinks = spdlog::default_logger()->sinks();
+        sinks.push_back(sink);
+        DEFER(sinks.pop_back());
+        {
+            playback_controller controller;
+            QSignalSpy errors(&controller, &playback_controller::playback_error);
+            controller.play_file(image);
+            QTRY_VERIFY_WITH_TIMEOUT(!errors.isEmpty(), 3000);
+        }
+        const QString text = QString::fromStdString(output.str());
+        QVERIFY2(text.contains("打开音频失败 session 1 file " + image + " step av_find_best_stream"), qPrintable(text));
+        QVERIFY2(text.contains("解码器错误 session 1 error"), qPrintable(text));
+    }
+
+    void log_forwarding()
+    {
+        const auto previous = spdlog::default_logger();
+        const QString path = temp_.filePath("forward.log");
+        init_log(QFile::encodeName(path).toStdString());
+        qWarning("转发测试警告");
+        av_log(nullptr, AV_LOG_ERROR, "转发测试错误\n");
+        av_log(nullptr, AV_LOG_INFO, "不应转发的信息\n");
+        qInstallMessageHandler(nullptr);
+        av_log_set_callback(av_log_default_callback);
+        spdlog::set_default_logger(previous);
+        spdlog::set_level(spdlog::level::warn);
+
+        QFile file(path);
+        QVERIFY(file.open(QFile::ReadOnly));
+        const QString text = QString::fromUtf8(file.readAll());
+        QVERIFY2(text.contains("qt 转发测试警告"), qPrintable(text));
+        QVERIFY2(text.contains("ffmpeg 转发测试错误"), qPrintable(text));
+        QVERIFY2(!text.contains("不应转发的信息"), qPrintable(text));
     }
 
     void invalid_files()

@@ -144,7 +144,6 @@ class playlist_window : public QMainWindow
     qint64 current_progress_ms_ = 0;
     qint64 current_duration_ms_ = 0;
     qint64 pending_restore_seek_ms_ = -1;
-    qint64 last_logged_progress_ms_ = -1;
     qint64 last_saved_progress_ms_ = 0;
 
     playback_mode current_mode_ = playback_mode::ListLoop;

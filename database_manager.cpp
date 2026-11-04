@@ -42,7 +42,7 @@ bool database_manager::open_database()
 
     if (!db_.open())
     {
-        LOG_ERROR("无法打开数据库 {}", db_.lastError().text().toStdString());
+        LOG_ERROR("无法打开数据库 path {} error {}", db_path.toStdString(), db_.lastError().text().toStdString());
         return false;
     }
 
@@ -70,7 +70,7 @@ static bool ensure_songs_duration_column()
     QSqlQuery alter_query;
     if (!alter_query.exec("ALTER TABLE Songs ADD COLUMN duration_ms INTEGER"))
     {
-        LOG_ERROR("添加 Songs.duration_ms 列失败 {}", alter_query.lastError().text().toStdString());
+        LOG_ERROR("添加 Songs 表 duration_ms 列失败 {}", alter_query.lastError().text().toStdString());
         return false;
     }
     return true;
@@ -209,7 +209,7 @@ QList<Playlist> database_manager::get_all_playlist_summaries()
 
     if (!query.exec())
     {
-        LOG_ERROR("获取所有播放列表失败: {}", query.lastError().text().toStdString());
+        LOG_ERROR("获取所有播放列表失败 {}", query.lastError().text().toStdString());
         return playlists;
     }
 
@@ -332,7 +332,7 @@ bool database_manager::add_songs_to_library(const QStringList& file_paths)
 {
     if (!db_.transaction())
     {
-        LOG_ERROR("开启数据库事务失败");
+        LOG_ERROR("开启数据库事务失败 {}", db_.lastError().text().toStdString());
         return false;
     }
     for (const QString& path : file_paths)
@@ -345,7 +345,7 @@ bool database_manager::add_songs_to_library(const QStringList& file_paths)
     }
     if (!db_.commit())
     {
-        LOG_ERROR("提交数据库事务失败");
+        LOG_ERROR("提交数据库事务失败 {}", db_.lastError().text().toStdString());
         db_.rollback();
         return false;
     }
@@ -357,7 +357,7 @@ bool database_manager::delete_songs(const QStringList& file_paths, QList<qint64>
     affected_playlist_ids.clear();
     if (!db_.transaction())
     {
-        LOG_ERROR("开启数据库事务失败");
+        LOG_ERROR("开启数据库事务失败 {}", db_.lastError().text().toStdString());
         return false;
     }
     QSqlQuery query_playlists;
@@ -393,7 +393,7 @@ bool database_manager::delete_songs(const QStringList& file_paths, QList<qint64>
     }
     if (!db_.commit())
     {
-        LOG_ERROR("提交数据库事务失败");
+        LOG_ERROR("提交数据库事务失败 {}", db_.lastError().text().toStdString());
         db_.rollback();
         affected_playlist_ids.clear();
         return false;
@@ -406,7 +406,7 @@ bool database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringLi
 {
     if (!db_.transaction())
     {
-        LOG_ERROR("开启数据库事务失败");
+        LOG_ERROR("开启数据库事务失败 {}", db_.lastError().text().toStdString());
         return false;
     }
 
@@ -447,7 +447,7 @@ bool database_manager::add_songs_to_playlist(qint64 playlist_id, const QStringLi
 
     if (!db_.commit())
     {
-        LOG_ERROR("提交数据库事务失败");
+        LOG_ERROR("提交数据库事务失败 {}", db_.lastError().text().toStdString());
         db_.rollback();
         return false;
     }
