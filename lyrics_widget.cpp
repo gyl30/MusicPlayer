@@ -5,6 +5,7 @@
 #include <QShowEvent>
 #include <QHideEvent>
 #include <QWheelEvent>
+#include <QMouseEvent>
 #include "lyrics_widget.h"
 
 constexpr qint64 kLyricPredictionOffsetMs = 250;
@@ -12,6 +13,10 @@ constexpr qint64 kLyricPredictionOffsetMs = 250;
 constexpr double kScrollSmoothingFactor = 0.1;
 
 constexpr int kAnimationFrameInterval = 16;
+
+constexpr int kManualScrollHoldMs = 3000;
+
+constexpr int kLineHorizontalPadding = 20;
 
 lyrics_widget::lyrics_widget(QWidget* parent) : QWidget(parent)
 {
@@ -29,6 +34,15 @@ lyrics_widget::lyrics_widget(QWidget* parent) : QWidget(parent)
     animation_timer_->setInterval(kAnimationFrameInterval);
     connect(animation_timer_, &QTimer::timeout, this, &lyrics_widget::on_animation_timer);
 
+    manual_scroll_hold_ = new QTimer(this);
+    manual_scroll_hold_->setSingleShot(true);
+    manual_scroll_hold_->setInterval(kManualScrollHoldMs);
+    connect(manual_scroll_hold_, &QTimer::timeout, this, [this]
+    {
+        if (isVisible() && !lyrics_.isEmpty()) animation_timer_->start();
+    });
+    setMouseTracking(true);
+
     setAttribute(Qt::WA_OpaquePaintEvent, false);
 }
 
@@ -37,6 +51,7 @@ lyrics_widget::~lyrics_widget() = default;
 void lyrics_widget::set_lyrics(const QList<LyricLine>& lyrics)
 {
     lyrics_ = lyrics;
+    manual_scroll_hold_->stop();
     current_index_ = -1;
     target_scroll_y_ = 0;
 
@@ -119,10 +134,47 @@ void lyrics_widget::wheelEvent(QWheelEvent* event)
 {
     if (line_rects_.isEmpty()) return;
     animation_timer_->stop();
+    manual_scroll_hold_->start();
     current_scroll_y_ = qBound(height() / 2.0 - line_rects_.last().bottom(),
                               current_scroll_y_ + event->angleDelta().y() / 2.0, height() / 2.0);
     target_scroll_y_ = current_scroll_y_;
     update();
+    event->accept();
+}
+
+int lyrics_widget::line_at(const QPointF& position) const
+{
+    if (layout_dirty_)
+    {
+        return -1;
+    }
+    const QPointF content = position - QPointF(kLineHorizontalPadding, current_scroll_y_);
+    for (int i = 0; i < line_rects_.size(); ++i)
+    {
+        if (line_rects_[i].contains(content))
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void lyrics_widget::mouseMoveEvent(QMouseEvent* event)
+{
+    setCursor(line_at(event->position()) >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    QWidget::mouseMoveEvent(event);
+}
+
+void lyrics_widget::mouseReleaseEvent(QMouseEvent* event)
+{
+    const int line = event->button() == Qt::LeftButton ? line_at(event->position()) : -1;
+    if (line < 0)
+    {
+        QWidget::mouseReleaseEvent(event);
+        return;
+    }
+    manual_scroll_hold_->stop();
+    emit line_clicked(lyrics_[line].timestamp_ms);
     event->accept();
 }
 
@@ -137,8 +189,7 @@ void lyrics_widget::update_layout()
     line_rects_.reserve(lyrics_.size());
 
     QFontMetrics fm(font_active_);
-    int width_padding = 20;
-    int max_width = width() - (width_padding * 2);
+    int max_width = width() - (kLineHorizontalPadding * 2);
 
     double current_y = vertical_padding_;
 
@@ -156,6 +207,11 @@ void lyrics_widget::update_layout()
 void lyrics_widget::on_animation_timer()
 {
     if (layout_dirty_) update_layout();
+    if (manual_scroll_hold_->isActive())
+    {
+        animation_timer_->stop();
+        return;
+    }
     if (lyrics_.isEmpty() || line_rects_.isEmpty())
     {
         animation_timer_->stop();
@@ -201,9 +257,7 @@ void lyrics_widget::paintEvent(QPaintEvent* /*event*/)
         update_layout();
     }
 
-    int width_padding = 20;
-
-    painter.translate(width_padding, current_scroll_y_);
+    painter.translate(kLineHorizontalPadding, current_scroll_y_);
 
     for (int i = 0; i < lyrics_.size(); ++i)
     {

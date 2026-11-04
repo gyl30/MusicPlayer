@@ -36,8 +36,13 @@ class lyrics_widget : public QWidget
         update();
     }
 
+   signals:
+    void line_clicked(qint64 timestamp_ms);
+
    protected:
     void paintEvent(QPaintEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void hideEvent(QHideEvent* event) override;
@@ -49,6 +54,7 @@ class lyrics_widget : public QWidget
    private:
     void update_layout();
     [[nodiscard]] int get_line_at_time(qint64 time_ms) const;
+    [[nodiscard]] int line_at(const QPointF& position) const;
 
    private:
     QList<LyricLine> lyrics_;
@@ -59,6 +65,8 @@ class lyrics_widget : public QWidget
     double current_scroll_y_ = 0.0;
     double target_scroll_y_ = 0.0;
     QTimer* animation_timer_ = nullptr;
+    // 手动滚动后暂停自动跟随，计时结束再回到当前行。
+    QTimer* manual_scroll_hold_ = nullptr;
 
     QFont font_normal_;
     QFont font_active_;

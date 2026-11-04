@@ -606,7 +606,44 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(progress_slider->value() >= 2900, 1000);
         QCOMPARE(window.findChild<lyrics_widget*>()->accessibleDescription(), QString("第二行"));
         QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(window.findChild<lyrics_widget*>(), "line_clicked", Q_ARG(qint64, 6000)));
+        QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 2, 1000);
+        QVERIFY(seek.last().first().toLongLong() >= 6000);
         controller->stop();
+    }
+
+    void lyrics_manual_scroll()
+    {
+        lyrics_widget lyrics;
+        lyrics.resize(300, 400);
+        lyrics.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&lyrics));
+        QList<LyricLine> lines;
+        for (int i = 0; i < 30; ++i) lines.append({i * 1000, QString("第%1行").arg(i)});
+        lyrics.set_lyrics(lines);
+        lyrics.set_current_time(0);
+        QSignalSpy clicked(&lyrics, &lyrics_widget::line_clicked);
+        const QPoint center(150, 200);
+        const auto line_at_center = [&]
+        {
+            clicked.clear();
+            QTest::mouseClick(&lyrics, Qt::LeftButton, Qt::NoModifier, center);
+            return clicked.isEmpty() ? qint64(-1) : clicked.last().first().toLongLong();
+        };
+        QTRY_COMPARE_WITH_TIMEOUT(line_at_center(), qint64(0), 2000);
+
+        QWheelEvent wheel(QPointF(center), QPointF(lyrics.mapToGlobal(center)), {}, QPoint(0, -480), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(&lyrics, &wheel);
+
+        // 手动滚动后的短时间内，换行不应把视图拉回当前行；之后自动回到当前行。
+        lyrics.set_current_time(20000);
+        QCoreApplication::processEvents();
+        const QImage held = lyrics.grab().toImage();
+        QTest::qWait(1000);
+        QCOMPARE(lyrics.grab().toImage(), held);
+        QTRY_VERIFY_WITH_TIMEOUT(lyrics.grab().toImage() != held, 4000);
+        QTRY_COMPARE_WITH_TIMEOUT(line_at_center(), qint64(20000), 3000);
     }
 
     void slider_drag_preview()

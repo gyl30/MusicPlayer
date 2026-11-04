@@ -616,6 +616,10 @@ void playlist_window::setup_ui()
     lyric_layout->setContentsMargins(12, 8, 12, 8);
     lyrics_view_ = new lyrics_widget(lyrics_panel_);
     lyrics_view_->setObjectName("lyricsView");
+    connect(lyrics_view_, &lyrics_widget::line_clicked, this, [this](qint64 timestamp_ms)
+    {
+        if (controller_->is_media_loaded()) controller_->seek(timestamp_ms);
+    });
     lyric_layout->addWidget(lyrics_view_, 1);
     body_layout->addWidget(lyrics_panel_, 2);
     lyrics_panel_->hide();
