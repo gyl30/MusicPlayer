@@ -353,6 +353,12 @@ void playlist_window::closeEvent(QCloseEvent* event)
     {
         hide();
         event->ignore();
+        QSettings settings("MusicPlayer", "MusicPlayer");
+        if (!settings.value("ui/tray_hint_shown", false).toBool())
+        {
+            tray_icon_->show_message("MusicPlayer 仍在运行", "窗口已隐藏到系统托盘，可从托盘图标重新打开或退出。");
+            settings.setValue("ui/tray_hint_shown", true);
+        }
     }
     else
     {

@@ -38,6 +38,8 @@ void tray_icon::setup_tray_icon()
 
 void tray_icon::show() { tray_icon_->show(); }
 
+void tray_icon::show_message(const QString& title, const QString& message) { tray_icon_->showMessage(title, message); }
+
 bool tray_icon::isVisible() const { return tray_icon_->isVisible() && QSystemTrayIcon::isSystemTrayAvailable(); }
 
 void tray_icon::on_tray_icon_activated(QSystemTrayIcon::ActivationReason reason)

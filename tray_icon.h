@@ -17,6 +17,7 @@ class tray_icon : public QObject
 
     void show();
     bool isVisible() const;
+    void show_message(const QString& title, const QString& message);
 
    signals:
     void show_hide_triggered();

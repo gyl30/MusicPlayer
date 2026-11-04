@@ -1611,6 +1611,49 @@ private slots:
         QVERIFY(!window.isVisible());
     }
 
+    void tray_hint_once()
+    {
+        if (!QSystemTrayIcon::isSystemTrayAvailable())
+        {
+            QSKIP("该用例需要系统托盘服务");
+        }
+        QApplication::setWindowIcon(QIcon(":/icons/app_icon.svg"));
+        QSettings("MusicPlayer", "MusicPlayer").remove("ui/tray_hint_shown");
+        const auto visible_balloons = []
+        {
+            int count = 0;
+            for (auto* widget : QApplication::topLevelWidgets())
+            {
+                if (QByteArray(widget->metaObject()->className()) == "QBalloonTip" && widget->isVisible())
+                {
+                    ++count;
+                }
+            }
+            return count;
+        };
+        playlist_window window;
+        window.show();
+        QTest::qWait(200);
+        QVERIFY(!window.close());
+        QVERIFY(!window.isVisible());
+        QTRY_COMPARE(visible_balloons(), 1);
+        QVERIFY(QSettings("MusicPlayer", "MusicPlayer").value("ui/tray_hint_shown").toBool());
+        for (auto* widget : QApplication::topLevelWidgets())
+        {
+            if (QByteArray(widget->metaObject()->className()) == "QBalloonTip")
+            {
+                widget->close();
+            }
+        }
+        QTRY_COMPARE(visible_balloons(), 0);
+
+        window.show();
+        QTest::qWait(50);
+        QVERIFY(!window.close());
+        QTest::qWait(300);
+        QCOMPARE(visible_balloons(), 0);
+    }
+
     void metadata_path_reuse()
     {
         playlist_manager manager;
