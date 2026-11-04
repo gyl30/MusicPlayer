@@ -705,6 +705,34 @@ private slots:
         QCOMPARE(volume->property("trackColor").value<QColor>(), QColor("#34465C"));
         QCOMPARE(lyrics->property("normalColor").value<QColor>(), QColor("#8C9DB3"));
         QCOMPARE(lyrics->property("activeColor").value<QColor>(), QColor("#61ACFA"));
+        // 为亮色背景设计的深色图标在暗色主题下要换成浅色，否则几乎看不见。
+        const auto brightest = [](const QPixmap& pixmap)
+        {
+            const QImage image = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+            int lightness = 0;
+            for (int y = 0; y < image.height(); ++y)
+            {
+                for (int x = 0; x < image.width(); ++x)
+                {
+                    const QColor color = image.pixelColor(x, y);
+                    if (color.alpha() > 200) lightness = qMax(lightness, color.lightness());
+                }
+            }
+            return lightness;
+        };
+        const auto child_with_tip = [&window](const QString& tip) -> QWidget*
+        {
+            for (auto* widget : window.findChildren<QWidget*>())
+            {
+                if (widget->toolTip() == tip) return widget;
+            }
+            return nullptr;
+        };
+        auto* next = qobject_cast<QPushButton*>(child_with_tip("下一首"));
+        auto* volume_icon = qobject_cast<QLabel*>(child_with_tip("音量"));
+        QVERIFY(next != nullptr && volume_icon != nullptr);
+        QVERIFY2(brightest(next->icon().pixmap(18, 18)) > 180, qPrintable(QString::number(brightest(next->icon().pixmap(18, 18)))));
+        QVERIFY(brightest(volume_icon->pixmap()) > 150);
         const QSize before = window.size();
         button->click();
         QVERIFY(!qApp->property("darkMode").toBool());
@@ -712,6 +740,8 @@ private slots:
         QCOMPARE(settings.value("appearance/dark").toBool(), false);
         QCOMPARE(volume->property("trackColor").value<QColor>(), QColor("#D4DEEA"));
         QCOMPARE(lyrics->property("normalColor").value<QColor>(), QColor("#64758D"));
+        QVERIFY(brightest(next->icon().pixmap(18, 18)) < 100);
+        QVERIFY(brightest(volume_icon->pixmap()) < 150);
         QCOMPARE(lyrics->property("activeColor").value<QColor>(), QColor("#1478E8"));
     }
 

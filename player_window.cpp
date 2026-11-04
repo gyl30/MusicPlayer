@@ -23,6 +23,7 @@
 #include "playlist_window.h"
 #include "scrolling_text_label.h"
 #include "playback_controller.h"
+#include "themed_icon.h"
 
 player_window::player_window(playback_controller* controller, playlist_window* main_wnd)
     : QWidget(main_wnd), controller_(controller)
@@ -85,7 +86,7 @@ void player_window::set_playback_mode(playback_mode mode)
 void player_window::restore_idle_state(const QString& title, qint64 position_ms, qint64 duration_ms)
 {
     is_paused_ = false;
-    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
+    play_pause_button_->setIcon(themed_icon(":/icons/play.svg"));
     set_track_title(title);
 
     const qint64 safe_position_ms = qMax<qint64>(0, position_ms);
@@ -171,13 +172,13 @@ void player_window::setup_ui()
     row->setContentsMargins(0, 2, 0, 0);
     row->setSpacing(3);
     row->addStretch();
-    shuffle_button_ = new QPushButton(QIcon(":/icons/repeat.svg"), "", controls);
+    shuffle_button_ = new QPushButton(themed_icon(":/icons/repeat.svg"), "", controls);
     shuffle_button_->setObjectName("modeButton");
-    prev_button_ = new QPushButton(QIcon(":/icons/previous.svg"), "", controls);
-    play_pause_button_ = new QPushButton(QIcon(":/icons/play.svg"), "", controls);
+    prev_button_ = new QPushButton(themed_icon(":/icons/previous.svg"), "", controls);
+    play_pause_button_ = new QPushButton(themed_icon(":/icons/play.svg"), "", controls);
     play_pause_button_->setObjectName("playPauseButton");
-    next_button_ = new QPushButton(QIcon(":/icons/next.svg"), "", controls);
-    stop_button_ = new QPushButton(QIcon(":/icons/stop.svg"), "", controls);
+    next_button_ = new QPushButton(themed_icon(":/icons/next.svg"), "", controls);
+    stop_button_ = new QPushButton(themed_icon(":/icons/stop.svg"), "", controls);
     stop_button_->setToolTip("停止");
     prev_button_->setToolTip("上一首");
     play_pause_button_->setToolTip("播放/暂停");
@@ -190,10 +191,10 @@ void player_window::setup_ui()
         if (button != stop_button_) row->addStretch();
     }
     row->addStretch();
-    auto* volume_icon = new QLabel(controls);
-    volume_icon->setPixmap(QIcon(":/icons/volume.svg").pixmap(14, 14));
-    volume_icon->setToolTip("音量");
-    row->addWidget(volume_icon);
+    volume_icon_ = new QLabel(controls);
+    volume_icon_->setPixmap(themed_icon(":/icons/volume.svg").pixmap(14, 14));
+    volume_icon_->setToolTip("音量");
+    row->addWidget(volume_icon_);
     volume_meter_ = new volume_meter(controls);
     volume_meter_->setObjectName("volumeMeter");
     volume_meter_->setRange(0, 100);
@@ -263,7 +264,7 @@ void player_window::setup_connections()
 void player_window::reset_ui()
 {
     is_paused_ = false;
-    play_pause_button_->setIcon(QIcon(":/icons/play.svg"));
+    play_pause_button_->setIcon(themed_icon(":/icons/play.svg"));
     clear_cover_art();
     set_track_title("欢迎使用");
     set_time_text("00:00");
@@ -286,7 +287,7 @@ void player_window::on_playback_finished() { reset_ui(); }
 void player_window::on_playback_paused(bool is_paused)
 {
     is_paused_ = is_paused;
-    play_pause_button_->setIcon(is_paused_ ? QIcon(":/icons/play.svg") : QIcon(":/icons/pause.svg"));
+    play_pause_button_->setIcon(is_paused_ ? themed_icon(":/icons/play.svg") : themed_icon(":/icons/pause.svg"));
 }
 
 void player_window::on_play_pause_clicked()
@@ -324,7 +325,7 @@ void player_window::on_playback_started(const QString& file_path, const QString&
     (void)file_path;
     reset_ui();
     is_paused_ = false;
-    play_pause_button_->setIcon(QIcon(":/icons/pause.svg"));
+    play_pause_button_->setIcon(themed_icon(":/icons/pause.svg"));
     set_track_title(QFileInfo(file_name).completeBaseName());
     setWindowTitle(file_name);
 }
@@ -377,19 +378,19 @@ void player_window::update_playback_mode_button_style()
     switch (current_mode_)
     {
         case playback_mode::ListLoop:
-            shuffle_button_->setIcon(QIcon(":/icons/repeat.svg"));
+            shuffle_button_->setIcon(themed_icon(":/icons/repeat.svg"));
             shuffle_button_->setToolTip("列表循环");
             break;
         case playback_mode::SingleLoop:
-            shuffle_button_->setIcon(QIcon(":/icons/repeat-one.svg"));
+            shuffle_button_->setIcon(themed_icon(":/icons/repeat-one.svg"));
             shuffle_button_->setToolTip("单曲循环");
             break;
         case playback_mode::Shuffle:
-            shuffle_button_->setIcon(QIcon(":/icons/shuffle.svg"));
+            shuffle_button_->setIcon(themed_icon(":/icons/shuffle.svg"));
             shuffle_button_->setToolTip("随机播放");
             break;
         case playback_mode::Sequential:
-            shuffle_button_->setIcon(QIcon(":/icons/sequential.svg"));
+            shuffle_button_->setIcon(themed_icon(":/icons/sequential.svg"));
             shuffle_button_->setToolTip("顺序播放");
             break;
     }
@@ -457,7 +458,7 @@ void player_window::refresh_cover_art()
 {
     if (cover_pixmap_.isNull())
     {
-        cover_art_label_->setPixmap(QIcon(":/icons/song.svg").pixmap(32, 32));
+        cover_art_label_->setPixmap(themed_icon(":/icons/song.svg").pixmap(32, 32));
         return;
     }
     const qreal ratio = devicePixelRatioF();
@@ -474,6 +475,16 @@ void player_window::refresh_cover_art()
                        QRectF((scaled.width() - result.width()) / 2.0, (scaled.height() - result.height()) / 2.0,
                               result.width(), result.height()));
     cover_art_label_->setPixmap(result);
+}
+
+void player_window::changeEvent(QEvent* event)
+{
+    QWidget::changeEvent(event);
+    // 标签上的图标是固定位图，主题切换后按新主题重新生成。
+    if (event->type() == QEvent::StyleChange && volume_icon_ != nullptr)
+    {
+        volume_icon_->setPixmap(themed_icon(":/icons/volume.svg").pixmap(14, 14));
+    }
 }
 
 void player_window::resizeEvent(QResizeEvent* event)

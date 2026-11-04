@@ -37,6 +37,7 @@
 #include <functional>
 
 #include "log.h"
+#include "themed_icon.h"
 #include "tray_icon.h"
 #include "quick_editor.h"
 #include "playlist_window.h"
@@ -392,7 +393,7 @@ void playlist_window::setup_ui()
 
     auto* app_logo = new QLabel(title_bar);
     app_logo->setObjectName("appLogo");
-    app_logo->setPixmap(QIcon(":/icons/title-music.svg").pixmap(22, 22));
+    app_logo->setPixmap(themed_icon(":/icons/title-music.svg").pixmap(22, 22));
     app_logo->setFixedSize(24, 24);
     app_logo->setAttribute(Qt::WA_TransparentForMouseEvents);
     title_layout->addWidget(app_logo);
@@ -409,13 +410,13 @@ void playlist_window::setup_ui()
     {
         apply_theme(!qApp->property("darkMode").toBool());
     });
-    auto* minimize_button = new QPushButton(QIcon(":/icons/minimize.svg"), "", title_bar);
+    auto* minimize_button = new QPushButton(themed_icon(":/icons/minimize.svg"), "", title_bar);
     minimize_button->setObjectName("windowMinButton");
     minimize_button->setAccessibleName("最小化");
     minimize_button->setFocusPolicy(Qt::NoFocus);
     title_layout->addWidget(minimize_button);
 
-    auto* maximize_button = new QPushButton(QIcon(":/icons/maximize.svg"), "", title_bar);
+    auto* maximize_button = new QPushButton(themed_icon(":/icons/maximize.svg"), "", title_bar);
     maximize_button->setObjectName("windowMaxButton");
     maximize_button->setAccessibleName("最大化或还原");
     maximize_button->setFocusPolicy(Qt::NoFocus);
@@ -426,7 +427,7 @@ void playlist_window::setup_ui()
         else showMaximized();
     });
 
-    auto* close_button = new QPushButton(QIcon(":/icons/close.svg"), "", title_bar);
+    auto* close_button = new QPushButton(themed_icon(":/icons/close.svg"), "", title_bar);
     close_button->setObjectName("windowCloseButton");
     close_button->setAccessibleName("关闭");
     close_button->setFocusPolicy(Qt::NoFocus);
@@ -496,12 +497,12 @@ void playlist_window::setup_ui()
     }
     playlist_tab->setChecked(true);
     library_layout->addStretch();
-    auto* add_button = new QPushButton(QIcon(":/icons/add.svg"), "", playback_page);
+    auto* add_button = new QPushButton(themed_icon(":/icons/add.svg"), "", playback_page);
     add_button->setObjectName("addMusicButton");
     add_button->setAccessibleName("添加音乐");
     connect(add_button, &QPushButton::clicked, this, [this, add_button] { show_add_menu(add_button); });
     library_layout->addWidget(add_button);
-    lyrics_button_ = new QPushButton(QIcon(":/icons/lyrics-unavailable.svg"), "", playback_page);
+    lyrics_button_ = new QPushButton(themed_icon(":/icons/lyrics-unavailable.svg"), "", playback_page);
     lyrics_button_->setObjectName("lyricsButton");
     lyrics_button_->setFocusPolicy(Qt::TabFocus);
     library_layout->addWidget(lyrics_button_);
@@ -583,7 +584,7 @@ void playlist_window::apply_theme(bool dark)
 
     qApp->setProperty("darkMode", dark);
     qApp->setStyleSheet(QString::fromUtf8(style.readAll()));
-    theme_button_->setIcon(QIcon(dark ? ":/icons/moon.svg" : ":/icons/sun.svg"));
+    theme_button_->setIcon(themed_icon(dark ? ":/icons/moon.svg" : ":/icons/sun.svg"));
     theme_button_->setToolTip(dark ? "切换到亮色模式" : "切换到暗色模式");
     theme_button_->setAccessibleName(theme_button_->toolTip());
     QSettings("MusicPlayer", "MusicPlayer").setValue("appearance/dark", dark);
@@ -617,19 +618,19 @@ void playlist_window::update_lyrics_button()
 
     if (!lyrics_view_->has_lyrics())
     {
-        lyrics_button_->setIcon(QIcon(":/icons/lyrics-unavailable.svg"));
+        lyrics_button_->setIcon(themed_icon(":/icons/lyrics-unavailable.svg"));
         lyrics_button_->setAccessibleName("无歌词");
         lyrics_button_->setToolTip(lyrics_open_ ? "当前歌曲没有歌词，点击隐藏歌词" : "当前歌曲没有歌词，点击显示歌词");
     }
     else if (lyrics_open_)
     {
-        lyrics_button_->setIcon(QIcon(":/icons/lyrics.svg"));
+        lyrics_button_->setIcon(themed_icon(":/icons/lyrics.svg"));
         lyrics_button_->setAccessibleName("显示歌词");
         lyrics_button_->setToolTip("隐藏歌词");
     }
     else
     {
-        lyrics_button_->setIcon(QIcon(":/icons/lyrics-hide.svg"));
+        lyrics_button_->setIcon(themed_icon(":/icons/lyrics-hide.svg"));
         lyrics_button_->setAccessibleName("隐藏歌词");
         lyrics_button_->setToolTip("显示歌词");
     }

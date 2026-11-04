@@ -142,6 +142,7 @@ set(MUSICPLAYER_SOURCES
     database_manager.cpp
     song_scanner.cpp
     tag_text.cpp
+    themed_icon.cpp
     playlist_window.cpp
     player_window.cpp
     scrolling_text_label.cpp
