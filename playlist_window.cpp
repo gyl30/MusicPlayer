@@ -3,7 +3,6 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QScrollArea>
 #include <QPropertyAnimation>
 #include <QEasingCurve>
 #include <QMessageBox>
@@ -37,7 +36,6 @@
 #include "playlist_window.h"
 #include "playlist_manager.h"
 #include "playback_controller.h"
-#include "music_management_dialog.h"
 #include "lyrics_widget.h"
 
 class window_resize_handle final : public QWidget
@@ -264,16 +262,6 @@ static void clear_playing_item_visual_state(QTreeWidgetItem* item, const QPalett
     }
 }
 
-static QString song_item_path(QTreeWidgetItem* item)
-{
-    if (item == nullptr || item->parent() == nullptr)
-    {
-        return {};
-    }
-
-    return item->data(0, Qt::UserRole).toString();
-}
-
 static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, const QString& file_path)
 {
     if (playlist_item == nullptr || file_path.isEmpty())
@@ -293,9 +281,7 @@ static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, 
     return nullptr;
 }
 
-constexpr int kPlaybackPageIndex = 0;
 constexpr qint64 kPlaybackStateSaveIntervalMs = 10000;
-constexpr int kManagementPageIndex = 1;
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
@@ -304,7 +290,6 @@ playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
     controller_ = new playback_controller(this);
     playlist_manager_ = new playlist_manager(this);
     player_window_ = new player_window(controller_, this);
-    management_page_ = new music_management_dialog(playlist_manager_, this);
 
     setup_ui();
     update_lyrics_button();
@@ -353,11 +338,6 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
     if (watched == centralWidget() && event->type() == QEvent::Resize)
     {
         update_resize_handles();
-    }
-    if (management_overlay_ != nullptr && watched == management_overlay_->parentWidget()
-        && event->type() == QEvent::Resize)
-    {
-        management_overlay_->setGeometry(static_cast<QWidget*>(watched)->rect());
     }
     if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonPress)
     {
@@ -524,11 +504,6 @@ void playlist_window::setup_ui()
     lyrics_button_->setFocusPolicy(Qt::TabFocus);
     library_layout->addWidget(lyrics_button_);
     connect(lyrics_button_, &QPushButton::clicked, this, [this] { set_lyrics_open(!lyrics_open_); });
-    auto* manage_button = new QPushButton(QIcon(":/icons/manage.svg"), "", playback_page);
-    manage_button->setObjectName("manageButton");
-    manage_button->setAccessibleName("管理歌单");
-    connect(manage_button, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
-    library_layout->addWidget(manage_button);
 
     library->addLayout(library_layout);
     song_tree_widget_->setMinimumHeight(80);
@@ -557,35 +532,6 @@ void playlist_window::setup_ui()
     });
 
     main_layout->addWidget(body, 1);
-    management_overlay_ = new QWidget(body);
-    management_overlay_->setObjectName("managementOverlay");
-    auto* overlay_layout = new QVBoxLayout(management_overlay_);
-    overlay_layout->setContentsMargins(12, 12, 12, 12);
-    auto* management_card = new QWidget(management_overlay_);
-    management_card->setObjectName("managementCard");
-    auto* card_layout = new QVBoxLayout(management_card);
-    card_layout->setContentsMargins(8, 8, 8, 8);
-    card_layout->setSpacing(6);
-    auto* header_layout = new QHBoxLayout();
-    header_layout->addWidget(new QLabel("音乐管理", management_card));
-    header_layout->addStretch();
-    auto* close_management = new QPushButton(QIcon(":/icons/close.svg"), "", management_card);
-    close_management->setObjectName("managementCloseButton");
-    close_management->setAccessibleName("关闭音乐管理");
-    header_layout->addWidget(close_management);
-    connect(close_management, &QPushButton::clicked, this, &playlist_window::on_manage_playlists_action);
-    card_layout->addLayout(header_layout);
-    auto* management_scroll = new QScrollArea(management_card);
-    management_scroll->setObjectName("managementScroll");
-    management_scroll->setFrameShape(QFrame::NoFrame);
-    management_scroll->setWidgetResizable(true);
-    management_scroll->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    management_page_->setMinimumWidth(720);
-    management_scroll->setWidget(management_page_);
-    card_layout->addWidget(management_scroll, 1);
-    overlay_layout->addWidget(management_card);
-    body->installEventFilter(this);
-    management_overlay_->hide();
     resize_handles_ = {
         new window_resize_handle(central_widget, Qt::TopEdge | Qt::LeftEdge, Qt::SizeFDiagCursor),
         new window_resize_handle(central_widget, Qt::TopEdge, Qt::SizeVerCursor),
@@ -597,9 +543,6 @@ void playlist_window::setup_ui()
         new window_resize_handle(central_widget, Qt::BottomEdge | Qt::RightEdge, Qt::SizeFDiagCursor)
     };
     update_resize_handles();
-
-    auto* manage_shortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+M")), this);
-    connect(manage_shortcut, &QShortcut::activated, this, &playlist_window::on_manage_playlists_action);
 
     connect(tray_icon_,
             &tray_icon::show_hide_triggered,
@@ -802,33 +745,6 @@ void playlist_window::setup_connections()
     connect(player_window_, &player_window::stop_requested, this, &playlist_window::on_stop_requested);
     connect(player_window_, &player_window::play_requested, this, &playlist_window::on_play_requested);
     connect(player_window_, &player_window::playback_mode_changed, this, &playlist_window::on_playback_mode_changed);
-
-    connect(management_page_, &music_management_dialog::changes_discarded, this, [this]
-    {
-        switch_to_page(kPlaybackPageIndex);
-    });
-    connect(management_page_,
-            &music_management_dialog::changes_applied,
-            this,
-            [this]()
-            {
-                populate_playlists_on_startup();
-                switch_to_page(kPlaybackPageIndex);
-            });
-}
-
-void playlist_window::switch_to_page(int page_index)
-{
-    if (management_overlay_ == nullptr)
-    {
-        return;
-    }
-
-    management_overlay_->setVisible(page_index == kManagementPageIndex);
-    if (page_index == kManagementPageIndex)
-    {
-        management_overlay_->raise();
-    }
 }
 
 void playlist_window::on_playback_mode_changed(playback_mode new_mode)
@@ -1175,50 +1091,19 @@ void playlist_window::play_song_item(QTreeWidgetItem* item, bool increment_play_
     controller_->play_file(current_playing_file_path_, start_position_ms);
 }
 
-void playlist_window::on_manage_playlists_action()
-{
-    if (management_overlay_ != nullptr && !management_overlay_->isHidden())
-    {
-        if (management_page_ != nullptr && management_page_->has_pending_changes())
-        {
-            QMessageBox::information(this, "未应用更改", "请先点击“应用并返回”保存播放列表更改。");
-            return;
-        }
-
-        switch_to_page(kPlaybackPageIndex);
-        return;
-    }
-
-    if (management_page_ != nullptr)
-    {
-        management_page_->reload();
-    }
-    switch_to_page(kManagementPageIndex);
-}
-
 void playlist_window::populate_playlists_on_startup()
 {
-    const QString current_file_path = current_playing_file_path_;
-    const QString restored_file_path = song_item_path(restored_song_item_);
-    const bool had_restored_item = !restored_file_path.isEmpty();
-
-    clear_playing_indicator();
-    context_menu_item_ = nullptr;
-    clicked_song_item_ = nullptr;
-    restored_song_item_ = nullptr;
-
     song_tree_widget_->blockSignals(true);
     song_tree_widget_->clear();
-    QList<Playlist> playlists = playlist_manager_->get_all_playlists();
-    for (const auto& playlist : playlists)
+    for (const auto& summary : playlist_manager_->get_all_playlists())
     {
-        Playlist full_playlist = playlist_manager_->get_playlist_by_id(playlist.id);
+        const Playlist playlist = playlist_manager_->get_playlist_by_id(summary.id);
         auto* playlist_item = new QTreeWidgetItem(song_tree_widget_);
-        set_item_text_with_tooltip(playlist_item, QString("%1 [%2]").arg(playlist.name).arg(full_playlist.songs.count()));
+        set_item_text_with_tooltip(playlist_item, QString("%1 [%2]").arg(playlist.name).arg(playlist.songs.count()));
         playlist_item->setData(0, Qt::UserRole, playlist.id);
         playlist_item->setExpanded(false);
 
-        for (const auto& song : full_playlist.songs)
+        for (const auto& song : playlist.songs)
         {
             auto* song_item = new QTreeWidgetItem(playlist_item);
             set_song_item_text_with_tooltip(song_item, song.file_name);
@@ -1228,35 +1113,6 @@ void playlist_window::populate_playlists_on_startup()
     }
     song_tree_widget_->blockSignals(false);
     update_duration_column_width(song_tree_widget_);
-
-    if (current_file_path.isEmpty())
-    {
-        return;
-    }
-
-    QTreeWidgetItem* current_item = find_song_item_by_path(current_file_path);
-    if (current_item == nullptr)
-    {
-        if (detached_index_ < 0)
-        {
-            on_stop_requested();
-        }
-        return;
-    }
-
-    clicked_song_item_ = current_item;
-    if (had_restored_item && restored_file_path == current_file_path)
-    {
-        restored_song_item_ = current_item;
-    }
-    mark_restored_song_item(current_item);
-
-    if (current_mode_ == playback_mode::Shuffle && current_item->parent() != nullptr)
-    {
-        const int current_song_index = current_item->parent()->indexOfChild(current_item);
-        generate_shuffled_list(current_item->parent(), current_song_index);
-        current_shuffle_index_ = 0;
-    }
 }
 
 void playlist_window::on_playlist_added(const Playlist& new_playlist)
@@ -1413,7 +1269,9 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
     if (context_menu_item_ == nullptr)
     {
         auto* new_playlist_action = context_menu.addAction("新建播放列表");
+        auto* cleanup_action = context_menu.addAction("清理失效文件");
         connect(new_playlist_action, &QAction::triggered, this, &playlist_window::on_create_playlist_action);
+        connect(cleanup_action, &QAction::triggered, this, &playlist_window::on_cleanup_invalid_action);
     }
     else if (context_menu_item_->parent() == nullptr)
     {
@@ -1424,15 +1282,40 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
         auto* delete_action = context_menu.addAction("删除播放列表");
         context_menu.addSeparator();
         auto* new_playlist_action = context_menu.addAction("新建播放列表");
+        auto* cleanup_action = context_menu.addAction("清理失效文件");
 
         connect(add_songs_action, &QAction::triggered, this, &playlist_window::on_add_songs_action);
         connect(sort_playlist_action, &QAction::triggered, this, &playlist_window::on_sort_playlist_action);
         connect(rename_action, &QAction::triggered, this, &playlist_window::on_rename_playlist_action);
         connect(delete_action, &QAction::triggered, this, &playlist_window::on_delete_playlist_action);
         connect(new_playlist_action, &QAction::triggered, this, &playlist_window::on_create_playlist_action);
+        connect(cleanup_action, &QAction::triggered, this, &playlist_window::on_cleanup_invalid_action);
     }
     else
     {
+        if (!context_menu_item_->isSelected())
+        {
+            song_tree_widget_->clearSelection();
+            context_menu_item_->setSelected(true);
+        }
+        QMenu* copy_menu = context_menu.addMenu("添加到歌单");
+        QMenu* move_menu = context_menu.addMenu("移动到歌单");
+        const qint64 source_id = context_menu_item_->parent()->data(0, Qt::UserRole).toLongLong();
+        for (const auto& playlist : playlist_manager_->get_all_playlists())
+        {
+            if (playlist.id == source_id)
+            {
+                continue;
+            }
+            const qint64 target_id = playlist.id;
+            connect(copy_menu->addAction(playlist.name), &QAction::triggered, this,
+                    [this, target_id] { on_copy_songs_action(target_id); });
+            connect(move_menu->addAction(playlist.name), &QAction::triggered, this,
+                    [this, target_id] { on_move_songs_action(target_id); });
+        }
+        copy_menu->setEnabled(!copy_menu->isEmpty());
+        move_menu->setEnabled(!move_menu->isEmpty());
+        context_menu.addSeparator();
         auto* remove_songs_action = context_menu.addAction("从播放列表移除");
         connect(remove_songs_action, &QAction::triggered, this, &playlist_window::on_remove_songs_action);
     }
@@ -1583,41 +1466,128 @@ void playlist_window::on_add_songs_action()
     }
 }
 
+QList<int> playlist_window::selected_song_indices(QTreeWidgetItem*& playlist_item) const
+{
+    // 多选跨越歌单时，只处理第一个选中歌曲所在的歌单。
+    playlist_item = nullptr;
+    QList<int> indices;
+    for (QTreeWidgetItem* item : song_tree_widget_->selectedItems())
+    {
+        if (item->parent() == nullptr)
+        {
+            continue;
+        }
+        if (playlist_item == nullptr)
+        {
+            playlist_item = item->parent();
+        }
+        if (item->parent() == playlist_item)
+        {
+            indices.append(playlist_item->indexOfChild(item));
+        }
+    }
+    std::sort(indices.begin(), indices.end());
+    return indices;
+}
+
 void playlist_window::on_remove_songs_action()
 {
-    const QList<QTreeWidgetItem*> selected_items = song_tree_widget_->selectedItems();
-    if (selected_items.isEmpty())
+    QTreeWidgetItem* playlist_item = nullptr;
+    const QList<int> indices_to_remove = selected_song_indices(playlist_item);
+    if (indices_to_remove.isEmpty())
     {
         return;
     }
 
-    QTreeWidgetItem* parent_playlist_item = nullptr;
-    QList<int> indices_to_remove;
-
-    for (QTreeWidgetItem* item : selected_items)
+    const qint64 playlist_id = playlist_item->data(0, Qt::UserRole).toLongLong();
+    if (!playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove))
     {
-        if (item != nullptr && item->parent() != nullptr)
-        {
-            if (parent_playlist_item == nullptr)
-            {
-                parent_playlist_item = item->parent();
-            }
+        QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+    }
+}
 
-            if (item->parent() == parent_playlist_item)
-            {
-                indices_to_remove.append(parent_playlist_item->indexOfChild(item));
-            }
+void playlist_window::on_copy_songs_action(qint64 target_id) { transfer_selected_songs(target_id, song_transfer::copy); }
+
+void playlist_window::on_move_songs_action(qint64 target_id) { transfer_selected_songs(target_id, song_transfer::move); }
+
+void playlist_window::transfer_selected_songs(qint64 target_id, song_transfer transfer)
+{
+    QTreeWidgetItem* source_item = nullptr;
+    const QList<int> indices = selected_song_indices(source_item);
+    if (indices.isEmpty())
+    {
+        return;
+    }
+    const qint64 source_id = source_item->data(0, Qt::UserRole).toLongLong();
+    Playlist source = playlist_manager_->get_playlist_by_id(source_id);
+    Playlist target = playlist_manager_->get_playlist_by_id(target_id);
+    if (source_id == target_id || source.id == -1 || target.id == -1 || indices.last() >= source.songs.size())
+    {
+        return;
+    }
+
+    QSet<QString> target_paths;
+    for (const auto& song : target.songs)
+    {
+        target_paths.insert(song.file_path);
+    }
+    for (int index : indices)
+    {
+        const Song& song = source.songs.at(index);
+        if (!target_paths.contains(song.file_path))
+        {
+            target_paths.insert(song.file_path);
+            target.songs.append(song);
         }
     }
 
-    if (parent_playlist_item != nullptr && !indices_to_remove.isEmpty())
+    QMap<qint64, Playlist> changes{{target_id, target}};
+    if (transfer == song_transfer::move)
     {
-        const qint64 playlist_id = parent_playlist_item->data(0, Qt::UserRole).toLongLong();
-        if (!playlist_manager_->remove_songs_from_playlist(playlist_id, indices_to_remove))
+        for (auto it = indices.crbegin(); it != indices.crend(); ++it)
         {
-            QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
-            return;
+            source.songs.removeAt(*it);
         }
+        changes.insert(source_id, source);
+    }
+    if (!playlist_manager_->save_playlists(changes))
+    {
+        QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+    }
+}
+
+void playlist_window::on_cleanup_invalid_action()
+{
+    QMap<qint64, Playlist> changes;
+    int removed = 0;
+    for (const auto& summary : playlist_manager_->get_all_playlists())
+    {
+        Playlist playlist = playlist_manager_->get_playlist_by_id(summary.id);
+        const auto last = std::remove_if(playlist.songs.begin(), playlist.songs.end(),
+                                         [](const Song& song) { return !QFileInfo(song.file_path).isFile(); });
+        const auto count = static_cast<int>(std::distance(last, playlist.songs.end()));
+        if (count > 0)
+        {
+            playlist.songs.erase(last, playlist.songs.end());
+            changes.insert(playlist.id, playlist);
+            removed += count;
+        }
+    }
+
+    if (removed == 0)
+    {
+        QMessageBox::information(this, "没有失效文件", "当前歌单没有需要清理的失效音乐文件。");
+        return;
+    }
+
+    const QString message = QString("将从所有歌单移除 %1 条失效记录。\n此操作只修改程序中的歌单，不会删除磁盘上的文件。是否继续？").arg(removed);
+    if (QMessageBox::question(this, "清理失效文件", message, QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+    {
+        return;
+    }
+    if (!playlist_manager_->save_playlists(changes))
+    {
+        QMessageBox::warning(this, "清理失败", "歌单更改未能保存，请检查数据库权限后重试。");
     }
 }
 

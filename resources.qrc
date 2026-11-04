@@ -17,7 +17,6 @@
     <file alias="icons/song.svg">icons/song.svg</file>
     <file alias="icons/shuffle.svg">icons/shuffle.svg</file>
     <file alias="icons/add.svg">icons/add.svg</file>
-    <file alias="icons/manage.svg">icons/manage.svg</file>
     <file alias="icons/lyrics.svg">icons/lyrics.svg</file>
     <file alias="icons/lyrics-hide.svg">icons/lyrics-hide.svg</file>
     <file alias="icons/lyrics-unavailable.svg">icons/lyrics-unavailable.svg</file>

@@ -29,7 +29,7 @@ class playlist_manager : public QObject
     bool remove_songs_from_playlist(qint64 playlist_id, const QList<int>& song_indices);
     bool rename_playlist(qint64 id, const QString& new_name);
     bool sort_playlist(qint64 id);
-    bool apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists);
+    bool save_playlists(const QMap<qint64, Playlist>& playlists);
 
    signals:
     void playlist_added(const Playlist& new_playlist);

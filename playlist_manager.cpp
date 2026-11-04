@@ -186,7 +186,7 @@ bool playlist_manager::remove_songs_from_playlist(qint64 playlist_id, const QLis
         }
         playlist.songs.removeAt(index);
     }
-    return apply_changes_from_dialog({{playlist_id, playlist}});
+    return save_playlists({{playlist_id, playlist}});
 }
 
 bool playlist_manager::rename_playlist(qint64 id, const QString& new_name)
@@ -218,13 +218,13 @@ bool playlist_manager::sort_playlist(qint64 id)
               playlist.songs.end(),
               [&collator](const Song& s1, const Song& s2) { return collator.compare(s1.file_name, s2.file_name) < 0; });
 
-    return apply_changes_from_dialog({{id, playlist}});
+    return save_playlists({{id, playlist}});
 }
 
-bool playlist_manager::apply_changes_from_dialog(const QMap<qint64, Playlist>& temp_playlists)
+bool playlist_manager::save_playlists(const QMap<qint64, Playlist>& playlists)
 {
     QList<qint64> changed_ids;
-    if (!db_manager_->save_playlists(temp_playlists, changed_ids))
+    if (!db_manager_->save_playlists(playlists, changed_ids))
     {
         return false;
     }

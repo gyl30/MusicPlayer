@@ -15,13 +15,13 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QScrollBar>
-#include <QScrollArea>
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPropertyAnimation>
 #include <QIcon>
+#include <QMenu>
 #include "volumemeter.h"
 #include "lyrics_widget.h"
 #include "lyrics_parser.h"
@@ -32,7 +32,6 @@
 #include "playlist_manager.h"
 #include "database_manager.h"
 #include "playlist_window.h"
-#include "music_management_dialog.h"
 #include "duration_scanner.h"
 #include "scoped_exit.h"
 #include "log.h"
@@ -146,119 +145,132 @@ private slots:
         QCOMPARE(later.first().timestamp_ms, qint64{1250});
     }
 
-    void management_cancel()
+    static void accept_question_boxes(QTimer& timer, QObject* context)
     {
-        playlist_window window;
-        auto* manager = window.findChild<playlist_manager*>();
-        const auto id = manager->get_all_playlists().first().id;
-        QVERIFY(manager->add_songs_to_playlist(id, {tone_}));
-        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
-        const auto before = database_snapshot();
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        auto* page = window.findChild<music_management_dialog*>();
-        auto* remove = page->findChild<QPushButton*>("removeButton");
-        QVERIFY(remove != nullptr);
-        QVERIFY(!remove->isEnabled());
-        QVERIFY(QMetaObject::invokeMethod(page, "on_source_select_all_clicked"));
-        QVERIFY(remove->isEnabled());
-        remove->click();
-        QVERIFY(page->has_pending_changes());
-        auto* cancel = page->findChild<QPushButton*>("cancelChangesButton");
-        QVERIFY(cancel != nullptr);
-        cancel->click();
-        QVERIFY(!page->has_pending_changes());
-        QCOMPARE(database_snapshot(), before);
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QVERIFY(!page->has_pending_changes());
-    }
-
-    void management_cleanup_invalid()
-    {
-        playlist_manager manager;
-        manager.initialize_and_load();
-        QVERIFY(manager.create_new_playlist("清理测试"));
-        const auto lists = manager.get_all_playlists();
-        const qint64 first = lists.first().id;
-        const qint64 second = lists.last().id;
-        const QString missing_a = temp_.filePath("cleanup-missing-a.wav");
-        const QString missing_b = temp_.filePath("cleanup-missing-b.wav");
-        QVERIFY(manager.add_songs_to_playlist(first, {tone_, missing_a}));
-        QVERIFY(manager.add_songs_to_playlist(second, {missing_b}));
-
-        music_management_dialog page(&manager);
-        page.reload();
-        auto* cleanup = page.findChild<QPushButton*>("cleanupInvalidButton");
-        QVERIFY(cleanup != nullptr);
-        QCOMPARE(manager.get_playlist_by_id(first).songs.size(), 2);
-        QCOMPARE(manager.get_playlist_by_id(second).songs.size(), 1);
-        QTimer confirm;
-        connect(&confirm, &QTimer::timeout, &page, []
+        connect(&timer, &QTimer::timeout, context, []
         {
             if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
             {
                 if (auto* yes = box->button(QMessageBox::Yes)) yes->click();
-                else box->reject();
+                else box->accept();
             }
         });
-        confirm.start(10);
-        cleanup->click();
+        timer.start(10);
+    }
+
+    void cleanup_invalid_files()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("清理测试"));
+        const auto lists = manager->get_all_playlists();
+        const qint64 first = lists.first().id;
+        const qint64 second = lists.last().id;
+        QVERIFY(manager->add_songs_to_playlist(first, {tone_, temp_.filePath("cleanup-missing-a.wav")}));
+        QVERIFY(manager->add_songs_to_playlist(second, {temp_.filePath("cleanup-missing-b.wav")}));
+
+        QTimer confirm;
+        accept_question_boxes(confirm, &window);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_cleanup_invalid_action"));
         confirm.stop();
 
-        const Playlist kept = manager.get_playlist_by_id(first);
+        const Playlist kept = manager->get_playlist_by_id(first);
         QCOMPARE(kept.songs.size(), 1);
         QCOMPARE(kept.songs.first().file_path, tone_);
-        QCOMPARE(manager.get_playlist_by_id(second).songs.size(), 0);
+        QCOMPARE(manager->get_playlist_by_id(second).songs.size(), 0);
         QVERIFY(QFileInfo::exists(tone_));
-        QVERIFY(!page.has_pending_changes());
-        QVERIFY(cleanup->text().contains("2"));
+        auto* tree = window.findChild<QTreeWidget*>();
+        QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree->topLevelItem(1)->childCount(), 0);
     }
 
-    void management_bulk_selection()
+    void transfer_songs()
     {
-        playlist_manager manager;
-        manager.initialize_and_load();
-        const auto id = manager.get_all_playlists().first().id;
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const auto lists = manager->get_all_playlists();
+        const qint64 source_id = lists.first().id;
+        const qint64 target_id = lists.last().id;
         QStringList paths;
-        for (int i = 0; i < 200; ++i)
-            paths.append(temp_.filePath(QString("bulk-%1.wav").arg(i)));
-        QVERIFY(manager.add_songs_to_playlist(id, paths));
-        music_management_dialog page(&manager);
-        page.reload();
-        auto* songs = page.findChildren<QListWidget*>().at(1);
-        QSignalSpy changed(songs, &QListWidget::itemChanged);
-        QElapsedTimer timer;
-        timer.start();
-        QVERIFY(QMetaObject::invokeMethod(&page, "on_source_select_all_clicked"));
-        qInfo() << "批量勾选(ms):" << timer.elapsed() << "逐项通知:" << changed.count();
-        QCOMPARE(changed.count(), 0);
-        for (int i = 0; i < songs->count(); ++i)
-            QCOMPARE(songs->item(i)->checkState(), Qt::Checked);
-        QVERIFY(page.findChild<QPushButton*>("removeButton")->isEnabled());
-        QVERIFY(QMetaObject::invokeMethod(&page, "on_source_select_all_clicked"));
-        QCOMPARE(changed.count(), 0);
-        for (int i = 0; i < songs->count(); ++i)
-            QCOMPARE(songs->item(i)->checkState(), Qt::Unchecked);
-        QVERIFY(!page.findChild<QPushButton*>("removeButton")->isEnabled());
+        for (int i = 0; i < 3; ++i)
+        {
+            paths.append(temp_.filePath(QString("transfer-%1.wav").arg(i)));
+        }
+        QVERIFY(manager->add_songs_to_playlist(source_id, paths));
+        QVERIFY(manager->add_songs_to_playlist(target_id, {paths[2]}));
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* source = tree->topLevelItem(0);
+
+        window.show();
+        source->setExpanded(true);
+        QStringList menu_entries;
+        QTimer inspect_menu;
+        connect(&inspect_menu, &QTimer::timeout, &window, [&]
+        {
+            auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+            if (menu == nullptr) return;
+            for (auto* action : menu->actions())
+            {
+                menu_entries.append(action->text());
+                if (action->menu() != nullptr)
+                {
+                    for (auto* target : action->menu()->actions()) menu_entries.append(action->text() + "/" + target->text());
+                }
+            }
+            menu->close();
+        });
+        inspect_menu.start(10);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_song_tree_context_menu_requested",
+                                          Q_ARG(QPoint, tree->visualItemRect(source->child(0)).center())));
+        inspect_menu.stop();
+        QVERIFY(menu_entries.contains("添加到歌单/目标"));
+        QVERIFY(menu_entries.contains("移动到歌单/目标"));
+        QVERIFY(menu_entries.contains("从播放列表移除"));
+        tree->clearSelection();
+
+        source->child(0)->setSelected(true);
+        source->child(2)->setSelected(true);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_copy_songs_action", Q_ARG(qint64, target_id)));
+        // 已在目标歌单中的歌曲不重复添加，复制保留源歌单。
+        QStringList target_paths;
+        for (const auto& song : manager->get_playlist_by_id(target_id).songs) target_paths.append(song.file_path);
+        QCOMPARE(target_paths, QStringList({paths[2], paths[0]}));
+        QCOMPARE(manager->get_playlist_by_id(source_id).songs.size(), 3);
+
+        tree->clearSelection();
+        source->child(1)->setSelected(true);
+        source->child(2)->setSelected(true);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_move_songs_action", Q_ARG(qint64, target_id)));
+        target_paths.clear();
+        for (const auto& song : manager->get_playlist_by_id(target_id).songs) target_paths.append(song.file_path);
+        QCOMPARE(target_paths, QStringList({paths[2], paths[0], paths[1]}));
+        const auto remaining = manager->get_playlist_by_id(source_id).songs;
+        QCOMPARE(remaining.size(), 1);
+        QCOMPARE(remaining.first().file_path, paths[0]);
+        QCOMPARE(tree->topLevelItem(0)->childCount(), 1);
+        QCOMPARE(tree->topLevelItem(1)->childCount(), 3);
     }
 
-    void management_unchanged_return()
+    void transfer_failure()
     {
-        playlist_manager manager;
-        manager.initialize_and_load();
-        music_management_dialog page(&manager);
-        page.reload();
-        QSignalSpy returned(&page, &music_management_dialog::changes_discarded);
-        QSignalSpy applied(&page, &music_management_dialog::changes_applied);
-        // 占用事务，证明无修改返回不需要再开启写事务。
-        QVERIFY(QSqlDatabase::database().transaction());
-        DEFER(QSqlDatabase::database().rollback());
-        QTimer::singleShot(0, &page, []
-        {
-            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) box->accept();
-        });
-        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
-        QCOMPARE(returned.count(), 1);
-        QCOMPARE(applied.count(), 0);
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const auto lists = manager->get_all_playlists();
+        QVERIFY(manager->add_songs_to_playlist(lists.first().id, {tone_}));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
+        window.findChild<QTreeWidget*>()->topLevelItem(0)->child(0)->setSelected(true);
+        const auto before = database_snapshot();
+        QSqlQuery query;
+        QVERIFY(query.exec("CREATE TRIGGER reject_move BEFORE INSERT ON PlaylistSongs "
+                           "BEGIN SELECT RAISE(ABORT, 'injected move failure'); END"));
+        QTimer close_warning;
+        accept_question_boxes(close_warning, &window);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_move_songs_action", Q_ARG(qint64, lists.last().id)));
+        close_warning.stop();
+        QCOMPARE(database_snapshot(), before);
+        QCOMPARE(window.findChild<QTreeWidget*>()->topLevelItem(0)->childCount(), 1);
     }
 
     void theme_toggle()
@@ -371,24 +383,9 @@ private slots:
         QCOMPARE(changed.count(), 4);
         QCOMPARE(mode->toolTip(), QString("列表循环"));
         QVERIFY(!mode->property("active").toBool());
-        auto* manage = window.findChild<QPushButton*>("manageButton");
-        QVERIFY(manage != nullptr);
-        QTest::mouseClick(manage, Qt::LeftButton);
-        QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
-        auto* overlay = window.findChild<QWidget*>("managementOverlay");
-        QVERIFY(overlay != nullptr);
-        QVERIFY(overlay->isVisible());
-        QVERIFY(window.rect().contains(QRect(overlay->mapTo(&window, QPoint()), overlay->size())));
         auto* add = window.findChild<QPushButton*>("addMusicButton");
         QVERIFY(add != nullptr);
         QVERIFY(add->isVisible());
-        QVERIFY(manage->isVisible());
-        auto* close_management = window.findChild<QPushButton*>("managementCloseButton");
-        QVERIFY(close_management != nullptr);
-        QTest::mouseClick(close_management, Qt::LeftButton);
-        QVERIFY(!overlay->isVisible());
-        QVERIFY(add->isVisible());
-        QVERIFY(manage->isVisible());
     }
 
     void stale_ready_seek_callbacks()
@@ -448,40 +445,6 @@ private slots:
         QCOMPARE(window.findChild<lyrics_widget*>()->accessibleDescription(), QString("第二行"));
         QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
         controller->stop();
-    }
-
-    void page_size_stable()
-    {
-        playlist_window window;
-        window.show();
-        window.resize(610, 710);
-        QTest::qWait(50);
-        const QSize playback_size = window.size();
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QTRY_COMPARE(window.size(), playback_size);
-        auto* overlay = window.findChild<QWidget*>("managementOverlay");
-        QVERIFY(overlay != nullptr);
-        QVERIFY(overlay->isVisible());
-
-        window.resize(850, 530);
-        QTest::qWait(50);
-        const QSize management_size = window.size();
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QTRY_COMPARE(window.size(), management_size);
-        QVERIFY(!overlay->isVisible());
-
-        window.resize(340, 400);
-        QTest::qWait(50);
-        const QSize narrow_size = window.size();
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QTRY_COMPARE(window.size(), narrow_size);
-        QVERIFY(overlay->isVisible());
-        QVERIFY(window.rect().contains(QRect(overlay->mapTo(&window, QPoint()), overlay->size())));
-        auto* scroll = window.findChild<QScrollArea*>("managementScroll");
-        QVERIFY(scroll != nullptr);
-        QVERIFY(scroll->horizontalScrollBar()->maximum() > 0);
-        QVERIFY(QMetaObject::invokeMethod(&window, "on_manage_playlists_action"));
-        QTRY_COMPARE(window.size(), narrow_size);
     }
 
     void window_resize_edges()
@@ -579,15 +542,12 @@ private slots:
     {
         playlist_window window;
         window.show();
-        for (const QString& name : {QString("addMusicButton"), QString("manageButton")})
-        {
-            auto* button = window.findChild<QPushButton*>(name);
-            QVERIFY(button != nullptr);
-            QVERIFY(button->text().isEmpty());
-            QVERIFY(button->toolTip().isEmpty());
-            QVERIFY(!button->icon().isNull());
-            QVERIFY(!button->accessibleName().isEmpty());
-        }
+        auto* add_button = window.findChild<QPushButton*>("addMusicButton");
+        QVERIFY(add_button != nullptr);
+        QVERIFY(add_button->text().isEmpty());
+        QVERIFY(add_button->toolTip().isEmpty());
+        QVERIFY(!add_button->icon().isNull());
+        QVERIFY(!add_button->accessibleName().isEmpty());
         const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
         DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
@@ -612,10 +572,6 @@ private slots:
         choose_file.stop();
         auto* manager = window.findChild<playlist_manager*>();
         QCOMPARE(manager->get_playlist_by_id(manager->get_all_playlists().first().id).songs.size(), 1);
-        window.findChild<QPushButton*>("manageButton")->click();
-        QVERIFY(window.findChild<music_management_dialog*>()->isVisible());
-        window.findChild<QPushButton*>("cancelChangesButton")->click();
-        QVERIFY(window.findChild<QTreeWidget*>()->isVisible());
     }
 
     void lyrics_icon_states()
@@ -776,15 +732,6 @@ private slots:
         button->click();
         QTRY_VERIFY(panel->width() >= 300);
         QCOMPARE(window.size(), size_before);
-
-        auto* manage = window.findChild<QPushButton*>("manageButton");
-        QVERIFY(manage != nullptr);
-        manage->click();
-        auto* overlay = window.findChild<QWidget*>("managementOverlay");
-        QVERIFY(overlay != nullptr);
-        QVERIFY(overlay->isVisible());
-        QCOMPARE(overlay->parentWidget(), body);
-        QVERIFY(body->rect().contains(QRect(overlay->mapTo(body, QPoint()), overlay->size())));
     }
 
     void lyrics_resize_during_animation()
@@ -1224,11 +1171,11 @@ private slots:
         QVERIFY(query.exec(QString("CREATE TRIGGER injected_failure BEFORE %1 ON %2 WHEN %3 "
                                    "BEGIN SELECT RAISE(ABORT, 'injected failure'); END").arg(event, table, condition)));
         QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
-        QVERIFY(!manager.apply_changes_from_dialog(desired));
+        QVERIFY(!manager.save_playlists(desired));
         QCOMPARE(database_snapshot(), before);
         QCOMPARE(changed.count(), 0);
         QVERIFY(query.exec("DROP TRIGGER injected_failure"));
-        QVERIFY(manager.apply_changes_from_dialog(desired));
+        QVERIFY(manager.save_playlists(desired));
         for (auto it = desired.constBegin(); it != desired.constEnd(); ++it)
         {
             QCOMPARE(manager.get_playlist_by_id(it.key()).songs, it->songs);
@@ -1281,7 +1228,7 @@ private slots:
                                        "BEGIN SELECT RAISE(ABORT, 'unnecessary write'); END").arg(event)));
         }
         QSignalSpy changed(&manager, &playlist_manager::songs_changed_in_playlist);
-        QVERIFY(manager.apply_changes_from_dialog(desired));
+        QVERIFY(manager.save_playlists(desired));
         for (auto it = desired.constBegin(); it != desired.constEnd(); ++it)
         {
             QCOMPARE(manager.get_playlist_by_id(it.key()).songs, it->songs);
@@ -1299,59 +1246,6 @@ private slots:
             }
             QCOMPARE(query.value(1).toInt(), position++);
         }
-    }
-
-    void management_failure_data()
-    {
-        QTest::addColumn<bool>("move");
-        QTest::newRow("single_delete") << false;
-        QTest::newRow("cross_playlist_move") << true;
-    }
-
-    void management_failure()
-    {
-        QFETCH(bool, move);
-        QTemporaryDir database_dir;
-        qputenv("XDG_DATA_HOME", database_dir.path().toUtf8());
-        playlist_manager manager;
-        manager.initialize_and_load();
-        const qint64 id = manager.get_all_playlists().first().id;
-        manager.add_songs_to_playlist(id, {tone_});
-        QVERIFY(manager.create_new_playlist("目标"));
-        const qint64 target_id = manager.get_all_playlists().last().id;
-        music_management_dialog page(&manager);
-        page.reload();
-        const auto lists = page.findChildren<QListWidget*>();
-        QCOMPARE(lists.size(), 4);
-        lists[0]->setCurrentRow(0);
-        lists[1]->item(0)->setCheckState(Qt::Checked);
-        lists[2]->setCurrentRow(1);
-        QVERIFY(QMetaObject::invokeMethod(&page, move ? "on_move_button_clicked" : "on_delete_button_clicked"));
-        QVERIFY(page.has_pending_changes());
-        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 3000);
-        const auto before = database_snapshot();
-        QSqlQuery query;
-        const QString event = move ? "INSERT" : "DELETE";
-        QVERIFY(query.exec(QString("CREATE TRIGGER reject_apply BEFORE %1 ON PlaylistSongs "
-                                   "BEGIN SELECT RAISE(ABORT, 'injected apply failure'); END").arg(event)));
-        QSignalSpy applied(&page, &music_management_dialog::changes_applied);
-        QTimer::singleShot(0, &page, []
-        {
-            if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
-            {
-                box->accept();
-            }
-        });
-        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
-        QCOMPARE(database_snapshot(), before);
-        QVERIFY(page.has_pending_changes());
-        QCOMPARE(applied.count(), 0);
-        QVERIFY(query.exec("DROP TRIGGER reject_apply"));
-        QVERIFY(QMetaObject::invokeMethod(&page, "on_done_button_clicked"));
-        QVERIFY(!page.has_pending_changes());
-        QCOMPARE(applied.count(), 1);
-        QCOMPARE(manager.get_playlist_by_id(id).songs.size(), 0);
-        QCOMPARE(manager.get_playlist_by_id(target_id).songs.size(), move ? 1 : 0);
     }
 
     void storage_write_failure_data()
@@ -1841,7 +1735,7 @@ private slots:
         QMap<qint64, Playlist> desired{{source_id, manager->get_playlist_by_id(source_id)},
                                      {target_id, manager->get_playlist_by_id(target_id)}};
         desired[target_id].songs.append(desired[source_id].songs.takeFirst());
-        QVERIFY(manager->apply_changes_from_dialog(desired));
+        QVERIFY(manager->save_playlists(desired));
         QVERIFY(controller->is_media_loaded());
 
         // 当前歌曲已在目标歌单末尾，列表循环的下一首回到目标歌单开头。

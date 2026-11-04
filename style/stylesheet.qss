@@ -12,9 +12,9 @@ QPushButton:disabled { color: #8895A7; background: #EDF1F7; border-color: #E5EBF
 #windowMinButton, #windowMaxButton, #windowCloseButton, #themeButton { min-width: 44px; max-width: 44px; min-height: 36px; max-height: 36px; padding: 0; border: none; background: transparent; qproperty-iconSize: 24px 24px; }
 #windowMinButton:hover, #windowMaxButton:hover, #themeButton:hover { background: #E4F0FF; }
 #windowCloseButton:hover { background: #F4DDDA; color: #A23931; }
-#manageButton, #addMusicButton, #lyricsButton { min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; background: transparent; border-color: transparent; qproperty-iconSize: 20px 20px; }
-#manageButton:hover, #addMusicButton:hover, #lyricsButton:hover { background: #E4F0FF; }
-#manageButton:focus, #addMusicButton:focus, #lyricsButton:focus { border-color: #1478E8; }
+#addMusicButton, #lyricsButton { min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; padding: 0; background: transparent; border-color: transparent; qproperty-iconSize: 20px 20px; }
+#addMusicButton:hover, #lyricsButton:hover { background: #E4F0FF; }
+#addMusicButton:focus, #lyricsButton:focus { border-color: #1478E8; }
 #trackTitleLabel { font-size: 14pt; font-weight: 600; color: #26364E; }
 #timeLabel { color: #64758D; font-size: 10pt; }
 #coverArtLabel { background: #E5EBF4; border: none; }
@@ -39,16 +39,6 @@ QTreeWidget::item:hover, QListWidget::item:hover { background: #ECF3FC; }
 QTreeWidget::item:selected, QListWidget::item:selected { background: #DCEAFF; color: #26364E; }
 QListWidget::item:focus { border: 1px solid #1478E8; }
 QTreeWidget::branch { background: transparent; }
-#managementOverlay { background: rgba(23, 38, 61, 90); }
-#managementCard { background: #FFFFFF; border: 1px solid #BCCADD; border-radius: 9px; }
-#managementCloseButton { min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; padding: 0; border: none; background: transparent; }
-#managementCloseButton:hover { background: #E4F0FF; }
-#managementPanel { background: transparent; border: none; }
-#managementPanel QLabel { font-weight: 600; }
-#managementActionPanel { background: transparent; }
-#applyButton { background: #1478E8; color: #FFFFFF; }
-#applyButton:hover { background: #0966CD; }
-#removeButton { color: #A23931; }
 #lyricsView { background: transparent; }
 QToolTip, QMenu { color: #26364E; background: #FFFFFF; border: 1px solid #BCCADD; padding: 4px; }
 QMenu::item { padding: 7px 20px; }
@@ -59,7 +49,6 @@ QScrollBar::handle:vertical:hover { background: #8DA5C2; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 
-#removeButton:disabled { color: #8895A7; }
 QLineEdit { background: #FFFFFF; color: #26364E; border: 1px solid #BCCADD; border-radius: 4px; padding: 6px; }
 QLineEdit:focus { border-color: #1478E8; }
 
@@ -79,8 +68,8 @@ QLineEdit:focus { border-color: #1478E8; }
 #songTreeWidget::branch:has-children:closed { image: url(:/icons/chevron-right.svg); }
 #songTreeWidget::branch:has-children:open { image: url(:/icons/chevron-down.svg); }
 
-#manageButton:pressed, #addMusicButton:pressed, #lyricsButton:pressed { background: #CFDFF4; }
-#manageButton:disabled, #addMusicButton:disabled, #lyricsButton:disabled { background: #EDF1F7; }
+#addMusicButton:pressed, #lyricsButton:pressed { background: #CFDFF4; }
+#addMusicButton:disabled, #lyricsButton:disabled { background: #EDF1F7; }
 #libraryTitle { color: #1478E8; font-weight: 600; }
 #playerBody, #playbackPage { background: #F5F8FC; }
 #lyricsPanel { background: #F5F8FC; border-left: 1px solid #D4DEEA; }

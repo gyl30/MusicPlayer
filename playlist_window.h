@@ -20,7 +20,6 @@ class playlist_manager;
 class quick_editor;
 class tray_icon;
 class player_window;
-class music_management_dialog;
 class lyrics_widget;
 
 class playlist_window : public QMainWindow
@@ -41,7 +40,9 @@ class playlist_window : public QMainWindow
     void on_remove_songs_action();
     void on_sort_playlist_action();
     void on_editing_finished(bool accepted, const QString& text);
-    void on_manage_playlists_action();
+    void on_copy_songs_action(qint64 target_id);
+    void on_move_songs_action(qint64 target_id);
+    void on_cleanup_invalid_action();
 
     void on_playlist_added(const Playlist& new_playlist);
     void on_playlist_removed(qint64 playlist_id);
@@ -70,7 +71,6 @@ class playlist_window : public QMainWindow
    private:
     void setup_ui();
     void setup_connections();
-    void switch_to_page(int page_index);
     void set_lyrics_open(bool open);
     void update_lyrics_button();
     int lyrics_target_width() const;
@@ -87,12 +87,18 @@ class playlist_window : public QMainWindow
     bool play_first_song_in_list();
     void attach_playing_item(QTreeWidgetItem* item);
     QTreeWidgetItem* detached_neighbor(int step) const;
+    enum class song_transfer
+    {
+        copy,
+        move
+    };
+    QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;
+    void transfer_selected_songs(qint64 target_id, song_transfer transfer);
 
    private:
     playback_controller* controller_ = nullptr;
     playlist_manager* playlist_manager_ = nullptr;
     player_window* player_window_ = nullptr;
-    music_management_dialog* management_page_ = nullptr;
     lyrics_widget* lyrics_view_ = nullptr;
     QWidget* lyrics_panel_ = nullptr;
     QPropertyAnimation* lyrics_animation_ = nullptr;
@@ -103,7 +109,6 @@ class playlist_window : public QMainWindow
     tray_icon* tray_icon_ = nullptr;
 
     QTreeWidget* song_tree_widget_ = nullptr;
-    QWidget* management_overlay_ = nullptr;
 
     QTreeWidgetItem* currently_playing_item_ = nullptr;
     QTreeWidgetItem* context_menu_item_ = nullptr;
