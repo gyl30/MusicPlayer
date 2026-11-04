@@ -1720,6 +1720,33 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
     }
 
+    void shuffle_new_round()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        const QString second = temp_.filePath("round-second.wav");
+        QVERIFY(QFile::copy(tone_, second));
+        QVERIFY(manager->add_songs_to_playlist(id, {tone_, second}));
+        auto* controller = window.findChild<playback_controller*>();
+        auto* tree = window.findChild<QTreeWidget*>();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Shuffle)));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
+                                          Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
+        QSignalSpy started(controller, &playback_controller::playback_started);
+        QString previous = tone_;
+        // 两首歌时每一轮重洗都有一半概率把刚播的歌排在新一轮开头。
+        for (int i = 0; i < 30; ++i)
+        {
+            QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+            QCOMPARE(started.count(), i + 1);
+            const QString current = started.last().first().toString();
+            QVERIFY(current != previous);
+            previous = current;
+        }
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+    }
+
     void remove_playlist()
     {
         playlist_window window;

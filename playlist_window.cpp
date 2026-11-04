@@ -1672,6 +1672,13 @@ void playlist_window::on_next_requested()
         {
             generate_shuffled_list(playlist_item);
             current_shuffle_index_ = 0;
+            // 新一轮不以刚播完的歌曲开头。
+            const int current_song_index = playlist_item->indexOfChild(currently_playing_item_);
+            if (shuffled_indices_.size() > 1 && shuffled_indices_.first() == current_song_index)
+            {
+                const auto swap_index = 1 + QRandomGenerator::global()->bounded(static_cast<int>(shuffled_indices_.size()) - 1);
+                shuffled_indices_.swapItemsAt(0, swap_index);
+            }
         }
         if (shuffled_indices_.isEmpty())
         {
