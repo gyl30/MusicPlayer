@@ -1717,14 +1717,57 @@ private slots:
         playlist_window window;
         auto* manager = window.findChild<playlist_manager*>();
         const auto playlist = manager->get_all_playlists().first();
-        manager->add_songs_to_playlist(playlist.id, {tone_});
+        const QString second = temp_.filePath("remove-song-second.wav");
+        QVERIFY(QFile::copy(tone_, second));
+        manager->add_songs_to_playlist(playlist.id, {tone_, second});
         auto* tree = window.findChild<QTreeWidget*>();
         auto* song = tree->topLevelItem(0)->child(0);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked", Q_ARG(QTreeWidgetItem*, song), Q_ARG(int, 0)));
         auto* controller = window.findChild<playback_controller*>();
         QTRY_VERIFY_WITH_TIMEOUT(controller->is_media_loaded(), 1000);
         manager->remove_songs_from_playlist(playlist.id, {0});
-        QVERIFY(!controller->is_media_loaded());
+        // 移除正在播放的歌曲不打断播放，下一首从原位置继续。
+        QVERIFY(controller->is_media_loaded());
+        QSignalSpy started(controller, &playback_controller::playback_started);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+        QCOMPARE(started.count(), 1);
+        QCOMPARE(started.first().first().toString(), second);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+    }
+
+    void move_playing_song()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const auto lists = manager->get_all_playlists();
+        const qint64 source_id = lists.first().id;
+        const qint64 target_id = lists.last().id;
+        const QString kept = temp_.filePath("move-playing-kept.wav");
+        const QString target_song = temp_.filePath("move-playing-target.wav");
+        QVERIFY(QFile::copy(tone_, kept));
+        QVERIFY(QFile::copy(tone_, target_song));
+        QVERIFY(manager->add_songs_to_playlist(source_id, {tone_, kept}));
+        QVERIFY(manager->add_songs_to_playlist(target_id, {target_song}));
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* controller = window.findChild<playback_controller*>();
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
+                                          Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
+        QTRY_VERIFY_WITH_TIMEOUT(controller->is_media_loaded(), 1000);
+
+        QMap<qint64, Playlist> desired{{source_id, manager->get_playlist_by_id(source_id)},
+                                     {target_id, manager->get_playlist_by_id(target_id)}};
+        desired[target_id].songs.append(desired[source_id].songs.takeFirst());
+        QVERIFY(manager->apply_changes_from_dialog(desired));
+        QVERIFY(controller->is_media_loaded());
+
+        // 当前歌曲已在目标歌单末尾，列表循环的下一首回到目标歌单开头。
+        QSignalSpy started(controller, &playback_controller::playback_started);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+        QCOMPARE(started.count(), 1);
+        QCOMPARE(started.first().first().toString(), target_song);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
     }
 

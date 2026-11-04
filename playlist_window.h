@@ -84,6 +84,8 @@ class playlist_window : public QMainWindow
     void mark_restored_song_item(QTreeWidgetItem* item);
     void play_song_item(QTreeWidgetItem* item, bool increment_play_count, qint64 restore_position_ms = -1);
     bool play_first_song_in_list();
+    void attach_playing_item(QTreeWidgetItem* item);
+    QTreeWidgetItem* detached_neighbor(int step) const;
 
    private:
     playback_controller* controller_ = nullptr;
@@ -108,6 +110,8 @@ class playlist_window : public QMainWindow
     QTreeWidgetItem* restored_song_item_ = nullptr;
     QString current_playing_file_path_;
     qint64 current_playing_playlist_id_ = -1;
+    // 正在播放的歌曲被移出歌单后，以它原来的位置决定上一首/下一首。
+    int detached_index_ = -1;
     bool is_creating_playlist_ = false;
     qint64 current_progress_ms_ = 0;
     qint64 current_duration_ms_ = 0;
