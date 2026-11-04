@@ -41,6 +41,7 @@ class playlist_window : public QMainWindow
     void on_rename_playlist_action();
     void on_delete_playlist_action();
     void on_add_songs_action();
+    void on_add_folder_action();
     void on_remove_songs_action();
     void on_sort_playlist_action();
     void on_editing_finished(bool accepted, const QString& text);
@@ -102,7 +103,15 @@ class playlist_window : public QMainWindow
         move
     };
     void add_files_to_playlist(qint64 playlist_id, const QStringList& files);
-    void import_files_to_library();
+    enum class import_source
+    {
+        files,
+        folder
+    };
+    void show_add_menu(QPushButton* add_button);
+    void import_to_library(import_source source);
+    // 让用户选择文件夹并返回其中（含子文件夹）的音频文件；取消或没有音频文件时为空。
+    QStringList choose_folder_audio_files();
     void play_library_song(const QString& file_path);
     [[nodiscard]] bool library_page_active() const;
     QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;

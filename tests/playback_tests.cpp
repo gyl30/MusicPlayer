@@ -61,6 +61,49 @@ private:
         QCOMPARE(process.exitCode(), 0);
     }
 
+    // 点击“+”按钮，依次选择菜单项，并在随后的文件或文件夹对话框中选中 selection；返回各级菜单的项目文本。
+    QList<QStringList> click_add_button(playlist_window& window, const QStringList& choices, const QString& selection)
+    {
+        const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
+        QList<QStringList> menus;
+        QTimer interact;
+        connect(&interact, &QTimer::timeout, &window, [&]
+        {
+            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (dialog != nullptr && dialog->isVisible())
+            {
+                if (dialog->directory().absolutePath() != temp_.path()) dialog->setDirectory(temp_.path());
+                auto* name = dialog->findChild<QLineEdit*>("fileNameEdit");
+                if (name != nullptr) name->setText(selection);
+                QMetaObject::invokeMethod(dialog, "accept");
+                return;
+            }
+            if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
+            {
+                if (menus.size() >= choices.size()) return;
+                QStringList texts;
+                for (auto* action : menu->actions()) texts.append(action->text());
+                if (!menus.isEmpty() && menus.last() == texts) return;
+                menus.append(texts);
+                for (auto* action : menu->actions())
+                {
+                    if (action->text() == choices.value(menus.size() - 1)) menu->setActiveAction(action);
+                }
+                QTest::keyClick(menu, Qt::Key_Return);
+            }
+        });
+        interact.start(100);
+        QTimer::singleShot(4000, &window, []
+        {
+            while (auto* popup = QApplication::activePopupWidget()) popup->close();
+            if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) dialog->reject();
+        });
+        window.findChild<QPushButton*>("addMusicButton")->click();
+        return menus;
+    }
+
     int pending_durations()
     {
         QSqlQuery query("SELECT COUNT(DISTINCT s.song_id) FROM PlaylistSongs ps JOIN Songs s ON s.song_id = ps.song_id "
@@ -1093,28 +1136,7 @@ private slots:
         QVERIFY(add_button->toolTip().isEmpty());
         QVERIFY(!add_button->icon().isNull());
         QVERIFY(!add_button->accessibleName().isEmpty());
-        const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
-        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
-        DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
-        QTimer choose_file;
-        connect(&choose_file, &QTimer::timeout, &window, [this]
-        {
-            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
-            if (dialog != nullptr && dialog->isVisible())
-            {
-                if (dialog->directory().absolutePath() != temp_.path()) dialog->setDirectory(temp_.path());
-                auto* name = dialog->findChild<QLineEdit*>("fileNameEdit");
-                if (name != nullptr) name->setText(tone_);
-                QMetaObject::invokeMethod(dialog, "accept");
-            }
-        });
-        choose_file.start(100);
-        QTimer::singleShot(3000, &window, []
-        {
-            if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) dialog->reject();
-        });
-        window.findChild<QPushButton*>("addMusicButton")->click();
-        choose_file.stop();
+        QCOMPARE(click_add_button(window, {"添加文件…"}, tone_), QList<QStringList>({{"添加文件…", "添加文件夹…"}}));
         auto* manager = window.findChild<playlist_manager*>();
         QCOMPARE(manager->get_playlist_by_id(manager->get_all_playlists().first().id).songs.size(), 1);
     }
@@ -1127,43 +1149,50 @@ private slots:
         QVERIFY(manager->create_new_playlist("目标"));
         const qint64 first_id = manager->get_all_playlists().first().id;
         const qint64 target_id = manager->get_all_playlists().last().id;
-        const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
-        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
-        DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
-        QStringList menu_texts;
-        QTimer interact;
-        connect(&interact, &QTimer::timeout, &window, [&]
-        {
-            if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
-            {
-                for (auto* action : menu->actions()) menu_texts.append(action->text());
-                for (auto* action : menu->actions())
-                {
-                    if (action->text() == "目标") menu->setActiveAction(action);
-                }
-                QTest::keyClick(menu, Qt::Key_Return);
-                return;
-            }
-            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
-            if (dialog != nullptr && dialog->isVisible())
-            {
-                if (dialog->directory().absolutePath() != temp_.path()) dialog->setDirectory(temp_.path());
-                auto* name = dialog->findChild<QLineEdit*>("fileNameEdit");
-                if (name != nullptr) name->setText(tone_);
-                QMetaObject::invokeMethod(dialog, "accept");
-            }
-        });
-        interact.start(100);
-        QTimer::singleShot(3000, &window, []
-        {
-            if (auto* popup = QApplication::activePopupWidget()) popup->close();
-            if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) dialog->reject();
-        });
-        window.findChild<QPushButton*>("addMusicButton")->click();
-        interact.stop();
-        QCOMPARE(menu_texts, QStringList({"默认列表", "目标"}));
+        const auto menus = click_add_button(window, {"添加文件…", "目标"}, tone_);
+        QCOMPARE(menus, QList<QStringList>({{"添加文件…", "添加文件夹…"}, {"默认列表", "目标"}}));
         QCOMPARE(manager->get_playlist_by_id(target_id).songs.size(), 1);
         QCOMPARE(manager->get_playlist_by_id(first_id).songs.size(), 0);
+    }
+
+    void add_folder()
+    {
+        QDir root(temp_.filePath("add-folder"));
+        QVERIFY(root.mkpath("disc 10"));
+        QVERIFY(root.mkpath("disc 2"));
+        const QString first = root.filePath("disc 2/a.wav");
+        const QString second = root.filePath("disc 10/a.wav");
+        const QString top = root.filePath("b.WAV");
+        QVERIFY(QFile::copy(tone_, first));
+        QVERIFY(QFile::copy(tone_, second));
+        QVERIFY(QFile::copy(tone_, top));
+        QFile note(root.filePath("cover.txt"));
+        QVERIFY(note.open(QFile::WriteOnly));
+        note.close();
+
+        // Qt 6.2 的 QCollator 在 C 区域设置下忽略数字顺序，按用户常见的中文环境测试。
+        const QLocale old_locale;
+        QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::China));
+        DEFER(QLocale::setDefault(old_locale));
+        playlist_window window;
+        window.show();
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        click_add_button(window, {"添加文件夹…"}, root.absolutePath());
+        QStringList added;
+        for (const auto& song : manager->get_playlist_by_id(id).songs) added.append(song.file_path);
+        // 递归包含子文件夹，按自然顺序排列，忽略非音频文件。
+        QCOMPARE(added, QStringList({top, first, second}));
+
+        const QString library_only = temp_.filePath("add-folder-library");
+        QVERIFY(QDir().mkpath(library_only + "/sub"));
+        QVERIFY(QFile::copy(tone_, library_only + "/sub/c.wav"));
+        window.findChild<QPushButton*>("libraryTabButton")->click();
+        click_add_button(window, {"添加文件夹…"}, library_only);
+        bool imported = false;
+        for (const auto& entry : manager->get_library_songs()) imported = imported || entry.song.file_path == library_only + "/sub/c.wav";
+        QVERIFY(imported);
+        QCOMPARE(manager->get_playlist_by_id(id).songs.size(), 3);
     }
 
     void lyrics_icon_states()

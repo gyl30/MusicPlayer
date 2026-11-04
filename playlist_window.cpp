@@ -256,6 +256,22 @@ constexpr qint64 kSeekStepMs = 5000;
 constexpr int kLyricsPanelWidth = 360;
 const QStringList kAudioFilePatterns{"*.mp3", "*.flac", "*.wav", "*.m4a", "*.ogg", "*.mp4", "*.webm"};
 
+// 文件夹及其子文件夹中的音频文件，按路径自然顺序排列。
+static QStringList audio_files_in_folder(const QString& folder)
+{
+    QStringList files;
+    QDirIterator it(folder, kAudioFilePatterns, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext())
+    {
+        files.append(it.next());
+    }
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(files.begin(), files.end(), collator);
+    return files;
+}
+
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -483,42 +499,7 @@ void playlist_window::setup_ui()
     auto* add_button = new QPushButton(QIcon(":/icons/add.svg"), "", playback_page);
     add_button->setObjectName("addMusicButton");
     add_button->setAccessibleName("添加音乐");
-    connect(add_button, &QPushButton::clicked, this, [this, add_button]
-    {
-        if (library_page_active())
-        {
-            import_files_to_library();
-            return;
-        }
-        auto* item = song_tree_widget_->currentItem();
-        if (item == nullptr) item = song_tree_widget_->topLevelItem(0);
-        if (item == nullptr)
-        {
-            on_create_playlist_action();
-            return;
-        }
-        QTreeWidgetItem* target = item->parent() != nullptr ? item->parent() : item;
-        if (song_tree_widget_->topLevelItemCount() > 1)
-        {
-            // 有多个歌单时先选择添加到哪个歌单，勾选标记当前歌单。
-            QMenu menu(this);
-            for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
-            {
-                QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
-                const qint64 id = playlist_item->data(0, Qt::UserRole).toLongLong();
-                QAction* action = menu.addAction(playlist_manager_->get_playlist_by_id(id).name);
-                action->setData(i);
-                action->setCheckable(true);
-                action->setChecked(playlist_item == target);
-            }
-            QAction* chosen = menu.exec(add_button->mapToGlobal(QPoint(add_button->width() - menu.sizeHint().width(), add_button->height())));
-            if (chosen == nullptr) return;
-            target = song_tree_widget_->topLevelItem(chosen->data().toInt());
-            if (target == nullptr) return;
-        }
-        context_menu_item_ = target;
-        on_add_songs_action();
-    });
+    connect(add_button, &QPushButton::clicked, this, [this, add_button] { show_add_menu(add_button); });
     library_layout->addWidget(add_button);
     lyrics_button_ = new QPushButton(QIcon(":/icons/lyrics-unavailable.svg"), "", playback_page);
     lyrics_button_->setObjectName("lyricsButton");
@@ -1432,6 +1413,7 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
     else if (context_menu_item_->parent() == nullptr)
     {
         auto* add_songs_action = context_menu.addAction("添加歌曲");
+        auto* add_folder_action = context_menu.addAction("添加文件夹");
         auto* sort_playlist_action = context_menu.addAction("排序列表");
         context_menu.addSeparator();
         auto* rename_action = context_menu.addAction("重命名");
@@ -1441,6 +1423,7 @@ void playlist_window::on_song_tree_context_menu_requested(const QPoint& pos)
         auto* cleanup_action = context_menu.addAction("清理失效文件");
 
         connect(add_songs_action, &QAction::triggered, this, &playlist_window::on_add_songs_action);
+        connect(add_folder_action, &QAction::triggered, this, &playlist_window::on_add_folder_action);
         connect(sort_playlist_action, &QAction::triggered, this, &playlist_window::on_sort_playlist_action);
         connect(rename_action, &QAction::triggered, this, &playlist_window::on_rename_playlist_action);
         connect(delete_action, &QAction::triggered, this, &playlist_window::on_delete_playlist_action);
@@ -1569,6 +1552,69 @@ void playlist_window::on_delete_playlist_action()
     }
 }
 
+void playlist_window::show_add_menu(QPushButton* add_button)
+{
+    const QList<std::pair<import_source, QString>> sources{{import_source::files, "添加文件…"}, {import_source::folder, "添加文件夹…"}};
+    QTreeWidgetItem* current = nullptr;
+    if (!library_page_active())
+    {
+        current = song_tree_widget_->currentItem() != nullptr ? song_tree_widget_->currentItem() : song_tree_widget_->topLevelItem(0);
+        if (current == nullptr)
+        {
+            on_create_playlist_action();
+            return;
+        }
+        if (current->parent() != nullptr) current = current->parent();
+    }
+
+    // 每个菜单项记录导入来源和目标歌单在列表中的位置；音乐库页没有目标歌单。
+    QMenu menu(this);
+    for (const auto& [source, label] : sources)
+    {
+        if (current == nullptr || song_tree_widget_->topLevelItemCount() == 1)
+        {
+            menu.addAction(label)->setData(QVariantList{static_cast<int>(source), current != nullptr ? 0 : -1});
+            continue;
+        }
+        // 有多个歌单时在子菜单中选择添加到哪个歌单，勾选标记当前歌单。
+        QMenu* targets = menu.addMenu(label);
+        for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+        {
+            QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
+            QAction* action = targets->addAction(playlist_manager_->get_playlist_by_id(playlist_item->data(0, Qt::UserRole).toLongLong()).name);
+            action->setData(QVariantList{static_cast<int>(source), i});
+            action->setCheckable(true);
+            action->setChecked(playlist_item == current);
+        }
+    }
+    QAction* chosen = menu.exec(add_button->mapToGlobal(QPoint(add_button->width() - menu.sizeHint().width(), add_button->height())));
+    if (chosen == nullptr)
+    {
+        return;
+    }
+    const QVariantList choice = chosen->data().toList();
+    const auto source = static_cast<import_source>(choice.value(0).toInt());
+    const int target_index = choice.value(1).toInt();
+    if (target_index < 0)
+    {
+        import_to_library(source);
+        return;
+    }
+    context_menu_item_ = song_tree_widget_->topLevelItem(target_index);
+    if (context_menu_item_ == nullptr)
+    {
+        return;
+    }
+    if (source == import_source::files)
+    {
+        on_add_songs_action();
+    }
+    else
+    {
+        on_add_folder_action();
+    }
+}
+
 void playlist_window::on_add_songs_action()
 {
     if (context_menu_item_ == nullptr || context_menu_item_->parent() != nullptr)
@@ -1584,10 +1630,36 @@ void playlist_window::on_add_songs_action()
 
 bool playlist_window::library_page_active() const { return list_stack_->currentWidget() == library_view_; }
 
-void playlist_window::import_files_to_library()
+void playlist_window::on_add_folder_action()
 {
-    const QStringList files =
-        QFileDialog::getOpenFileNames(this, "选择要导入音乐库的文件", "", QString("音频文件 (%1)").arg(kAudioFilePatterns.join(' ')));
+    if (context_menu_item_ == nullptr || context_menu_item_->parent() != nullptr)
+    {
+        return;
+    }
+    const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
+    add_files_to_playlist(playlist_id, choose_folder_audio_files());
+}
+
+QStringList playlist_window::choose_folder_audio_files()
+{
+    const QString folder = QFileDialog::getExistingDirectory(this, "选择要添加的文件夹");
+    if (folder.isEmpty())
+    {
+        return {};
+    }
+    const QStringList files = audio_files_in_folder(folder);
+    if (files.isEmpty())
+    {
+        QMessageBox::information(this, "没有可添加的音乐", "所选文件夹中没有支持的音频文件。");
+    }
+    return files;
+}
+
+void playlist_window::import_to_library(import_source source)
+{
+    const QStringList files = source == import_source::files
+        ? QFileDialog::getOpenFileNames(this, "选择要导入音乐库的文件", "", QString("音频文件 (%1)").arg(kAudioFilePatterns.join(' ')))
+        : choose_folder_audio_files();
     if (!files.isEmpty() && !playlist_manager_->add_songs_to_library(files))
     {
         QMessageBox::warning(this, "保存失败", "音乐库修改未能保存，请检查磁盘空间和文件访问权限后重试。");
@@ -1813,23 +1885,13 @@ void playlist_window::handle_file_drop(const QList<QUrl>& urls, const QPoint& po
     }
     const qint64 playlist_id = (target->parent() != nullptr ? target->parent() : target)->data(0, Qt::UserRole).toLongLong();
 
-    QCollator collator;
-    collator.setNumericMode(true);
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
     QStringList files;
     for (const QUrl& url : urls)
     {
         const QFileInfo info(url.toLocalFile());
         if (info.isDir())
         {
-            QStringList folder_files;
-            QDirIterator it(info.absoluteFilePath(), kAudioFilePatterns, QDir::Files, QDirIterator::Subdirectories);
-            while (it.hasNext())
-            {
-                folder_files.append(it.next());
-            }
-            std::sort(folder_files.begin(), folder_files.end(), collator);
-            files.append(folder_files);
+            files.append(audio_files_in_folder(info.absoluteFilePath()));
         }
         else if (info.isFile() && QDir::match(kAudioFilePatterns, info.fileName()))
         {
