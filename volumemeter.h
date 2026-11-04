@@ -9,6 +9,7 @@ class volume_meter : public QProgressBar
 {
     Q_OBJECT
     Q_PROPERTY(QColor barColor READ getBarColor WRITE setBarColor)
+    Q_PROPERTY(QColor trackColor READ getTrackColor WRITE setTrackColor)
 
    public:
     explicit volume_meter(QWidget* parent = nullptr);
@@ -17,6 +18,12 @@ class volume_meter : public QProgressBar
     void setBarColor(const QColor& color)
     {
         bar_color_ = color;
+        update();
+    }
+    [[nodiscard]] QColor getTrackColor() const { return track_color_; }
+    void setTrackColor(const QColor& color)
+    {
+        track_color_ = color;
         update();
     }
 
@@ -34,6 +41,7 @@ class volume_meter : public QProgressBar
    private:
     void setValueFromPosition(const QPoint& pos);
     QColor bar_color_;
+    QColor track_color_{"#D4DEEA"};
 };
 
 #endif

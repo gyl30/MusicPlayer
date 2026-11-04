@@ -25,7 +25,7 @@ QPushButton:disabled { color: #8A9AAE; background: #28384B; border-color: #2B394
 #controlsContainer #playPauseButton { min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; background: #61ACFA; border-radius: 22px; qproperty-iconSize: 24px 24px; }
 #controlsContainer #playPauseButton:hover { background: #428CDB; }
 #controlsContainer #playPauseButton:pressed { background: #3475BB; }
-#volumeMeter { qproperty-barColor: #78B4F1; }
+#volumeMeter { qproperty-barColor: #78B4F1; qproperty-trackColor: #34465C; }
 QSlider#progressSlider { background: transparent; }
 QSlider#progressSlider::groove:horizontal { background: #43546B; height: 3px; border: none; border-radius: 1px; }
 QSlider#progressSlider::add-page:horizontal { background: #43546B; height: 3px; border: none; border-radius: 1px; }
@@ -39,7 +39,7 @@ QTreeWidget::item:hover, QListWidget::item:hover { background: #293A4F; }
 QTreeWidget::item:selected, QListWidget::item:selected { background: #304862; color: #E6EDF7; }
 QListWidget::item:focus { border: 1px solid #61ACFA; }
 QTreeWidget::branch { background: transparent; }
-#lyricsView { background: transparent; }
+#lyricsView { background: transparent; qproperty-normalColor: #8C9DB3; qproperty-activeColor: #61ACFA; }
 QToolTip, QMenu { color: #E6EDF7; background: #253244; border: 1px solid #405167; padding: 4px; }
 QMenu::item { padding: 7px 20px; }
 QMenu::item:selected { background: #304862; }

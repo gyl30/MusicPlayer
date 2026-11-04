@@ -378,11 +378,19 @@ private slots:
         QCOMPARE(button->toolTip(), QString("切换到亮色模式"));
         QVERIFY(qApp->styleSheet().contains("#18222F"));
         QCOMPARE(settings.value("appearance/dark").toBool(), true);
+        auto* volume = window.findChild<volume_meter*>();
+        auto* lyrics = window.findChild<lyrics_widget*>();
+        QCOMPARE(volume->property("trackColor").value<QColor>(), QColor("#34465C"));
+        QCOMPARE(lyrics->property("normalColor").value<QColor>(), QColor("#8C9DB3"));
+        QCOMPARE(lyrics->property("activeColor").value<QColor>(), QColor("#61ACFA"));
         const QSize before = window.size();
         button->click();
         QVERIFY(!qApp->property("darkMode").toBool());
         QCOMPARE(window.size(), before);
         QCOMPARE(settings.value("appearance/dark").toBool(), false);
+        QCOMPARE(volume->property("trackColor").value<QColor>(), QColor("#D4DEEA"));
+        QCOMPARE(lyrics->property("normalColor").value<QColor>(), QColor("#64758D"));
+        QCOMPARE(lyrics->property("activeColor").value<QColor>(), QColor("#1478E8"));
     }
 
     void ui_controls()

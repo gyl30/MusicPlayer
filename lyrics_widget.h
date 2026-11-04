@@ -12,6 +12,8 @@
 class lyrics_widget : public QWidget
 {
     Q_OBJECT
+    Q_PROPERTY(QColor normalColor READ normal_color WRITE set_normal_color)
+    Q_PROPERTY(QColor activeColor READ active_color WRITE set_active_color)
 
    public:
     explicit lyrics_widget(QWidget* parent = nullptr);
@@ -21,6 +23,18 @@ class lyrics_widget : public QWidget
     void set_current_time(qint64 time_ms);
     void clear();
     [[nodiscard]] bool has_lyrics() const { return !lyrics_.isEmpty(); }
+    [[nodiscard]] QColor normal_color() const { return color_normal_; }
+    void set_normal_color(const QColor& color)
+    {
+        color_normal_ = color;
+        update();
+    }
+    [[nodiscard]] QColor active_color() const { return color_active_; }
+    void set_active_color(const QColor& color)
+    {
+        color_active_ = color;
+        update();
+    }
 
    protected:
     void paintEvent(QPaintEvent* event) override;
