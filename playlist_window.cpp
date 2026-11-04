@@ -68,6 +68,9 @@ private:
     Qt::Edges edges_;
 };
 
+// 标记正在播放的歌曲节点，由 song_delegate 绘制高亮。
+constexpr int kPlayingRole = Qt::UserRole + 1;
+
 class song_delegate final : public QStyledItemDelegate
 {
 public:
@@ -82,7 +85,7 @@ public:
     {
         painter->save();
         const bool song = index.parent().isValid();
-        const bool playing = song && qvariant_cast<QFont>(index.data(Qt::FontRole)).bold();
+        const bool playing = song && index.siblingAtColumn(0).data(kPlayingRole).toBool();
         const bool selected = option.state & QStyle::State_Selected;
         const bool hovered = option.state & QStyle::State_MouseOver;
         const bool dark = qApp->property("darkMode").toBool();
@@ -290,35 +293,17 @@ static void update_duration_column_width(QTreeWidget* tree)
 
 static void apply_playing_item_visual_state(QTreeWidgetItem* item)
 {
-    if (item == nullptr)
+    if (item != nullptr)
     {
-        return;
-    }
-
-    for (int column = 0; column < item->columnCount(); ++column)
-    {
-        QFont font = item->font(column);
-        font.setBold(true);
-        item->setFont(column, font);
-        item->setForeground(column, QBrush(QColor("#1478E8")));
-        item->setBackground(column, QBrush(QColor("#E4F0FF")));
+        item->setData(0, kPlayingRole, true);
     }
 }
 
-static void clear_playing_item_visual_state(QTreeWidgetItem* item, const QPalette& palette)
+static void clear_playing_item_visual_state(QTreeWidgetItem* item)
 {
-    if (item == nullptr)
+    if (item != nullptr)
     {
-        return;
-    }
-
-    for (int column = 0; column < item->columnCount(); ++column)
-    {
-        QFont font = item->font(column);
-        font.setBold(false);
-        item->setFont(column, font);
-        item->setForeground(column, QBrush(palette.text()));
-        item->setBackground(column, QBrush());
+        item->setData(0, kPlayingRole, QVariant());
     }
 }
 
@@ -2161,7 +2146,7 @@ void playlist_window::clear_playing_indicator()
 {
     if (currently_playing_item_ != nullptr)
     {
-        clear_playing_item_visual_state(currently_playing_item_, palette());
+        clear_playing_item_visual_state(currently_playing_item_);
         currently_playing_item_ = nullptr;
     }
 }
