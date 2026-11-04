@@ -16,7 +16,6 @@ class QTreeWidgetItem;
 class QCloseEvent;
 class QPushButton;
 class QLineEdit;
-class QPropertyAnimation;
 
 class playback_controller;
 class playlist_manager;
@@ -74,13 +73,14 @@ class playlist_window : public QMainWindow
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
    private:
     void setup_ui();
     void setup_connections();
     void set_lyrics_open(bool open);
     void update_lyrics_button();
-    int lyrics_target_width() const;
+    void update_lyrics_geometry();
     void update_resize_handles();
     void apply_theme(bool dark);
     void clear_playing_indicator();
@@ -111,7 +111,9 @@ class playlist_window : public QMainWindow
     player_window* player_window_ = nullptr;
     lyrics_widget* lyrics_view_ = nullptr;
     QWidget* lyrics_panel_ = nullptr;
-    QPropertyAnimation* lyrics_animation_ = nullptr;
+    // 打开歌词时窗口向右加宽；右侧空间不足时左移的距离，关闭时移回。
+    bool lyrics_widened_window_ = false;
+    int lyrics_window_shift_ = 0;
     QPushButton* lyrics_button_ = nullptr;
     bool lyrics_open_ = false;
     QPushButton* theme_button_ = nullptr;

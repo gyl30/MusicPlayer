@@ -517,8 +517,9 @@ private slots:
         QCOMPARE(visible_lyrics_icon, QIcon(":/icons/lyrics.svg").pixmap(20, 20).toImage());
         QVERIFY(visible_lyrics_icon != hidden_lyrics_icon);
         QCOMPARE(lyrics_button->accessibleName(), QString("显示歌词"));
-        QCOMPARE(window.size(), QSize(340, 400));
+        QCOMPARE(window.size(), QSize(340 + panel->width(), 400));
         QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
+        QCOMPARE(QRect(tree->mapTo(&window, QPoint()), tree->size()), original_list);
         lyrics_button->click();
         QTRY_VERIFY(!lyrics->isVisible());
         QCOMPARE(window.size(), QSize(340, 400));
@@ -1004,130 +1005,66 @@ private slots:
         expect_icon(unavailable_icon, "无歌词", "当前歌曲没有歌词，点击隐藏歌词");
     }
 
-    void adaptive_lyrics()
+    void lyrics_popout()
     {
         playlist_window window;
         window.show();
-        auto* controller = window.findChild<playback_controller*>();
-        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
-        auto* lyrics = window.findChild<lyrics_widget*>();
-        auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* panel = window.findChild<QWidget*>("lyricsPanel");
-        QVERIFY(controller != nullptr);
-        QVERIFY(tree != nullptr);
-        QVERIFY(lyrics != nullptr);
-        QVERIFY(button != nullptr);
-        QVERIFY(panel != nullptr);
-        QVERIFY(!panel->isWindow());
-        QVERIFY(!button->isCheckable());
-        QVERIFY(!lyrics->isVisible());
-
-        window.resize(960, 720);
-        QTest::qWait(50);
-        const QSize original_size = window.size();
-        const QRect original_list(tree->mapTo(&window, QPoint()), tree->size());
-        button->click();
-        QVERIFY(lyrics->isVisible());
-        QTRY_VERIFY(panel->width() >= 300);
-        QCOMPARE(window.size(), original_size);
-        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
-        QVERIFY(panel->mapTo(&window, QPoint()).x()
-                >= tree->mapTo(&window, QPoint()).x() + tree->width());
-        QVERIFY(tree->width() < original_list.width());
-        QVERIFY(!button->isChecked());
-
-        QList<LyricLine> lines{{0, "第一行"}, {2000, "第二行"}, {6000, "第三行"}};
-        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
-        QVERIFY(lyrics->isVisible());
-        lines.clear();
-        QVERIFY(QMetaObject::invokeMethod(controller, "lyrics_updated", Q_ARG(QList<LyricLine>, lines)));
-        QVERIFY(lyrics->isVisible());
-
-        window.resize(540, 740);
-        QTest::qWait(50);
-        QCOMPARE(window.size(), QSize(540, 740));
-        QVERIFY(window.rect().contains(QRect(panel->mapTo(&window, QPoint()), panel->size())));
-        button->click();
-        QTRY_VERIFY(!panel->isVisible());
-        QCOMPARE(window.size(), QSize(540, 740));
-        button->click();
-        QVERIFY(panel->isVisible());
-        QTRY_VERIFY(panel->width() > 0);
-        QCOMPARE(window.size(), QSize(540, 740));
-        QVERIFY(!button->isChecked());
-    }
-
-    void lyrics_integrated_layout()
-    {
-        playlist_window window;
-        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
         auto* panel = window.findChild<QWidget*>("lyricsPanel");
         auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* tree = window.findChild<QTreeWidget*>("songTreeWidget");
+        auto* page = window.findChild<QWidget*>("playbackPage");
         auto* body = window.findChild<QWidget*>("playerBody");
-        QVERIFY(panel != nullptr);
-        QVERIFY(button != nullptr);
-        QVERIFY(tree != nullptr);
-        QVERIFY(body != nullptr);
+        QVERIFY(panel != nullptr && button != nullptr && page != nullptr && body != nullptr);
         QVERIFY(!panel->isWindow());
         QCOMPARE(panel->parentWidget(), body);
-        QVERIFY(window.findChild<QWidget*>("lyricsTitleBar") == nullptr);
-        QVERIFY(window.findChild<QPushButton*>("lyricsWindowCloseButton") == nullptr);
+        const QRect screen = window.screen()->availableGeometry();
+        const auto page_rect = [&] { return QRect(page->mapTo(&window, QPoint()), page->size()); };
+        const auto panel_rect = [&] { return QRect(panel->mapTo(&window, QPoint()), panel->size()); };
 
-        window.resize(1000, 720);
+        // 有空间时窗口向右加宽，主界面位置和宽度不变。
+        window.setGeometry(screen.left() + 10, screen.top() + 10, 400, qMin(500, screen.height() - 20));
         QTest::qWait(50);
-        const QSize size_before = window.size();
-        const int list_width_before = tree->width();
+        const QRect normal = window.geometry();
+        const QRect page_before = page_rect();
         button->click();
         QVERIFY(panel->isVisible());
-        QTRY_VERIFY(panel->width() >= 300);
-        QCOMPARE(window.size(), size_before);
-        QVERIFY(tree->width() < list_width_before);
-        QVERIFY(body->rect().contains(QRect(panel->mapTo(body, QPoint()), panel->size())));
-        QVERIFY(!button->isChecked());
-
-        const QRect original_panel_position(panel->mapTo(&window, QPoint()), panel->size());
-        window.move(window.pos() + QPoint(45, 25));
-        QCOMPARE(QRect(panel->mapTo(&window, QPoint()), panel->size()), original_panel_position);
-        QVERIFY(window.findChild<QPushButton*>("windowMaxButton") != nullptr);
-        QVERIFY(window.findChild<QLabel*>("appLogo") != nullptr);
-
+        QVERIFY(panel->width() >= 300);
+        QTRY_COMPARE(window.geometry(), normal.adjusted(0, 0, panel->width(), 0));
+        QTRY_COMPARE(page_rect(), page_before);
+        QCOMPARE(panel_rect().left(), page_before.right() + 1);
+        QVERIFY(window.rect().contains(panel_rect()));
         button->click();
         QTRY_VERIFY(!panel->isVisible());
-        QCOMPARE(window.size(), size_before);
-        QTRY_COMPARE(tree->width(), list_width_before);
-        button->click();
-        QTRY_VERIFY(panel->width() >= 300);
-        QCOMPARE(window.size(), size_before);
-    }
+        QTRY_COMPARE(window.geometry(), normal);
+        QTRY_COMPARE(page_rect(), page_before);
 
-    void lyrics_resize_during_animation()
-    {
-        playlist_window window;
-        window.show();
-        auto* panel = window.findChild<QWidget*>("lyricsPanel");
-        auto* body = window.findChild<QWidget*>("playerBody");
-        auto* button = window.findChild<QPushButton*>("lyricsButton");
-        auto* animation = window.findChild<QPropertyAnimation*>();
-        QVERIFY(panel != nullptr);
-        QVERIFY(body != nullptr);
-        QVERIFY(button != nullptr);
-        QVERIFY(animation != nullptr);
-        QCOMPARE(animation->targetObject(), static_cast<QObject*>(panel));
-
-        window.resize(1000, 720);
+        // 右侧空间不足时整体左移，关闭后回到原位。
+        const QRect near_edge(screen.right() - 450, normal.top(), 400, normal.height());
+        window.setGeometry(near_edge);
         QTest::qWait(50);
         button->click();
-        QCOMPARE(animation->state(), QAbstractAnimation::Running);
-        window.resize(540, 720);
-        QCOMPARE(window.size(), QSize(540, 720));
-        QTRY_VERIFY(animation->state() == QAbstractAnimation::Stopped);
-        QCOMPARE(panel->maximumWidth(), 200);
-        QVERIFY(body->rect().contains(QRect(panel->mapTo(body, QPoint()), panel->size())));
+        QTRY_COMPARE(window.geometry().right(), screen.right());
+        QCOMPARE(window.width(), 400 + panel->width());
+        QTRY_COMPARE(page_rect().size(), page_before.size());
+        button->click();
+        QTRY_COMPARE(window.geometry(), near_edge);
 
-        window.resize(340, 400);
-        QCOMPARE(window.size(), QSize(340, 400));
-        QCOMPARE(panel->maximumWidth(), 0);
+        // 最大化时没有加宽余地，歌词以浮层盖在右侧，不压缩主界面。
+        window.showMaximized();
+        QTRY_VERIFY(window.isMaximized());
+        QTest::qWait(50);
+        const QSize maximized = window.size();
+        const int page_width = page->width();
+        button->click();
+        QVERIFY(panel->isVisible());
+        QTest::qWait(50);
+        QCOMPARE(window.size(), maximized);
+        QCOMPARE(page->width(), page_width);
+        QCOMPARE(panel_rect().right(), QRect(body->mapTo(&window, QPoint()), body->size()).right());
+        QVERIFY(window.rect().contains(panel_rect()));
+        button->click();
+        QTRY_VERIFY(!panel->isVisible());
+        QCOMPARE(window.size(), maximized);
     }
 
     void playback_state_restore_ui()

@@ -3,8 +3,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QPropertyAnimation>
-#include <QEasingCurve>
+#include <QScreen>
 #include <QMessageBox>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -328,6 +327,7 @@ static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, 
 
 constexpr qint64 kPlaybackStateSaveIntervalMs = 10000;
 constexpr qint64 kSeekStepMs = 5000;
+constexpr int kLyricsPanelWidth = 360;
 const QStringList kAudioFilePatterns{"*.mp3", "*.flac", "*.wav", "*.m4a", "*.ogg", "*.mp4", "*.webm"};
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
@@ -392,6 +392,11 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
     {
         update_resize_handles();
     }
+    if (lyrics_panel_ != nullptr && watched == lyrics_panel_->parentWidget() && event->type() == QEvent::Resize)
+    {
+        const QWidget* body = lyrics_panel_->parentWidget();
+        lyrics_panel_->setGeometry(body->width() - kLyricsPanelWidth, 0, kLyricsPanelWidth, body->height());
+    }
     if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonPress)
     {
         auto* mouse_event = static_cast<QMouseEvent*>(event);
@@ -415,14 +420,6 @@ void playlist_window::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
     update_resize_handles();
-    if (lyrics_open_ && lyrics_animation_ != nullptr)
-    {
-        const int target_width = lyrics_target_width();
-        if (lyrics_animation_->state() == QAbstractAnimation::Running)
-            lyrics_animation_->setEndValue(target_width);
-        else
-            lyrics_panel_->setMaximumWidth(target_width);
-    }
     if (song_tree_widget_ != nullptr && (event->oldSize().width() < 480) != (event->size().width() < 480))
         song_tree_widget_->doItemsLayout();
 }
@@ -598,12 +595,9 @@ void playlist_window::setup_ui()
     library->addWidget(song_tree_widget_, 1);
     playback_layout->addWidget(library_panel, 1);
 
-    body_layout->addWidget(playback_page, 3);
+    body_layout->addWidget(playback_page, 1);
     lyrics_panel_ = new QWidget(body);
     lyrics_panel_->setObjectName("lyricsPanel");
-    lyrics_panel_->setMinimumWidth(0);
-    lyrics_panel_->setMaximumWidth(0);
-    lyrics_panel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto* lyric_layout = new QVBoxLayout(lyrics_panel_);
     lyric_layout->setContentsMargins(12, 8, 12, 8);
     lyrics_view_ = new lyrics_widget(lyrics_panel_);
@@ -613,15 +607,9 @@ void playlist_window::setup_ui()
         if (controller_->is_media_loaded()) controller_->seek(timestamp_ms);
     });
     lyric_layout->addWidget(lyrics_view_, 1);
-    body_layout->addWidget(lyrics_panel_, 2);
+    // 歌词面板不参与主体布局：普通窗口时占据加宽出的右侧区域，最大化时浮在右侧。
     lyrics_panel_->hide();
-    lyrics_animation_ = new QPropertyAnimation(lyrics_panel_, "maximumWidth", this);
-    lyrics_animation_->setDuration(220);
-    lyrics_animation_->setEasingCurve(QEasingCurve::InOutCubic);
-    connect(lyrics_animation_, &QPropertyAnimation::finished, this, [this]
-    {
-        if (!lyrics_open_) lyrics_panel_->hide();
-    });
+    body->installEventFilter(this);
 
     main_layout->addWidget(body, 1);
     resize_handles_ = {
@@ -691,12 +679,6 @@ void playlist_window::update_resize_handles()
     resize_handles_[7]->setGeometry(width - border, height - border, border, border);
 }
 
-int playlist_window::lyrics_target_width() const
-{
-    // Preserve a usable playback column without changing the top-level window size.
-    return qMin(400, qMax(0, width() - 340));
-}
-
 void playlist_window::update_lyrics_button()
 {
     if (lyrics_button_ == nullptr || lyrics_view_ == nullptr) return;
@@ -724,13 +706,50 @@ void playlist_window::update_lyrics_button()
 void playlist_window::set_lyrics_open(bool open)
 {
     if (lyrics_panel_ == nullptr || lyrics_open_ == open) return;
-    lyrics_animation_->stop();
     lyrics_open_ = open;
     update_lyrics_button();
-    if (open) lyrics_panel_->show();
-    lyrics_animation_->setStartValue(lyrics_panel_->maximumWidth());
-    lyrics_animation_->setEndValue(open ? lyrics_target_width() : 0);
-    lyrics_animation_->start();
+    lyrics_panel_->setVisible(open);
+    if (open) lyrics_panel_->raise();
+    update_lyrics_geometry();
+}
+
+void playlist_window::update_lyrics_geometry()
+{
+    // 最大化或全屏时窗口无法加宽，保持现有尺寸，歌词浮在右侧。
+    const bool resizable = !isMaximized() && !isFullScreen();
+    // 先调整预留宽度，窗口尺寸变化时布局即为最终状态，避免主界面闪动。
+    const bool widen = resizable ? lyrics_open_ : lyrics_widened_window_;
+    lyrics_panel_->parentWidget()->layout()->setContentsMargins(0, 0, resizable && widen ? kLyricsPanelWidth : 0, 0);
+    lyrics_panel_->parentWidget()->layout()->activate();
+    if (resizable && lyrics_open_ != lyrics_widened_window_)
+    {
+        QRect target = geometry();
+        if (lyrics_open_)
+        {
+            target.setWidth(target.width() + kLyricsPanelWidth);
+            const QRect available = screen()->availableGeometry();
+            lyrics_window_shift_ = qBound(0, target.right() - available.right(), qMax(0, target.left() - available.left()));
+            target.translate(-lyrics_window_shift_, 0);
+        }
+        else
+        {
+            target.setWidth(target.width() - kLyricsPanelWidth);
+            target.translate(lyrics_window_shift_, 0);
+            lyrics_window_shift_ = 0;
+        }
+        lyrics_widened_window_ = lyrics_open_;
+        setGeometry(target);
+    }
+}
+
+void playlist_window::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange && lyrics_panel_ != nullptr)
+    {
+        // 还原后窗口才有正常几何，此时再补做加宽或收回。
+        QTimer::singleShot(0, this, &playlist_window::update_lyrics_geometry);
+    }
 }
 
 void playlist_window::setup_connections()
