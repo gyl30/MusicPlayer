@@ -211,6 +211,14 @@ void player_window::setup_connections()
 {
     connect(progress_slider_, &QSlider::sliderReleased, this, &player_window::on_seek_requested);
     connect(progress_slider_, &QSlider::sliderPressed, this, [this] { is_slider_pressed_ = true; });
+    connect(progress_slider_,
+            &QSlider::sliderMoved,
+            this,
+            [this](int position_ms)
+            {
+                const QString format = progress_slider_->maximum() >= 3600000 ? "hh:mm:ss" : "mm:ss";
+                set_time_text(QTime(0, 0).addMSecs(position_ms).toString(format));
+            });
 
     connect(play_pause_button_, &QPushButton::clicked, this, &player_window::on_play_pause_clicked);
     connect(next_button_, &QPushButton::clicked, this, &player_window::on_next_clicked);
@@ -401,10 +409,12 @@ void player_window::update_track_info(qint64 duration_ms)
 
 void player_window::update_progress(qint64 current_ms, qint64 total_ms)
 {
-    if (!is_slider_pressed_)
+    // 拖动进度条时显示拖动目标时间。
+    if (is_slider_pressed_)
     {
-        progress_slider_->setValue(static_cast<int>(current_ms));
+        return;
     }
+    progress_slider_->setValue(static_cast<int>(current_ms));
     QTime current_time = QTime(0, 0).addMSecs(static_cast<int>(current_ms));
     QString format = total_ms >= 3600000 ? "hh:mm:ss" : "mm:ss";
     set_time_text(current_time.toString(format));

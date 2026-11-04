@@ -566,6 +566,33 @@ private slots:
         controller->stop();
     }
 
+    void slider_drag_preview()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->add_songs_to_playlist(manager->get_all_playlists().first().id, {tone_}));
+        window.show();
+        auto* controller = window.findChild<playback_controller*>();
+        QSignalSpy progress(controller, &playback_controller::progress_updated);
+        QSignalSpy seek(controller, &playback_controller::seek_completed);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_play_requested"));
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+        auto* slider = window.findChild<QSlider*>("progressSlider");
+        auto* time_label = window.findChild<QLabel*>("timeLabel");
+
+        slider->setSliderDown(true);
+        slider->setSliderPosition(7000);
+        QCOMPARE(time_label->text(), QString("00:07"));
+        const int updates = progress.count();
+        QTRY_VERIFY_WITH_TIMEOUT(progress.count() > updates + 1, 1000);
+        QCOMPARE(time_label->text(), QString("00:07"));
+
+        slider->setSliderDown(false);
+        QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 1, 1000);
+        QVERIFY(seek.last().first().toLongLong() >= 7000);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+    }
+
     void window_resize_edges()
     {
         playlist_window window;
