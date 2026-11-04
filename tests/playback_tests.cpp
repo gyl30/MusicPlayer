@@ -732,6 +732,53 @@ private slots:
         QCOMPARE(manager->get_playlist_by_id(manager->get_all_playlists().first().id).songs.size(), 1);
     }
 
+    void add_button_target_menu()
+    {
+        playlist_window window;
+        window.show();
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const qint64 first_id = manager->get_all_playlists().first().id;
+        const qint64 target_id = manager->get_all_playlists().last().id;
+        const bool old = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+        DEFER(QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, old));
+        QStringList menu_texts;
+        QTimer interact;
+        connect(&interact, &QTimer::timeout, &window, [&]
+        {
+            if (auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget()))
+            {
+                for (auto* action : menu->actions()) menu_texts.append(action->text());
+                for (auto* action : menu->actions())
+                {
+                    if (action->text() == "目标") menu->setActiveAction(action);
+                }
+                QTest::keyClick(menu, Qt::Key_Return);
+                return;
+            }
+            auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (dialog != nullptr && dialog->isVisible())
+            {
+                if (dialog->directory().absolutePath() != temp_.path()) dialog->setDirectory(temp_.path());
+                auto* name = dialog->findChild<QLineEdit*>("fileNameEdit");
+                if (name != nullptr) name->setText(tone_);
+                QMetaObject::invokeMethod(dialog, "accept");
+            }
+        });
+        interact.start(100);
+        QTimer::singleShot(3000, &window, []
+        {
+            if (auto* popup = QApplication::activePopupWidget()) popup->close();
+            if (auto* dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) dialog->reject();
+        });
+        window.findChild<QPushButton*>("addMusicButton")->click();
+        interact.stop();
+        QCOMPARE(menu_texts, QStringList({"默认列表", "目标"}));
+        QCOMPARE(manager->get_playlist_by_id(target_id).songs.size(), 1);
+        QCOMPARE(manager->get_playlist_by_id(first_id).songs.size(), 0);
+    }
+
     void lyrics_icon_states()
     {
         playlist_window window;

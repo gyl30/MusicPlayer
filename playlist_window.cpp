@@ -528,7 +528,7 @@ void playlist_window::setup_ui()
     auto* add_button = new QPushButton(QIcon(":/icons/add.svg"), "", playback_page);
     add_button->setObjectName("addMusicButton");
     add_button->setAccessibleName("添加音乐");
-    connect(add_button, &QPushButton::clicked, this, [this]
+    connect(add_button, &QPushButton::clicked, this, [this, add_button]
     {
         auto* item = song_tree_widget_->currentItem();
         if (item == nullptr) item = song_tree_widget_->topLevelItem(0);
@@ -537,7 +537,26 @@ void playlist_window::setup_ui()
             on_create_playlist_action();
             return;
         }
-        context_menu_item_ = item->parent() != nullptr ? item->parent() : item;
+        QTreeWidgetItem* target = item->parent() != nullptr ? item->parent() : item;
+        if (song_tree_widget_->topLevelItemCount() > 1)
+        {
+            // 有多个歌单时先选择添加到哪个歌单，勾选标记当前歌单。
+            QMenu menu(this);
+            for (int i = 0; i < song_tree_widget_->topLevelItemCount(); ++i)
+            {
+                QTreeWidgetItem* playlist_item = song_tree_widget_->topLevelItem(i);
+                const qint64 id = playlist_item->data(0, Qt::UserRole).toLongLong();
+                QAction* action = menu.addAction(playlist_manager_->get_playlist_by_id(id).name);
+                action->setData(i);
+                action->setCheckable(true);
+                action->setChecked(playlist_item == target);
+            }
+            QAction* chosen = menu.exec(add_button->mapToGlobal(QPoint(add_button->width() - menu.sizeHint().width(), add_button->height())));
+            if (chosen == nullptr) return;
+            target = song_tree_widget_->topLevelItem(chosen->data().toInt());
+            if (target == nullptr) return;
+        }
+        context_menu_item_ = target;
         on_add_songs_action();
     });
     library_layout->addWidget(add_button);
