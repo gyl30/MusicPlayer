@@ -1663,7 +1663,13 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(started.count(), 1, 3000);
         QCOMPARE(started.first().first().toString(), second_path);
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::Sequential)));
+        QTRY_VERIFY_WITH_TIMEOUT(controller->is_media_loaded(), 3000);
+        // 顺序播放到末尾时，手动下一首保持当前播放；只有自然播完才停止。
         QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
+        QVERIFY(controller->is_media_loaded());
+        QCOMPARE(started.count(), 1);
+        QCOMPARE(tree->currentItem(), second);
+        QVERIFY(QMetaObject::invokeMethod(&window, "handle_playback_finished"));
         QVERIFY(!controller->is_media_loaded());
         QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
     }

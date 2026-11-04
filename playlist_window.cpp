@@ -1697,11 +1697,6 @@ void playlist_window::on_next_requested()
         {
             next_item = parent_playlist->child(0);
         }
-        else if (current_mode_ == playback_mode::Sequential)
-        {
-            on_stop_requested();
-            return;
-        }
         else
         {
             return;
