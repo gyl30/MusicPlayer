@@ -99,14 +99,7 @@ void playback_controller::pause_resume()
 {
     if (!is_media_loaded_)
     {
-        if (is_playing_)
-        {
-            emit playback_finished();
-        }
-        else
-        {
-            LOG_WARN("媒体未加载无法暂停或恢复");
-        }
+        LOG_WARN("媒体未加载无法暂停或恢复");
         return;
     }
     is_paused_ = !is_paused_;
