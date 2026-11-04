@@ -303,6 +303,41 @@ private slots:
         QCOMPARE(order(source_id), QStringList({paths[1], paths[2], paths[0]}));
     }
 
+    void drop_external_files()
+    {
+        playlist_window window;
+        window.resize(540, 740);
+        window.show();
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const qint64 first_id = manager->get_all_playlists().first().id;
+        const qint64 target_id = manager->get_all_playlists().last().id;
+        QDir root(temp_.path());
+        QVERIFY(root.mkpath("drop/sub"));
+        const QString nested = root.filePath("drop/sub/b.wav");
+        const QString top = root.filePath("drop/a.WAV");
+        const QString single = root.filePath("single.wav");
+        for (const auto& path : {nested, top, single})
+        {
+            QVERIFY(QFile::copy(tone_, path));
+        }
+        QFile note(root.filePath("drop/readme.txt"));
+        QVERIFY(note.open(QFile::WriteOnly));
+        note.close();
+        auto* tree = window.findChild<QTreeWidget*>();
+        const QPoint target_row = tree->visualItemRect(tree->topLevelItem(1)).center();
+        const QList<QUrl> urls{QUrl::fromLocalFile(root.filePath("drop")), QUrl::fromLocalFile(single)};
+        QVERIFY(QMetaObject::invokeMethod(&window, "handle_file_drop", Q_ARG(QList<QUrl>, urls), Q_ARG(QPoint, target_row)));
+        const auto paths = [&](qint64 id)
+        {
+            QStringList result;
+            for (const auto& song : manager->get_playlist_by_id(id).songs) result.append(song.file_path);
+            return result;
+        };
+        QTRY_COMPARE(paths(target_id), QStringList({top, nested, single}));
+        QVERIFY(paths(first_id).isEmpty());
+    }
+
     void transfer_failure()
     {
         playlist_window window;

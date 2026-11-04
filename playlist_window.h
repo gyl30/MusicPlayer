@@ -5,6 +5,7 @@
 #include <QList>
 #include <QMap>
 #include <QPoint>
+#include <QUrl>
 
 #include "playlist_data.h"
 #include "player_window.h"
@@ -44,6 +45,7 @@ class playlist_window : public QMainWindow
     void on_move_songs_action(qint64 target_id);
     void on_cleanup_invalid_action();
     void handle_song_drop(const QPoint& position);
+    void handle_file_drop(const QList<QUrl>& urls, const QPoint& position);
 
     void on_playlist_added(const Playlist& new_playlist);
     void on_playlist_removed(qint64 playlist_id);
@@ -95,6 +97,7 @@ class playlist_window : public QMainWindow
         copy,
         move
     };
+    void add_files_to_playlist(qint64 playlist_id, const QStringList& files);
     QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;
     // position 为目标歌单中的插入位置，-1 表示追加到末尾。
     void transfer_selected_songs(qint64 target_id, song_transfer transfer, int position = -1);

@@ -30,6 +30,8 @@
 #include <QResizeEvent>
 #include <QFileInfo>
 #include <QDropEvent>
+#include <QMimeData>
+#include <QDirIterator>
 #include <functional>
 
 #include "log.h"
@@ -116,12 +118,43 @@ class song_tree_widget final : public QTreeWidget
 public:
     using QTreeWidget::QTreeWidget;
     std::function<void(const QPoint&)> songs_dropped;
+    std::function<void(const QList<QUrl>&, const QPoint&)> files_dropped;
 
 protected:
+    // InternalMove 模式会拒绝外部拖入，从文件管理器拖入的文件需单独接受。
+    void dragEnterEvent(QDragEnterEvent* event) override
+    {
+        if (event->source() == nullptr && event->mimeData()->hasUrls())
+        {
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
+            return;
+        }
+        QTreeWidget::dragEnterEvent(event);
+    }
+
+    void dragMoveEvent(QDragMoveEvent* event) override
+    {
+        if (event->source() == nullptr && event->mimeData()->hasUrls())
+        {
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
+            return;
+        }
+        QTreeWidget::dragMoveEvent(event);
+    }
+
     // 歌单写入后由刷新重建节点。InternalMove 的拖动以 Move 结束时视图会自行删除源节点，
     // 因此落点处理后以 IgnoreAction 结束拖动。
     void dropEvent(QDropEvent* event) override
     {
+        if (event->source() == nullptr && event->mimeData()->hasUrls())
+        {
+            files_dropped(event->mimeData()->urls(), event->position().toPoint());
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
+            return;
+        }
         if (event->source() != this)
         {
             QTreeWidget::dropEvent(event);
@@ -309,6 +342,7 @@ static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, 
 
 constexpr qint64 kPlaybackStateSaveIntervalMs = 10000;
 constexpr qint64 kSeekStepMs = 5000;
+const QStringList kAudioFilePatterns{"*.mp3", "*.flac", "*.wav", "*.m4a", "*.ogg", "*.mp4", "*.webm"};
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
@@ -480,6 +514,7 @@ void playlist_window::setup_ui()
 
     auto* song_tree = new song_tree_widget();
     song_tree->songs_dropped = [this](const QPoint& position) { handle_song_drop(position); };
+    song_tree->files_dropped = [this](const QList<QUrl>& urls, const QPoint& position) { handle_file_drop(urls, position); };
     song_tree_widget_ = song_tree;
     song_tree_widget_->setObjectName("songTreeWidget");
     song_tree_widget_->setColumnCount(2);
@@ -1535,8 +1570,12 @@ void playlist_window::on_add_songs_action()
     const qint64 playlist_id = context_menu_item_->data(0, Qt::UserRole).toLongLong();
 
     const QStringList files =
-        QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", "音频文件 (*.mp3 *.flac *.wav *.m4a *.ogg *.mp4 *.webm)");
+        QFileDialog::getOpenFileNames(this, "选择要添加的音乐文件", "", QString("音频文件 (%1)").arg(kAudioFilePatterns.join(' ')));
+    add_files_to_playlist(playlist_id, files);
+}
 
+void playlist_window::add_files_to_playlist(qint64 playlist_id, const QStringList& files)
+{
     if (!files.isEmpty())
     {
         const Playlist playlist = playlist_manager_->get_playlist_by_id(playlist_id);
@@ -1729,6 +1768,52 @@ void playlist_window::handle_song_drop(const QPoint& position)
     const qint64 playlist_id = playlist_item->data(0, Qt::UserRole).toLongLong();
     // 等拖动流程结束后再重建节点。
     QTimer::singleShot(0, this, [this, playlist_id, insert_at] { transfer_selected_songs(playlist_id, song_transfer::move, insert_at); });
+}
+
+void playlist_window::handle_file_drop(const QList<QUrl>& urls, const QPoint& position)
+{
+    QTreeWidgetItem* target = song_tree_widget_->itemAt(position);
+    if (target == nullptr) target = song_tree_widget_->currentItem();
+    if (target == nullptr) target = song_tree_widget_->topLevelItem(0);
+    if (target == nullptr)
+    {
+        return;
+    }
+    const qint64 playlist_id = (target->parent() != nullptr ? target->parent() : target)->data(0, Qt::UserRole).toLongLong();
+
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    QStringList files;
+    for (const QUrl& url : urls)
+    {
+        const QFileInfo info(url.toLocalFile());
+        if (info.isDir())
+        {
+            QStringList folder_files;
+            QDirIterator it(info.absoluteFilePath(), kAudioFilePatterns, QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext())
+            {
+                folder_files.append(it.next());
+            }
+            std::sort(folder_files.begin(), folder_files.end(), collator);
+            files.append(folder_files);
+        }
+        else if (info.isFile() && QDir::match(kAudioFilePatterns, info.fileName()))
+        {
+            files.append(info.absoluteFilePath());
+        }
+    }
+    // 拖放结束后再弹出提示，避免阻塞拖动来源程序。
+    QTimer::singleShot(0, this, [this, playlist_id, files]
+    {
+        if (files.isEmpty())
+        {
+            QMessageBox::information(this, "没有可添加的音乐", "拖入的文件或文件夹中没有支持的音频文件。");
+            return;
+        }
+        add_files_to_playlist(playlist_id, files);
+    });
 }
 
 void playlist_window::on_cleanup_invalid_action()
