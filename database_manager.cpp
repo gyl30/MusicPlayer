@@ -495,6 +495,11 @@ bool database_manager::update_durations(const QMap<QString, qint64>& durations, 
                   "AND EXISTS (SELECT 1 FROM PlaylistSongs ps WHERE ps.song_id = Songs.song_id)");
     for (auto it = durations.constBegin(); it != durations.constEnd(); ++it)
     {
+        if (it.value() < 0)
+        {
+            // 打开失败保持未知，文件恢复后下次入队重新探测。
+            continue;
+        }
         query.bindValue(":path", it.key());
         query.bindValue(":duration", it.value());
         if (!query.exec())

@@ -66,14 +66,14 @@ qint64 duration_scanner::probe_duration(const QString& path)
     AVFormatContext* context = avformat_alloc_context();
     if (context == nullptr)
     {
-        return 0;
+        return kDurationProbeFailed;
     }
     DEFER(avformat_close_input(&context));
     context->interrupt_callback = {interrupt, this};
     if (avformat_open_input(&context, path.toUtf8().constData(), nullptr, nullptr) < 0)
     {
         LOG_WARN("读取歌曲时长失败 {}", path.toStdString());
-        return 0;
+        return kDurationProbeFailed;
     }
     if (avformat_find_stream_info(context, nullptr) < 0)
     {

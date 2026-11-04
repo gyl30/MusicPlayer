@@ -1409,10 +1409,11 @@ private slots:
         int ticks = 0;
         connect(&heartbeat, &QTimer::timeout, this, [&] { ++ticks; });
         heartbeat.start(1);
-        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 0, 5000);
-        QTRY_COMPARE_WITH_TIMEOUT(probes, paths.size(), 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(probes, paths.size(), 5000);
         QTest::qWait(50);
         QCOMPARE(probes, paths.size());
+        // 无法打开的文件保持未知时长，留待下次入队重新探测。
+        QCOMPARE(pending_durations(), 2);
         QVERIFY(ticks > 0);
         QCOMPARE(tree->topLevelItem(0)->child(0), first);
         QCOMPARE(removed.count(), 0);
@@ -1423,6 +1424,11 @@ private slots:
         }
         QCOMPARE(songs[500].duration_ms, 0);
         QCOMPARE(songs[501].duration_ms, 0);
+
+        QVERIFY(QFile::copy(short_file, paths.last()));
+        QVERIFY(manager->add_songs_to_playlist(id, {}));
+        QTRY_COMPARE_WITH_TIMEOUT(pending_durations(), 1, 1000);
+        QCOMPARE(manager->get_playlist_by_id(id).songs[501].duration_ms, 20);
     }
 
     void metadata_removed()

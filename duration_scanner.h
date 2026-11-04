@@ -11,6 +11,9 @@
 #include <mutex>
 #include <thread>
 
+// 文件无法打开时的探测结果，区别于能打开但没有时长信息的 0。
+constexpr qint64 kDurationProbeFailed = -1;
+
 class duration_scanner : public QObject
 {
     Q_OBJECT
