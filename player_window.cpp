@@ -241,6 +241,10 @@ void player_window::setup_connections()
                     set_time_text(current_time.toString(format));
                 });
         connect(controller_, &playback_controller::playback_error, this, &player_window::handle_playback_error);
+        connect(controller_, &playback_controller::file_unavailable, this, [this](const QString& file_path)
+        {
+            handle_playback_error(QString("音乐文件不存在或无法访问：%1").arg(QFileInfo(file_path).fileName()));
+        });
         connect(controller_, &playback_controller::metadata_ready, this, &player_window::on_metadata_updated);
         connect(controller_, &playback_controller::cover_art_ready, this, &player_window::on_cover_art_updated);
         connect(controller_, &playback_controller::playback_finished, this, &player_window::on_playback_finished);

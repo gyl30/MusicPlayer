@@ -39,6 +39,7 @@ class playback_controller : public QObject
     void progress_updated(qint64 current_ms, qint64 total_ms);
     void playback_finished();
     void playback_error(const QString& error_message);
+    void file_unavailable(const QString& file_path);
     void seek_finished(bool success);
     void playback_started(const QString& file_path, const QString& file_name);
     void seek_completed(qint64 actual_ms);

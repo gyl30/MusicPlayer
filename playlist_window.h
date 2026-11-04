@@ -60,6 +60,7 @@ class playlist_window : public QMainWindow
     void quit_application();
 
     void handle_playback_error_strategy(const QString& error_message);
+    void on_file_unavailable(const QString& file_path);
 
    protected:
     void closeEvent(QCloseEvent* event) override;

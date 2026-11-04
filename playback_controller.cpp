@@ -50,7 +50,7 @@ void playback_controller::play_file(const QString& file_path, qint64 start_posit
     stop();
     if (!QFileInfo(file_path).isFile())
     {
-        emit playback_error(QString("音乐文件不存在或无法访问：%1").arg(file_path));
+        emit file_unavailable(file_path);
         return;
     }
     is_paused_ = false;

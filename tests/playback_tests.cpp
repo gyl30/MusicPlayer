@@ -961,10 +961,11 @@ private slots:
         const QString missing = temp_.filePath("missing-notice.wav");
         QSignalSpy started(&controller, &playback_controller::playback_started);
         QSignalSpy errors(&controller, &playback_controller::playback_error);
+        QSignalSpy unavailable(&controller, &playback_controller::file_unavailable);
         controller.play_file(missing);
-        QCOMPARE(errors.count(), 1);
-        QVERIFY(errors.first().first().toString().contains("音乐文件不存在"));
-        QVERIFY(errors.first().first().toString().contains(missing));
+        QCOMPARE(unavailable.count(), 1);
+        QCOMPARE(unavailable.first().first().toString(), missing);
+        QCOMPARE(errors.count(), 0);
         QCOMPARE(started.count(), 0);
         QVERIFY(!controller.is_media_loaded());
     }
@@ -977,13 +978,10 @@ private slots:
         file.write("invalid audio");
         file.close();
         playback_controller controller;
-        for (const QString& path : {temp_.filePath("missing.wav"), corrupt})
-        {
-            QSignalSpy errors(&controller, &playback_controller::playback_error);
-            controller.play_file(path);
-            QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 1000);
-            QVERIFY(!controller.is_media_loaded());
-        }
+        QSignalSpy errors(&controller, &playback_controller::playback_error);
+        controller.play_file(corrupt);
+        QTRY_COMPARE_WITH_TIMEOUT(errors.count(), 1, 1000);
+        QVERIFY(!controller.is_media_loaded());
         QSignalSpy progress(&controller, &playback_controller::progress_updated);
         controller.play_file(tone_);
         QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
@@ -1582,7 +1580,9 @@ private slots:
         QVERIFY(manager->add_songs_to_playlist(id, paths));
         QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
         auto* tree = window.findChild<QTreeWidget*>();
-        QSignalSpy errors(controller, &playback_controller::playback_error);
+        QSignalSpy decode_errors(controller, &playback_controller::playback_error);
+        QSignalSpy unavailable(controller, &playback_controller::file_unavailable);
+        const auto failures = [&] { return decode_errors.count() + unavailable.count(); };
         QSignalSpy progress(controller, &playback_controller::progress_updated);
         bool stopped_dialog = false;
         QTimer close_dialog;
@@ -1600,16 +1600,16 @@ private slots:
         if (successful_track)
         {
             QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty() && progress.last().first().toLongLong() > 0, 1800);
-            QCOMPARE(errors.count(), 4);
+            QCOMPARE(failures(), 4);
             QVERIFY(!stopped_dialog);
             QVERIFY(QMetaObject::invokeMethod(&window, "on_next_requested"));
         }
         QTRY_VERIFY_WITH_TIMEOUT(stopped_dialog, 1800);
         const int expected_errors = successful_track ? 4 + kFailureLimit : kFailureLimit;
-        QCOMPARE(errors.count(), expected_errors);
+        QCOMPARE(failures(), expected_errors);
         QVERIFY(!controller->is_media_loaded());
         QTest::qWait(350);
-        QCOMPARE(errors.count(), expected_errors);
+        QCOMPARE(failures(), expected_errors);
     }
 
     void shuffle_manual_selection()

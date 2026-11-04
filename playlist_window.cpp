@@ -728,6 +728,7 @@ void playlist_window::setup_connections()
     connect(controller_, &playback_controller::playback_started, this, &playlist_window::on_playback_started);
     connect(controller_, &playback_controller::playback_finished, this, &playlist_window::handle_playback_finished);
     connect(controller_, &playback_controller::playback_error, this, &playlist_window::handle_playback_error_strategy);
+    connect(controller_, &playback_controller::file_unavailable, this, &playlist_window::on_file_unavailable);
     connect(controller_,
             &playback_controller::track_info_ready,
             this,
@@ -934,29 +935,31 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
     }
 }
 
+void playlist_window::on_file_unavailable(const QString& file_path)
+{
+    const QString message = QString("音乐文件不存在或无法访问：%1").arg(file_path);
+    if (clicked_song_item_ != nullptr && clicked_song_item_->parent() != nullptr)
+    {
+        clear_playing_indicator();
+        currently_playing_item_ = clicked_song_item_;
+    }
+    auto* warning = findChild<QMessageBox*>("missingFileWarning");
+    if (warning == nullptr)
+    {
+        warning = new QMessageBox(QMessageBox::Warning, "音乐文件不可用", {}, QMessageBox::Ok, this);
+        warning->setObjectName("missingFileWarning");
+        warning->setAttribute(Qt::WA_DeleteOnClose);
+        warning->setModal(false);
+    }
+    warning->setText(message);
+    warning->show();
+    warning->raise();
+    handle_playback_error_strategy(message);
+}
+
 void playlist_window::handle_playback_error_strategy(const QString& error_message)
 {
     LOG_WARN("播放出错 (连续第 {} 次): {}", consecutive_failures_ + 1, error_message.toStdString());
-    if (error_message.startsWith(QStringLiteral("音乐文件不存在")))
-    {
-        if (clicked_song_item_ != nullptr && clicked_song_item_->parent() != nullptr)
-        {
-            clear_playing_indicator();
-            currently_playing_item_ = clicked_song_item_;
-        }
-        auto* warning = findChild<QMessageBox*>("missingFileWarning");
-        if (warning == nullptr)
-        {
-            warning = new QMessageBox(QMessageBox::Warning, "音乐文件不可用", {}, QMessageBox::Ok, this);
-            warning->setObjectName("missingFileWarning");
-            warning->setAttribute(Qt::WA_DeleteOnClose);
-            warning->setModal(false);
-        }
-        warning->setText(error_message);
-        warning->show();
-        warning->raise();
-    }
-
     consecutive_failures_++;
 
     if (consecutive_failures_ >= MAX_CONSECUTIVE_FAILURES)
