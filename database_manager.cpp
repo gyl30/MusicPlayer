@@ -196,16 +196,14 @@ bool database_manager::rename_playlist(qint64 playlist_id, const QString& new_na
     return query.numRowsAffected() == 1;
 }
 
-QList<Playlist> database_manager::get_all_playlists_with_song_counts()
+QList<Playlist> database_manager::get_all_playlist_summaries()
 {
     (void)this;
     QList<Playlist> playlists;
     QSqlQuery query(R"(
-        SELECT p.playlist_id, p.name, COUNT(ps.song_id) as song_count
-        FROM Playlists p
-        LEFT JOIN PlaylistSongs ps ON p.playlist_id = ps.playlist_id
-        GROUP BY p.playlist_id, p.name
-        ORDER BY p.playlist_id
+        SELECT playlist_id, name
+        FROM Playlists
+        ORDER BY playlist_id
     )");
 
     if (!query.exec())

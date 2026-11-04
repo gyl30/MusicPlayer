@@ -21,7 +21,7 @@ class database_manager : public QObject
     Playlist create_playlist(const QString& name);
     bool delete_playlist(qint64 playlist_id);
     bool rename_playlist(qint64 playlist_id, const QString& new_name);
-    QList<Playlist> get_all_playlists_with_song_counts();
+    QList<Playlist> get_all_playlist_summaries();
     Playlist get_playlist_with_songs(qint64 playlist_id);
 
     bool add_songs_to_playlist(qint64 playlist_id, const QStringList& file_paths);

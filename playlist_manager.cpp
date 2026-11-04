@@ -122,7 +122,7 @@ void playlist_manager::perform_migration()
     LOG_INFO("数据迁移完成。");
 }
 
-QList<Playlist> playlist_manager::get_all_playlists() const { return db_manager_->get_all_playlists_with_song_counts(); }
+QList<Playlist> playlist_manager::get_all_playlists() const { return db_manager_->get_all_playlist_summaries(); }
 
 Playlist playlist_manager::get_playlist_by_id(qint64 id) const { return db_manager_->get_playlist_with_songs(id); }
 
@@ -143,7 +143,7 @@ bool playlist_manager::create_new_playlist(const QString& name)
 bool playlist_manager::delete_playlist(qint64 id)
 {
     LOG_INFO("删除播放列表 id {}", id);
-    if (db_manager_->get_all_playlists_with_song_counts().count() <= 1)
+    if (db_manager_->get_all_playlist_summaries().count() <= 1)
     {
         LOG_WARN("试图删除最后一个播放列表 操作不允许");
         return false;
