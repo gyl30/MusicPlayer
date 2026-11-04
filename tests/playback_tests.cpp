@@ -25,6 +25,7 @@
 #include "volumemeter.h"
 #include "lyrics_widget.h"
 #include "lyrics_parser.h"
+#include "scrolling_text_label.h"
 #include <atomic>
 #include "audio_decoder.h"
 #include "audio_player.h"
@@ -698,6 +699,33 @@ private slots:
         QCOMPARE(lyrics.grab().toImage(), held);
         QTRY_VERIFY_WITH_TIMEOUT(lyrics.grab().toImage() != held, 4000);
         QTRY_COMPARE_WITH_TIMEOUT(line_at_center(), qint64(20000), 3000);
+    }
+
+    void title_marquee()
+    {
+        QWidget host;
+        auto* label = new scrolling_text_label(&host);
+        const QString text("abcdefghijkl");
+        const int text_width = QFontMetrics(label->font()).horizontalAdvance(text);
+        label->setGeometry(0, 0, text_width - 10, QFontMetrics(label->font()).height() + 4);
+        host.resize(label->size());
+        host.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&host));
+        label->setText(text);
+        QCoreApplication::processEvents();
+        const QImage start = label->grab().toImage();
+
+        // 先停留让用户读到开头，再滚动一圈后停在起点。
+        QTest::qWait(800);
+        QCOMPARE(label->grab().toImage(), start);
+        QTRY_VERIFY_WITH_TIMEOUT(label->grab().toImage() != start, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(label->grab().toImage() == start, 8000);
+        QTest::qWait(600);
+        QCOMPARE(label->grab().toImage(), start);
+
+        QEnterEvent enter(QPointF(5, 5), QPointF(5, 5), label->mapToGlobal(QPointF(5, 5)));
+        QCoreApplication::sendEvent(label, &enter);
+        QTRY_VERIFY_WITH_TIMEOUT(label->grab().toImage() != start, 500);
     }
 
     void slider_drag_preview()

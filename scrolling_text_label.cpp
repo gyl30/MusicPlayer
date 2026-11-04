@@ -2,13 +2,15 @@
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QEnterEvent>
 #include <QStyleOption>
 
 #include "scrolling_text_label.h"
 
 namespace
 {
-constexpr int kScrollIntervalMs = 45;
+constexpr int kScrollIntervalMs = 30;
+constexpr int kIntroDelayMs = 1500;
 constexpr int kScrollStepPx = 1;
 constexpr int kRepeatGapPx = 36;
 }  // namespace
@@ -27,7 +29,20 @@ scrolling_text_label::scrolling_text_label(QWidget* parent) : QLabel(parent)
         }
 
         scroll_offset_px_ = (scroll_offset_px_ + kScrollStepPx) % cycle_width;
+        if (scroll_offset_px_ == 0)
+        {
+            scroll_timer_.stop();
+        }
         update();
+    });
+
+    intro_delay_.setSingleShot(true);
+    intro_delay_.setInterval(kIntroDelayMs);
+    connect(&intro_delay_, &QTimer::timeout, this, [this] {
+        if (overflows())
+        {
+            scroll_timer_.start(kScrollIntervalMs);
+        }
     });
 }
 
@@ -39,7 +54,10 @@ void scrolling_text_label::setText(const QString& text)
     }
 
     QLabel::setText(text);
+    scroll_timer_.stop();
+    intro_delay_.stop();
     scroll_offset_px_ = 0;
+    intro_pending_ = true;
     refresh_scroll_state();
     update();
 }
@@ -98,20 +116,35 @@ void scrolling_text_label::showEvent(QShowEvent* event)
     refresh_scroll_state();
 }
 
+void scrolling_text_label::enterEvent(QEnterEvent* event)
+{
+    QLabel::enterEvent(event);
+    if (overflows() && !scroll_timer_.isActive())
+    {
+        intro_delay_.stop();
+        scroll_timer_.start(kScrollIntervalMs);
+    }
+}
+
+bool scrolling_text_label::overflows() const
+{
+    return QFontMetrics(font()).horizontalAdvance(text()) > contentsRect().width();
+}
+
 void scrolling_text_label::refresh_scroll_state()
 {
-    const QFontMetrics metrics(font());
-    const bool should_scroll = metrics.horizontalAdvance(text()) > contentsRect().width();
-
-    if (should_scroll)
+    if (!overflows())
     {
-        if (!scroll_timer_.isActive())
-        {
-            scroll_timer_.start(kScrollIntervalMs);
-        }
+        scroll_timer_.stop();
+        intro_delay_.stop();
+        scroll_offset_px_ = 0;
+        update();
         return;
     }
-
-    scroll_timer_.stop();
-    scroll_offset_px_ = 0;
+    // 文本在布局完成、可见后才能确定是否溢出，此时再开始开场停留。
+    if (intro_pending_ && isVisible())
+    {
+        intro_pending_ = false;
+        intro_delay_.start();
+    }
 }
