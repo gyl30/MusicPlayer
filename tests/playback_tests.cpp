@@ -1436,6 +1436,48 @@ private slots:
         controller.stop();
     }
 
+    void external_lyrics()
+    {
+        QStringList lines;
+        const auto load_lyrics = [&lines](const QString& audio)
+        {
+            lines.clear();
+            playback_controller controller;
+            QSignalSpy lyrics(&controller, &playback_controller::lyrics_updated);
+            controller.play_file(audio);
+            QTRY_VERIFY_WITH_TIMEOUT(!lyrics.isEmpty(), 3000);
+            controller.stop();
+            for (const auto& line : lyrics.last().first().value<QList<LyricLine>>()) lines.append(QString("%1 %2").arg(line.timestamp_ms).arg(line.text));
+        };
+        const auto write = [](const QString& path, const QByteArray& bytes)
+        {
+            QFile file(path);
+            QVERIFY(file.open(QFile::WriteOnly));
+            file.write(bytes);
+        };
+
+        // 常见的 GBK 编码 .lrc，扩展名大写。
+        const QString gbk_audio = temp_.filePath("ext-gbk.wav");
+        QVERIFY(QFile::copy(tone_, gbk_audio));
+        write(temp_.filePath("ext-gbk.LRC"), QByteArray("[00:01.00]\xB5\xDA\xD2\xBB\xBE\xE4\n[00:02.50]\xB5\xDA\xB6\xFE\xBE\xE4\n"));
+        load_lyrics(gbk_audio);
+        QCOMPARE(lines, QStringList({"1000 第一句", "2500 第二句"}));
+
+        // 带 BOM 的 UTF-8 .lrc 优先于内嵌歌词。
+        const QString embedded = temp_.filePath("ext-embedded.flac");
+        encode({"-i", tone_, "-t", "3", "-metadata", "lyrics=[00:00.50]内嵌歌词", embedded});
+        load_lyrics(embedded);
+        QCOMPARE(lines, QStringList({"500 内嵌歌词"}));
+        write(temp_.filePath("ext-embedded.lrc"), QByteArray("\xEF\xBB\xBF[00:00.80]外置歌词\n"));
+        load_lyrics(embedded);
+        QCOMPARE(lines, QStringList({"800 外置歌词"}));
+
+        // 外置文件没有带时间的歌词时，仍使用内嵌歌词。
+        write(temp_.filePath("ext-embedded.lrc"), QByteArray("只有文字没有时间\n"));
+        load_lyrics(embedded);
+        QCOMPARE(lines, QStringList({"500 内嵌歌词"}));
+    }
+
     void gbk_metadata()
     {
         // 老 MP3 常把 GBK 中文写进标为 ISO-8859-1 的 ID3 帧。

@@ -1,5 +1,8 @@
 #include <QMetaObject>
 #include <QByteArray>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 
 #include "log.h"
 #include "scoped_exit.h"
@@ -27,6 +30,22 @@ static AVSampleFormat get_av_sample_format(QAudioFormat::SampleFormat format)
         default:
             return AV_SAMPLE_FMT_S16;
     }
+}
+
+// 同目录同名的 .lrc 或 .LRC 文件内容，不存在时为空。
+static QString read_external_lyrics(const QString& audio_path)
+{
+    const QFileInfo info(audio_path);
+    const QString base = info.dir().filePath(info.completeBaseName());
+    for (const QString& path : {base + ".lrc", base + ".LRC"})
+    {
+        QFile file(path);
+        if (file.open(QFile::ReadOnly))
+        {
+            return decode_text_file(file.readAll());
+        }
+    }
+    return {};
 }
 
 static int decode_interrupt_cb(void* ctx)
@@ -519,7 +538,16 @@ void audio_decoder::process_metadata_and_lyrics(AVDictionary* container_metadata
         }
     }
 
-    QList<LyricLine> parsed_lyrics = lyrics_parser::parse(lrc_text);
+    // 与音频同名的 .lrc 通常是用户特意放置的，优先于内嵌歌词。
+    QList<LyricLine> parsed_lyrics = lyrics_parser::parse(read_external_lyrics(file_path_));
+    if (parsed_lyrics.isEmpty())
+    {
+        parsed_lyrics = lyrics_parser::parse(lrc_text);
+    }
+    else
+    {
+        LOG_DEBUG("使用外置歌词 session {} lines {}", session_id_, parsed_lyrics.size());
+    }
     emit lyrics_ready(session_id_, parsed_lyrics);
 
     if (!metadata_map.isEmpty())

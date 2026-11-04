@@ -44,3 +44,15 @@ QString decode_tag_text(const char* value)
     }
     return text;
 }
+
+QString decode_text_file(const QByteArray& data)
+{
+    QStringDecoder utf8(QStringDecoder::Utf8);
+    const QString text = utf8(data);
+    if (!utf8.hasError())
+    {
+        return text;
+    }
+    QString gbk_text;
+    return decode_gbk(data, gbk_text) ? gbk_text : QString::fromLatin1(data);
+}
