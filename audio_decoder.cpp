@@ -48,6 +48,23 @@ static QString read_external_lyrics(const QString& audio_path)
     return {};
 }
 
+// 音频所在目录中的封面图片，没有内嵌封面时使用；按常见文件名的优先顺序选择。
+static QByteArray read_folder_cover(const QString& audio_path)
+{
+    const QDir dir = QFileInfo(audio_path).dir();
+    const QStringList images = dir.entryList({"*.jpg", "*.jpeg", "*.png"}, QDir::Files);
+    for (const char* name : {"cover", "folder", "front", "album"})
+    {
+        for (const QString& image : images)
+        {
+            if (QFileInfo(image).completeBaseName().compare(QLatin1String(name), Qt::CaseInsensitive) != 0) continue;
+            QFile file(dir.filePath(image));
+            if (file.open(QFile::ReadOnly)) return file.readAll();
+        }
+    }
+    return {};
+}
+
 static int decode_interrupt_cb(void* ctx)
 {
     auto* decoder = static_cast<audio_decoder*>(ctx);
@@ -307,18 +324,22 @@ bool audio_decoder::open_audio_context(const QString& file_path)
         return fail("avformat_find_stream_info", ffmpeg_error_string(ret));
     }
 
-    for (unsigned int i = 0; i < format_ctx_->nb_streams; i++)
+    QByteArray cover;
+    for (unsigned int i = 0; i < format_ctx_->nb_streams && cover.isEmpty(); i++)
     {
         AVStream* st = format_ctx_->streams[i];
-        if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) != 0)
+        if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) != 0 && st->attached_pic.data != nullptr && st->attached_pic.size > 0)
         {
-            if ((st->attached_pic.data != nullptr) && st->attached_pic.size > 0)
-            {
-                QByteArray image_data(reinterpret_cast<const char*>(st->attached_pic.data), st->attached_pic.size);
-                emit cover_art_ready(session_id_, image_data);
-                break;
-            }
+            cover = QByteArray(reinterpret_cast<const char*>(st->attached_pic.data), st->attached_pic.size);
         }
+    }
+    if (cover.isEmpty())
+    {
+        cover = read_folder_cover(file_path);
+    }
+    if (!cover.isEmpty())
+    {
+        emit cover_art_ready(session_id_, cover);
     }
 
     audio_stream_index_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);

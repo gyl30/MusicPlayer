@@ -1495,6 +1495,51 @@ private slots:
         controller.stop();
     }
 
+    void folder_cover_art()
+    {
+        QByteArray cover;
+        const auto load_cover = [&cover](const QString& audio)
+        {
+            cover.clear();
+            playback_controller controller;
+            QSignalSpy covers(&controller, &playback_controller::cover_art_ready);
+            QSignalSpy metadata(&controller, &playback_controller::lyrics_updated);
+            controller.play_file(audio);
+            QTRY_VERIFY_WITH_TIMEOUT(!metadata.isEmpty(), 3000);
+            QTest::qWait(100);
+            controller.stop();
+            if (!covers.isEmpty()) cover = covers.last().first().toByteArray();
+        };
+        const auto read = [](const QString& path)
+        {
+            QFile file(path);
+            return file.open(QFile::ReadOnly) ? file.readAll() : QByteArray();
+        };
+
+        QDir dir(temp_.filePath("cover-album"));
+        QVERIFY(dir.mkpath("."));
+        const QString audio = dir.filePath("track.wav");
+        QVERIFY(QFile::copy(tone_, audio));
+        load_cover(audio);
+        QVERIFY(cover.isEmpty());
+
+        // 目录图片按 cover、folder、front、album 的顺序选用，文件名不区分大小写。
+        encode({"-f", "lavfi", "-i", "color=c=blue:s=8x8", "-frames:v", "1", dir.filePath("Folder.JPG")});
+        load_cover(audio);
+        QCOMPARE(cover, read(dir.filePath("Folder.JPG")));
+        encode({"-f", "lavfi", "-i", "color=c=red:s=8x8", "-frames:v", "1", dir.filePath("cover.png")});
+        load_cover(audio);
+        QCOMPARE(cover, read(dir.filePath("cover.png")));
+
+        // 内嵌封面优先于目录图片。
+        const QString picture = temp_.filePath("embedded-cover.png");
+        encode({"-f", "lavfi", "-i", "color=c=green:s=8x8", "-frames:v", "1", picture});
+        const QString embedded = dir.filePath("embedded.mp3");
+        encode({"-i", tone_, "-i", picture, "-t", "1", "-map", "0:a", "-map", "1:v", "-c:v", "copy", "-disposition:v", "attached_pic", embedded});
+        load_cover(embedded);
+        QCOMPARE(cover, read(picture));
+    }
+
     void external_lyrics()
     {
         QStringList lines;
