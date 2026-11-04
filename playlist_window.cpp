@@ -375,6 +375,12 @@ bool playlist_window::eventFilter(QObject* watched, QEvent* event)
             return true;
         }
     }
+    if (watched != nullptr && watched->objectName() == QStringLiteral("appTitleBar") && event->type() == QEvent::MouseButtonDblClick &&
+        static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton)
+    {
+        isMaximized() ? showNormal() : showMaximized();
+        return true;
+    }
 
     return QMainWindow::eventFilter(watched, event);
 }

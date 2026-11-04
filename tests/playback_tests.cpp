@@ -593,6 +593,18 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
     }
 
+    void title_bar_double_click()
+    {
+        playlist_window window;
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* title_bar = window.findChild<QWidget*>("appTitleBar");
+        QTest::mouseDClick(title_bar, Qt::LeftButton, Qt::NoModifier, QPoint(150, 20));
+        QTRY_VERIFY(window.isMaximized());
+        QTest::mouseDClick(title_bar, Qt::LeftButton, Qt::NoModifier, QPoint(150, 20));
+        QTRY_VERIFY(!window.isMaximized());
+    }
+
     void window_resize_edges()
     {
         playlist_window window;
