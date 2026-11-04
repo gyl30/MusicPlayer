@@ -252,6 +252,57 @@ private slots:
         QCOMPARE(tree->topLevelItem(1)->childCount(), 3);
     }
 
+    void drag_songs()
+    {
+        playlist_window window;
+        window.resize(540, 740);
+        window.show();
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->create_new_playlist("目标"));
+        const auto lists = manager->get_all_playlists();
+        const qint64 source_id = lists.first().id;
+        const qint64 target_id = lists.last().id;
+        QStringList paths;
+        for (int i = 0; i < 4; ++i)
+        {
+            paths.append(temp_.filePath(QString("drag-%1.wav").arg(i)));
+        }
+        QVERIFY(manager->add_songs_to_playlist(source_id, paths));
+        auto* tree = window.findChild<QTreeWidget*>();
+        auto* source = tree->topLevelItem(0);
+        source->setExpanded(true);
+        QTest::qWait(50);
+        const auto order = [&](qint64 id)
+        {
+            QStringList result;
+            for (const auto& song : manager->get_playlist_by_id(id).songs) result.append(song.file_path);
+            return result;
+        };
+        const auto drop_at = [&](const QPoint& position)
+        {
+            QVERIFY(QMetaObject::invokeMethod(&window, "handle_song_drop", Q_ARG(QPoint, position)));
+        };
+
+        source->child(0)->setSelected(true);
+        const QRect third = tree->visualItemRect(source->child(2));
+        drop_at(QPoint(third.center().x(), third.bottom() - 2));
+        QTRY_COMPARE(order(source_id), QStringList({paths[1], paths[2], paths[0], paths[3]}));
+        QCOMPARE(source->childCount(), 4);
+        QVERIFY(source->child(2)->isSelected());
+
+        tree->clearSelection();
+        source->child(3)->setSelected(true);
+        const QRect first = tree->visualItemRect(source->child(0));
+        drop_at(QPoint(first.center().x(), first.top() + 2));
+        QTRY_COMPARE(order(source_id), QStringList({paths[3], paths[1], paths[2], paths[0]}));
+
+        tree->clearSelection();
+        source->child(0)->setSelected(true);
+        drop_at(tree->visualItemRect(tree->topLevelItem(1)).center());
+        QTRY_COMPARE(order(target_id), QStringList({paths[3]}));
+        QCOMPARE(order(source_id), QStringList({paths[1], paths[2], paths[0]}));
+    }
+
     void transfer_failure()
     {
         playlist_window window;

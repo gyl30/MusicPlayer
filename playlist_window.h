@@ -43,6 +43,7 @@ class playlist_window : public QMainWindow
     void on_copy_songs_action(qint64 target_id);
     void on_move_songs_action(qint64 target_id);
     void on_cleanup_invalid_action();
+    void handle_song_drop(const QPoint& position);
 
     void on_playlist_added(const Playlist& new_playlist);
     void on_playlist_removed(qint64 playlist_id);
@@ -93,7 +94,8 @@ class playlist_window : public QMainWindow
         move
     };
     QList<int> selected_song_indices(QTreeWidgetItem*& playlist_item) const;
-    void transfer_selected_songs(qint64 target_id, song_transfer transfer);
+    // position 为目标歌单中的插入位置，-1 表示追加到末尾。
+    void transfer_selected_songs(qint64 target_id, song_transfer transfer, int position = -1);
 
    private:
     playback_controller* controller_ = nullptr;

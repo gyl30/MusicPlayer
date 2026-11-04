@@ -29,6 +29,8 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QFileInfo>
+#include <QDropEvent>
+#include <functional>
 
 #include "log.h"
 #include "tray_icon.h"
@@ -106,6 +108,30 @@ public:
             painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
         }
         painter->restore();
+    }
+};
+
+class song_tree_widget final : public QTreeWidget
+{
+public:
+    using QTreeWidget::QTreeWidget;
+    std::function<void(const QPoint&)> songs_dropped;
+
+protected:
+    // 歌单写入后由刷新重建节点。InternalMove 的拖动以 Move 结束时视图会自行删除源节点，
+    // 因此落点处理后以 IgnoreAction 结束拖动。
+    void dropEvent(QDropEvent* event) override
+    {
+        if (event->source() != this)
+        {
+            QTreeWidget::dropEvent(event);
+            return;
+        }
+        songs_dropped(event->position().toPoint());
+        event->setDropAction(Qt::IgnoreAction);
+        event->accept();
+        QDragLeaveEvent leave;
+        QTreeWidget::dragLeaveEvent(&leave);
     }
 };
 
@@ -439,7 +465,9 @@ void playlist_window::setup_ui()
     connect(minimize_button, &QPushButton::clicked, this, &playlist_window::showMinimized);
     connect(close_button, &QPushButton::clicked, this, &playlist_window::close);
 
-    song_tree_widget_ = new QTreeWidget();
+    auto* song_tree = new song_tree_widget();
+    song_tree->songs_dropped = [this](const QPoint& position) { handle_song_drop(position); };
+    song_tree_widget_ = song_tree;
     song_tree_widget_->setObjectName("songTreeWidget");
     song_tree_widget_->setColumnCount(2);
     song_tree_widget_->setItemDelegate(new song_delegate(song_tree_widget_));
@@ -458,6 +486,7 @@ void playlist_window::setup_ui()
     song_tree_widget_->setTextElideMode(Qt::ElideRight);
     song_tree_widget_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     song_tree_widget_->setAlternatingRowColors(false);
+    song_tree_widget_->setDragDropMode(QAbstractItemView::InternalMove);
 
     auto* body = new QWidget(central_widget);
     body->setObjectName("playerBody");
@@ -1510,7 +1539,7 @@ void playlist_window::on_copy_songs_action(qint64 target_id) { transfer_selected
 
 void playlist_window::on_move_songs_action(qint64 target_id) { transfer_selected_songs(target_id, song_transfer::move); }
 
-void playlist_window::transfer_selected_songs(qint64 target_id, song_transfer transfer)
+void playlist_window::transfer_selected_songs(qint64 target_id, song_transfer transfer, int position)
 {
     QTreeWidgetItem* source_item = nullptr;
     const QList<int> indices = selected_song_indices(source_item);
@@ -1519,41 +1548,103 @@ void playlist_window::transfer_selected_songs(qint64 target_id, song_transfer tr
         return;
     }
     const qint64 source_id = source_item->data(0, Qt::UserRole).toLongLong();
+    const bool reorder = source_id == target_id;
+    if (reorder && transfer == song_transfer::copy)
+    {
+        return;
+    }
     Playlist source = playlist_manager_->get_playlist_by_id(source_id);
-    Playlist target = playlist_manager_->get_playlist_by_id(target_id);
-    if (source_id == target_id || source.id == -1 || target.id == -1 || indices.last() >= source.songs.size())
+    Playlist target = reorder ? Playlist{} : playlist_manager_->get_playlist_by_id(target_id);
+    if (source.id == -1 || (!reorder && target.id == -1) || indices.last() >= source.songs.size())
     {
         return;
     }
 
-    QSet<QString> target_paths;
-    for (const auto& song : target.songs)
-    {
-        target_paths.insert(song.file_path);
-    }
+    QList<Song> selected;
     for (int index : indices)
     {
-        const Song& song = source.songs.at(index);
-        if (!target_paths.contains(song.file_path))
-        {
-            target_paths.insert(song.file_path);
-            target.songs.append(song);
-        }
+        selected.append(source.songs.at(index));
     }
-
-    QMap<qint64, Playlist> changes{{target_id, target}};
     if (transfer == song_transfer::move)
     {
         for (auto it = indices.crbegin(); it != indices.crend(); ++it)
         {
             source.songs.removeAt(*it);
         }
-        changes.insert(source_id, source);
+    }
+
+    QList<Song>& destination = reorder ? source.songs : target.songs;
+    int insert_at = position < 0 ? static_cast<int>(destination.size()) : position;
+    if (reorder)
+    {
+        // 插入位置按移除前的行号给出，需扣除其前方被移走的歌曲。
+        insert_at -= static_cast<int>(std::count_if(indices.cbegin(), indices.cend(), [position](int index) { return index < position; }));
+    }
+    insert_at = qBound(0, insert_at, static_cast<int>(destination.size()));
+    QSet<QString> existing_paths;
+    for (const auto& song : destination)
+    {
+        existing_paths.insert(song.file_path);
+    }
+    for (const auto& song : selected)
+    {
+        if (!existing_paths.contains(song.file_path))
+        {
+            existing_paths.insert(song.file_path);
+            destination.insert(insert_at++, song);
+        }
+    }
+
+    QMap<qint64, Playlist> changes{{source_id, source}};
+    if (!reorder)
+    {
+        changes.insert(target_id, target);
+        if (transfer == song_transfer::copy)
+        {
+            changes.remove(source_id);
+        }
     }
     if (!playlist_manager_->save_playlists(changes))
     {
         QMessageBox::warning(this, "保存失败", "歌单修改未能保存，请检查磁盘空间和文件访问权限后重试。");
+        return;
     }
+
+    QTreeWidgetItem* target_item = find_item_by_id(song_tree_widget_, target_id);
+    if (target_item == nullptr)
+    {
+        return;
+    }
+    song_tree_widget_->clearSelection();
+    for (const auto& song : selected)
+    {
+        if (QTreeWidgetItem* item = find_song_child_by_path(target_item, song.file_path))
+        {
+            item->setSelected(true);
+        }
+    }
+}
+
+void playlist_window::handle_song_drop(const QPoint& position)
+{
+    QTreeWidgetItem* target = song_tree_widget_->itemAt(position);
+    if (target == nullptr)
+    {
+        return;
+    }
+    QTreeWidgetItem* playlist_item = target->parent() != nullptr ? target->parent() : target;
+    int insert_at = -1;
+    if (target->parent() != nullptr)
+    {
+        insert_at = playlist_item->indexOfChild(target);
+        if (position.y() > song_tree_widget_->visualItemRect(target).center().y())
+        {
+            ++insert_at;
+        }
+    }
+    const qint64 playlist_id = playlist_item->data(0, Qt::UserRole).toLongLong();
+    // 等拖动流程结束后再重建节点。
+    QTimer::singleShot(0, this, [this, playlist_id, insert_at] { transfer_selected_songs(playlist_id, song_transfer::move, insert_at); });
 }
 
 void playlist_window::on_cleanup_invalid_action()
