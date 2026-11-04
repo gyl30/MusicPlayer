@@ -57,6 +57,8 @@ class playlist_window : public QMainWindow
     void on_previous_requested();
     void on_stop_requested();
     void on_play_requested();
+    void toggle_playback();
+    void seek_relative(qint64 offset_ms);
     void on_playback_mode_changed(playback_mode new_mode);
 
     void quit_application();

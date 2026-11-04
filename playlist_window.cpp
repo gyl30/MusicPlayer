@@ -308,6 +308,7 @@ static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, 
 }
 
 constexpr qint64 kPlaybackStateSaveIntervalMs = 10000;
+constexpr qint64 kSeekStepMs = 5000;
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
 {
@@ -673,6 +674,34 @@ void playlist_window::set_lyrics_open(bool open)
 void playlist_window::setup_connections()
 {
     connect(song_tree_widget_, &QTreeWidget::itemDoubleClicked, this, &playlist_window::on_tree_item_double_clicked);
+
+    connect(new QShortcut(Qt::Key_Space, this), &QShortcut::activated, this, &playlist_window::toggle_playback);
+    connect(new QShortcut(Qt::Key_Left, this), &QShortcut::activated, this, [this] { seek_relative(-kSeekStepMs); });
+    connect(new QShortcut(Qt::Key_Right, this), &QShortcut::activated, this, [this] { seek_relative(kSeekStepMs); });
+    connect(new QShortcut(Qt::CTRL | Qt::Key_Left, this), &QShortcut::activated, this, &playlist_window::on_previous_requested);
+    connect(new QShortcut(Qt::CTRL | Qt::Key_Right, this), &QShortcut::activated, this, &playlist_window::on_next_requested);
+    const auto activate_current_item = [this]
+    {
+        QTreeWidgetItem* item = song_tree_widget_->currentItem();
+        if (item == nullptr)
+        {
+            return;
+        }
+        if (item->parent() == nullptr)
+        {
+            item->setExpanded(!item->isExpanded());
+            return;
+        }
+        on_tree_item_double_clicked(item, 0);
+    };
+    for (const auto key : {Qt::Key_Return, Qt::Key_Enter})
+    {
+        connect(new QShortcut(key, song_tree_widget_, nullptr, nullptr, Qt::WidgetShortcut), &QShortcut::activated, this, activate_current_item);
+    }
+    connect(new QShortcut(QKeySequence::Delete, song_tree_widget_, nullptr, nullptr, Qt::WidgetShortcut),
+            &QShortcut::activated,
+            this,
+            &playlist_window::on_remove_songs_action);
     connect(song_tree_widget_, &QTreeWidget::customContextMenuRequested, this, &playlist_window::on_song_tree_context_menu_requested);
 
     connect(playlist_manager_, &playlist_manager::playlist_added, this, &playlist_window::on_playlist_added);
@@ -815,6 +844,30 @@ void playlist_window::on_stop_requested()
         lyrics_view_->clear();
         update_lyrics_button();
     }
+}
+
+void playlist_window::toggle_playback()
+{
+    if (!controller_->is_media_loaded())
+    {
+        on_play_requested();
+        return;
+    }
+    controller_->pause_resume();
+}
+
+void playlist_window::seek_relative(qint64 offset_ms)
+{
+    if (!controller_->is_media_loaded())
+    {
+        return;
+    }
+    qint64 target = qMax<qint64>(0, current_progress_ms_ + offset_ms);
+    if (current_duration_ms_ > 0)
+    {
+        target = qMin(target, current_duration_ms_);
+    }
+    controller_->seek(target);
 }
 
 void playlist_window::on_play_requested()

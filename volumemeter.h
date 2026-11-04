@@ -29,6 +29,7 @@ class volume_meter : public QProgressBar
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    bool event(QEvent* event) override;
 
    private:
     void setValueFromPosition(const QPoint& pos);

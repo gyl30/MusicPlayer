@@ -439,6 +439,74 @@ private slots:
         QVERIFY(add->isVisible());
     }
 
+    void keyboard_shortcuts()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        const qint64 id = manager->get_all_playlists().first().id;
+        const QString second = temp_.filePath("shortcut-second.wav");
+        QVERIFY(QFile::copy(tone_, second));
+        QVERIFY(manager->add_songs_to_playlist(id, {tone_, second}));
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        auto* controller = window.findChild<playback_controller*>();
+        auto* tree = window.findChild<QTreeWidget*>();
+        QSignalSpy started(controller, &playback_controller::playback_started);
+        QSignalSpy paused(controller, &playback_controller::playback_paused);
+        QSignalSpy seek(controller, &playback_controller::seek_completed);
+        QSignalSpy progress(controller, &playback_controller::progress_updated);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_playback_mode_changed", Q_ARG(playback_mode, playback_mode::ListLoop)));
+
+        QTest::keyClick(&window, Qt::Key_Space);
+        QCOMPARE(started.count(), 1);
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+        QTest::keyClick(&window, Qt::Key_Space);
+        QCOMPARE(paused.count(), 1);
+        QVERIFY(paused.last().first().toBool());
+
+        QTest::keyClick(&window, Qt::Key_Right);
+        QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 1, 1000);
+        const qint64 forward = seek.last().first().toLongLong();
+        QVERIFY(forward >= 5000 && forward < 6500);
+        QTest::keyClick(&window, Qt::Key_Left);
+        QTRY_COMPARE_WITH_TIMEOUT(seek.count(), 2, 1000);
+        QCOMPARE(seek.last().first().toLongLong(), forward - 5000);
+
+        QTest::keyClick(&window, Qt::Key_Right, Qt::ControlModifier);
+        QCOMPARE(started.count(), 2);
+        QCOMPARE(started.last().first().toString(), second);
+        QTest::keyClick(&window, Qt::Key_Left, Qt::ControlModifier);
+        QCOMPARE(started.count(), 3);
+        QCOMPARE(started.last().first().toString(), tone_);
+
+        // 音量条获得焦点时方向键调整音量，不触发跳转。
+        auto* volume = window.findChild<volume_meter*>();
+        volume->setValue(50);
+        volume->setFocus();
+        QTest::keyClick(volume, Qt::Key_Right);
+        QCOMPARE(volume->value(), 55);
+        QCOMPARE(seek.count(), 2);
+
+        tree->setFocus();
+        auto* playlist = tree->topLevelItem(0);
+        tree->setCurrentItem(playlist->child(1));
+        QTest::keyClick(tree, Qt::Key_Return);
+        QCOMPARE(started.count(), 4);
+        QCOMPARE(started.last().first().toString(), second);
+        tree->setCurrentItem(playlist);
+        const bool expanded = playlist->isExpanded();
+        QTest::keyClick(tree, Qt::Key_Return);
+        QCOMPARE(playlist->isExpanded(), !expanded);
+
+        tree->clearSelection();
+        playlist->child(0)->setSelected(true);
+        QTest::keyClick(tree, Qt::Key_Delete);
+        QCOMPARE(manager->get_playlist_by_id(id).songs.size(), 1);
+        QCOMPARE(manager->get_playlist_by_id(id).songs.first().file_path, second);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_stop_requested"));
+    }
+
     void stale_ready_seek_callbacks()
     {
         playback_controller controller;

@@ -72,6 +72,29 @@ void volume_meter::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
+bool volume_meter::event(QEvent* event)
+{
+    // 获得焦点时方向键等调节音量，优先于窗口的跳转快捷键。
+    if (event->type() == QEvent::ShortcutOverride)
+    {
+        auto* key_event = static_cast<QKeyEvent*>(event);
+        if (key_event->modifiers() == Qt::NoModifier)
+        {
+            switch (key_event->key())
+            {
+                case Qt::Key_Right:
+                case Qt::Key_Up:
+                case Qt::Key_Left:
+                case Qt::Key_Down:
+                case Qt::Key_Home:
+                case Qt::Key_End: event->accept(); return true;
+                default: break;
+            }
+        }
+    }
+    return QProgressBar::event(event);
+}
+
 void volume_meter::keyPressEvent(QKeyEvent* event)
 {
     int target = value();
