@@ -852,6 +852,28 @@ private slots:
         QCOMPARE(restored.findChild<QTreeWidget*>()->currentItem()->data(0, Qt::UserRole).toString(), tone_);
     }
 
+    void playback_state_saved_while_playing()
+    {
+        playlist_window window;
+        auto* manager = window.findChild<playlist_manager*>();
+        QVERIFY(manager->add_songs_to_playlist(manager->get_all_playlists().first().id, {tone_}));
+        auto* controller = window.findChild<playback_controller*>();
+        auto* tree = window.findChild<QTreeWidget*>();
+        QSignalSpy progress(controller, &playback_controller::progress_updated);
+        QVERIFY(QMetaObject::invokeMethod(&window, "on_tree_item_double_clicked",
+                                          Q_ARG(QTreeWidgetItem*, tree->topLevelItem(0)->child(0)), Q_ARG(int, 0)));
+        QSettings saved("MusicPlayer", "MusicPlayer");
+        QCOMPARE(saved.value("playback/filePath").toString(), tone_);
+        QTRY_VERIFY_WITH_TIMEOUT(!progress.isEmpty(), 1000);
+        QSignalSpy seek(controller, &playback_controller::seek_completed);
+        controller->seek(5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!seek.isEmpty(), 1000);
+        // 进程异常退出时也不应丢失跳转后的位置。
+        saved.sync();
+        QVERIFY(saved.value("playback/positionMs").toLongLong() >= 4900);
+        controller->stop();
+    }
+
     void unknown_duration()
     {
         const QString file = temp_.filePath("unknown.mka");

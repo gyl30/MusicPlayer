@@ -294,6 +294,7 @@ static QTreeWidgetItem* find_song_child_by_path(QTreeWidgetItem* playlist_item, 
 }
 
 constexpr int kPlaybackPageIndex = 0;
+constexpr qint64 kPlaybackStateSaveIntervalMs = 10000;
 constexpr int kManagementPageIndex = 1;
 
 playlist_window::playlist_window(QWidget* parent) : QMainWindow(parent)
@@ -757,11 +758,16 @@ void playlist_window::setup_connections()
                              current_duration_ms_);
                     last_logged_progress_ms_ = current_ms;
                 }
+                if (qAbs(current_ms - last_saved_progress_ms_) >= kPlaybackStateSaveIntervalMs)
+                {
+                    save_playback_state();
+                }
                 if (lyrics_view_ != nullptr)
                 {
                     lyrics_view_->set_current_time(current_ms);
                 }
             });
+    connect(controller_, &playback_controller::playback_paused, this, &playlist_window::save_playback_state);
     connect(controller_,
             &playback_controller::seek_completed,
             this,
@@ -774,6 +780,7 @@ void playlist_window::setup_connections()
                          actual_ms,
                          current_progress_ms_,
                          current_duration_ms_);
+                save_playback_state();
             });
     connect(controller_,
             &playback_controller::lyrics_updated,
@@ -933,6 +940,7 @@ void playlist_window::on_playback_started(const QString& file_path, const QStrin
         currently_playing_item_->setSelected(true);
         song_tree_widget_->scrollToItem(currently_playing_item_, QAbstractItemView::EnsureVisible);
     }
+    save_playback_state();
 }
 
 void playlist_window::on_file_unavailable(const QString& file_path)
@@ -1060,8 +1068,9 @@ void playlist_window::restore_playback_state()
     LOG_INFO("播放状态调试 已标记恢复歌曲 title {} position {}ms duration {}ms", song_item->text(0).toStdString(), position_ms, duration_ms);
 }
 
-void playlist_window::save_playback_state() const
+void playlist_window::save_playback_state()
 {
+    last_saved_progress_ms_ = current_progress_ms_;
     QSettings settings("MusicPlayer", "MusicPlayer");
     settings.setValue("playback/mode", static_cast<int>(current_mode_));
 
